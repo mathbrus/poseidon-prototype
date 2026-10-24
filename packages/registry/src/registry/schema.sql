@@ -56,14 +56,13 @@ CREATE TABLE IF NOT EXISTS registry.agent_instances (
 );
 
 -- Runs. The workflow id maps a run to its Temporal workflow; artifacts
--- (tickets, PR) are recorded against the run. Two columns say whether a
--- run *concluded* its work item, whatever its terminal status: an
--- implement run concluded when it delivered (pr_url), a review run when
--- the reviewer reached a verdict (verdict). A run that ended with neither
--- aborted, and the heartbeat may offer its item again — bounded by the
--- blueprint's attempt cap. pr_settled remembers what the world did with a
--- delivered PR once the heartbeat has seen it merged or closed on the git
--- host: observed once, never read again.
+-- (tickets, PR) are recorded against the run. Whether a run *concluded*
+-- its work item is read off its columns, whatever its terminal status: an
+-- implement run concluded when it delivered (pr_url) and its delivery was
+-- not refused (pr_settled), a review run when the reviewer reached a
+-- verdict (verdict). A run that ended short of that aborted, or delivered
+-- something that was refused, and the heartbeat may offer its item again —
+-- bounded by the blueprint's attempt cap.
 CREATE TABLE IF NOT EXISTS registry.runs (
     run_id      text PRIMARY KEY,
     workflow    text NOT NULL DEFAULT 'implement',
@@ -71,8 +70,20 @@ CREATE TABLE IF NOT EXISTS registry.runs (
     company     text,
     task        text NOT NULL DEFAULT '',
     status      text NOT NULL,
+    -- Whether the running run holds one of the company's
+    -- max_concurrent_runs places. A run parked on a person's merge verdict
+    -- gives its place back with its crew and sandbox (Runs.vacate); one
+    -- whose pull request edits the contract tree keeps it.
+    occupies    boolean NOT NULL DEFAULT true,
     pr_url      text,
+    -- What became of the delivered PR once the platform learned it
+    -- (common.workflows.PR_SETTLED): merged, refused (closed without
+    -- merging, which returns the ticket) or superseded by a rework ticket.
+    -- Learned once, never read from the git host again.
     pr_settled  text,
+    -- Why a refused delivery was refused, in the platform's words: the
+    -- retry's brief carries it.
+    pr_settled_reason text,
     verdict     text,
     ticket_urls jsonb NOT NULL DEFAULT '[]'::jsonb,
     iterations  integer NOT NULL DEFAULT 0,

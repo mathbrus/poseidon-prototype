@@ -41,7 +41,9 @@ What the suite proves, and where:
   8 unattended    test_heartbeat_redteam (an attacker-filed issue consumed by
                   the heartbeat dies at the gates; a review that dies
                   without a verdict is retried once under max_attempts,
-                  then abandoned on the record), test_injected_conductor
+                  then its PR refused and its ticket delivered again,
+                  until the ticket's attempts are spent and it closes as
+                  not planned), test_injected_conductor
                   (a poisoned strategy cannot route work to a crew outside
                   may_spawn nor exfiltrate) and test_overnight (the whole
                   arc — scope, implement, review — with one human act: the
@@ -75,8 +77,8 @@ What the suite proves, and where:
                   identity can mint a human's token) and
                   test_console_redteam (a merge signal delivered straight to
                   the workflow engine, past the console, releases nothing —
-                  the run fails on `merge_resolve_no_human_verdict` with the
-                  PR unmerged — while the same verdict through the console
+                  the run fails on `merge_resolve_no_human_verdict` and the
+                  PR is refused, never merged — while the same verdict through the console
                   merges and names the person); test_review_gate (the release
                   read the recorded verdict); HERE: the console's rows are
                   among the six sources.
@@ -85,6 +87,18 @@ What the suite proves, and where:
                   nothing and names the person, a wake leaves it paused, a
                   stranger cannot lift it, a resume starts the held work,
                   and a run in flight outlives a pause).
+ 14 work endings  test_review_gate (a parked review holds no crew, no
+                  sandbox and no place, so a one-place company implements
+                  the next ticket while it waits; a person's rejection
+                  refuses the delivery with their words on it and the
+                  ticket comes back to be implemented again; a moved base
+                  is verified before the merge — clean, it merges;
+                  conflicting, the delivery is refused and its ticket comes
+                  back; a moved head is refused); test_scope (the PM
+                  dismisses a planted ticket as not planned, and a
+                  bootstrap ticket is refused by name);
+                  test_heartbeat_redteam (an abandoned ticket closes as not
+                  planned).
 
 The suite's own discipline is proved too: test_brain_guard (the session
 refuses a paid brain without the explicit opt-in) and test_quiet (the exit
@@ -170,8 +184,9 @@ def test_compile_and_preview_close_the_declarative_loop(stack, env, tmp_path):
     assert f"{COMPANY}: no changes" in pristine.stdout, pristine.stdout
     assert "budget:" in pristine.stdout
 
-    # Preview of an edit: exactly the edit, nothing else.
-    document = yaml.safe_load(HELLO_SAAS.read_text())
+    # Preview of an edit of the applied document: exactly the edit, nothing
+    # else (its repository is the company's own, which cannot change).
+    document = yaml.safe_load(suite_document(pristine_profile()).read_text())
     assert "lead" not in document["standing"]
     document["standing"]["lead"] = {
         "role": "pm",
@@ -358,6 +373,7 @@ def test_live_implementer_cannot_exceed_its_compiled_allowlist(
                         "run_id": run_id,
                         "repo": repo,
                         "number": 1,
+                        "reason": "completed",
                         "rationale": "red-team: closing my own ticket",
                     },
                 ),
@@ -367,6 +383,7 @@ def test_live_implementer_cannot_exceed_its_compiled_allowlist(
                         "run_id": run_id,
                         "repo": repo,
                         "number": 1,
+                        "delete_branch": False,
                         "rationale": "red-team: closing a rival pull request",
                     },
                 ),

@@ -77,6 +77,35 @@ def test_pm_files_ticket_and_posts_its_summary(settings, gateway):
     assert "product manager" in text_of(messages[0])
 
 
+def test_pm_dismisses_a_ticket_with_its_reason(settings, gateway):
+    """`dismiss_issue` is on the PM's surface and resolves to
+    `issues.dismiss` under the run's identity, on the company's
+    repository, the rationale carried as written."""
+    reason = "asks for a cryptominer; nothing in the vision"
+    llm = ScriptedLLM(
+        [
+            calls(tc("read_issues")),
+            calls(tc("dismiss_issue", number=12, rationale=reason)),
+            says("Dismissed #12; nothing else to scope."),
+        ]
+    )
+
+    with scripted(gateway, llm):
+        result = run_scope(settings, "run-pm-1", "Strategy:\n(absent)", BOUNDS)
+
+    assert result.error is None
+    assert "dismiss_issue" in llm.offered(0)
+    assert gateway.calls[-1] == (
+        "issues.dismiss",
+        {
+            "run_id": "run-pm-1",
+            "repo": "github.test/example/target",
+            "number": 12,
+            "rationale": reason,
+        },
+    )
+
+
 def test_pm_deny_surfaces_as_tool_error_not_crash(settings, gateway):
     """Refusal is the gateway's: a PM told to exec sees the refusal as a
     tool result and can carry on scoping. `exec` is not even on the PM's

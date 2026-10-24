@@ -3,10 +3,10 @@ the caller's run id, clipped, absent as a first-class state."""
 
 import asyncio
 
+from common.documents import BOOTSTRAP_TITLES
 from common.text import UNTRUSTED_CLIP
 from orchestrator.activities.documents import (
     ABSENT,
-    BOOTSTRAP_TITLES,
     bootstrap_body,
     present_texts,
     read_documents,

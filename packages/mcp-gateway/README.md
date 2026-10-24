@@ -61,7 +61,11 @@ The agent supplies only a git bundle:
 2. It diffs against the applied blueprint's `base_ref`. The changed paths become `args.paths`, and those already on the base ref become `paths_present`.
 3. `call` decides. Only on allow does the gateway push the branch and open the pull request.
 
-A bundle that fails verification still goes through `call`, with no changed paths, and is denied as `git_open_pr_paths_missing`. `repo.archive` works the other way: it clones, applies any overlay, removes the remote and returns a tarball.
+A bundle that fails verification still goes through `call`, with no changed paths, and is denied as `git_open_pr_paths_missing`. `repo.archive` works the other way: it clones, applies any overlay or merges the ref onto `merge_onto` as the platform, removes the remote and returns a tarball. A merge that conflicts is an error starting `merge conflict`.
+
+### Closing and dismissing say why on the host
+
+`issues.close`, `issues.dismiss` and `git.close_pr` post their rationale as a comment on the item before closing it, and leave an item already closed as it is. `issues.close` takes `reason` (`completed` or `not_planned`); `git.close_pr` may delete the head branch (`delete_branch`). Before policy decides `issues.dismiss`, `_dismiss_facts` adds what its compiled limits read: `run_live`, `dismissals` (off the gateway's own audit trail, like `architecture_requests`) and `dismiss_target`. The ticket is read only on the company's own repository; one that cannot be read leaves its facts out, and the call is denied.
 
 `GIT_TOKEN` stays inside the gateway:
 

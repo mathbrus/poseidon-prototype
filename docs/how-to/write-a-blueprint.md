@@ -52,7 +52,10 @@ uv run poseidon blueprint apply my-company.yaml --yes
 company's policy is live (`converged`). Without `--yes`, it asks first.
 
 To change the company later, edit the file and apply it again. The
-blueprint is the only configuration a company has.
+blueprint is the only configuration a company has. Everything can change
+except the company's name and its repository (`stack.repo.url`): to
+move a company to another repository, delete it and apply the blueprint
+again.
 
 ## Fix a blueprint that doesn't compile
 

@@ -116,7 +116,8 @@ _STACK = {
                     _TEXT,
                     "The repository, as `github.com/<owner>/<name>`. Policy"
                     " refuses a tool call naming any other repository"
-                    " (`repo_not_declared`).",
+                    " (`repo_not_declared`). It can't change while the company"
+                    " lives: to move, delete the company and apply again.",
                 ),
                 "base_ref": _described(
                     _TEXT,

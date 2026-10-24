@@ -85,8 +85,8 @@ def held(pause_profile, env: dict) -> dict:
         yield state
     finally:
         lift_pause(env)
-        close_pr_url(env, state.get("pr_url"))
         close_issue(env, issue_number)
+        close_pr_url(env, state.get("pr_url"))
 
 
 def test_a_paused_tick_starts_nothing_on_a_startable_backlog(held: dict, env: dict):

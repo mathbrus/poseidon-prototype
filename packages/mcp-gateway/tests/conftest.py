@@ -141,6 +141,20 @@ class Backends:
                 "issues.comment",
             ):
                 return {"allow": True, "rule": f"role_pm_{tool}"}
+            if tool == "issues.dismiss":
+                # The compiled limits, read off the enriched facts.
+                target = policy_input.get("dismiss_target")
+                if target is None or "dismissals" not in policy_input:
+                    return {"allow": False, "rule": "issues_dismiss_facts_missing"}
+                if policy_input["workflow"] != "scope" or not policy_input["run_live"]:
+                    return {"allow": False, "rule": "issues_dismiss_not_scoping"}
+                if target["bootstrap"]:
+                    return {"allow": False, "rule": "issues_dismiss_bootstrap_ticket"}
+                if target["in_flight"]:
+                    return {"allow": False, "rule": "issues_dismiss_in_flight"}
+                if policy_input["dismissals"] >= 3:
+                    return {"allow": False, "rule": "issues_dismiss_over_cap"}
+                return {"allow": True, "rule": "role_pm_issues_dismiss"}
             return {"allow": False, "rule": "default_deny"}
         if (
             policy_input.get("lifecycle") == "ephemeral"
@@ -250,6 +264,14 @@ class Backends:
                 return httpx.Response(
                     200, json=issue(number=8, pull_request={"url": "x"})
                 )
+            # Number 9 is an issue somebody already closed; number 10 is the
+            # ticket the platform filed for the absent strategy.
+            if path.endswith("/9"):
+                return httpx.Response(200, json=issue(number=9, state="closed"))
+            if path.endswith("/10"):
+                return httpx.Response(
+                    200, json=issue(number=10, title="Bootstrap: strategy")
+                )
             return httpx.Response(200, json=issue())
         if method == "GET" and "/contents/" in path:
             # The repository at base_ref: the strategy and the contract
@@ -276,22 +298,41 @@ class Backends:
                     },
                 ],
             )
+        if method == "GET" and "/git/ref/heads/" in path:
+            # The base branch's tip, which a PR's own base.sha lags.
+            return httpx.Response(200, json={"object": {"sha": "ba5e5ha"}})
         if method == "GET" and "/pulls/" in path:
+            # Number 6 is a pull request somebody already closed.
+            number = 6 if path.endswith("/6") else 5
+            return httpx.Response(
+                200,
+                json={
+                    "number": number,
+                    "title": "a pr",
+                    "state": "closed" if number == 6 else "open",
+                    "body": "",
+                    "html_url": PR_URL,
+                    "merged": False,
+                    "head": {
+                        "ref": "feature/x",
+                        "sha": HEAD_SHA,
+                        "repo": {"full_name": "example/target"},
+                    },
+                    "base": {"ref": "main", "repo": {"full_name": "example/target"}},
+                },
+            )
+        if method == "PATCH" and "/pulls/" in path:
             return httpx.Response(
                 200,
                 json={
                     "number": 5,
-                    "title": "a pr",
-                    "state": "open",
-                    "body": "",
-                    "html_url": PR_URL,
-                    "merged": False,
-                    "head": {"ref": "feature/x", "sha": HEAD_SHA},
+                    "head": {"ref": "feature/x", "repo": {"full_name": "example/target"}},
                     "base": {"ref": "main"},
+                    **payload,
                 },
             )
-        if method == "PATCH" and "/pulls/" in path:
-            return httpx.Response(200, json={"number": 5, **payload})
+        if method == "DELETE" and "/git/refs/heads/" in path:
+            return httpx.Response(204)
         if method == "PUT" and path.endswith("/merge"):
             # GitHub refuses a merge whose expected head is not the PR's.
             if payload.get("sha") != HEAD_SHA:
@@ -359,6 +400,11 @@ def filed() -> InMemoryFiledTickets:
 
 
 @pytest.fixture
+def runs() -> InMemoryRuns:
+    return InMemoryRuns()
+
+
+@pytest.fixture
 def companies() -> InMemoryCompanies:
     store = InMemoryCompanies()
     store.upsert(
@@ -394,6 +440,7 @@ async def app(
     participants: InMemoryRunParticipants,
     companies: InMemoryCompanies,
     filed: InMemoryFiledTickets,
+    runs: InMemoryRuns,
 ):
     stub_client = httpx.AsyncClient(transport=httpx.MockTransport(backends.handler))
     application = create_app(
@@ -403,7 +450,7 @@ async def app(
         audit=audit,
         instances=instances,
         participants=participants,
-        runs=InMemoryRuns(),
+        runs=runs,
         companies=companies,
         filed=filed,
         token_reviewer=FakeReviewer(),

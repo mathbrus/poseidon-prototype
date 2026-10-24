@@ -100,6 +100,12 @@ The console records your verdict under your name before it tells the run.
 The merge only goes ahead if that record exists, so a verdict from anyone
 the blueprint doesn't name in `company.humans` is refused.
 
+A merge you reject, or one nobody answers before it expires, is refused.
+The pull request closes with your reason, or the deadline, on it. Its
+ticket goes back on the backlog for another try, and the next attempt
+reads your reason. [How a ticket ends](../explanation/heartbeat.md#how-a-ticket-ends)
+lists every way a ticket ends.
+
 ## Read what happened
 
 | To see… | Run |

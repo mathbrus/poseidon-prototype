@@ -36,7 +36,7 @@ The pod env sets `MCP_GATEWAY_URL`, `LLM_PROXY_URL`, `MODEL`, `ROLE`, `GATEWAY_T
 
 | Procedure | Tools | Ends at |
 |---|---|---|
-| `scope` | `create_issue`, `read_issues`, `comment_issue` | tickets filed and the PM's summary commented; filing nothing is valid |
+| `scope` | `create_issue`, `read_issues`, `comment_issue`, `dismiss_issue` | tickets filed and the PM's summary commented, tickets the company should not work dismissed; filing nothing is valid |
 | `decide` | none: one completion, no gateway session | a `DECISION:` line and a `RATIONALE:` line |
 | `implement` | `read_file`, `write_file`, `edit_file`, `exec`, `request_architecture` | a completion claim after advisory green |
 | `deliver` | `read_file`, `open_pr` | the PR URL, or the refusal that kept it from opening |

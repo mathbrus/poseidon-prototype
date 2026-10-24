@@ -138,6 +138,7 @@ def _backlog_gateway(
     files: dict[str, str] | None = None,
     unlisted: dict[int, dict[str, Any]] | None = None,
     closed: list[tuple[str, int, str]] | None = None,
+    told: list[tuple[str, int, str]] | None = None,
 ) -> list[tuple[str, int]]:
     """The world as the gateway reports it: the open issues, each PR's
     live state by number (open unless `prs` says otherwise), the
@@ -146,14 +147,23 @@ def _backlog_gateway(
     Returns the log of PR reads — (run_id, number) — and issue reads by
     number, negated — so a test can assert under which identity the world
     was consulted. Tickets the platform closes land in `closed` as
-    (run_id, number, rationale)."""
+    (run_id, number, rationale); the PRs it closes and the comments it
+    leaves land in `told` as (kind, number, text)."""
     import orchestrator.activities.observation as module
 
     reads: list[tuple[str, int]] = []
 
-    async def close_issue(self, run_id, repo, number, rationale):
+    async def close_issue(self, run_id, repo, number, reason, rationale):
         (closed if closed is not None else []).append((run_id, number, rationale))
         return {"number": number, "state": "closed"}
+
+    async def close_pr(self, run_id, repo, number, rationale, delete_branch):
+        (told if told is not None else []).append(("close_pr", number, rationale))
+        return {"number": number, "state": "closed"}
+
+    async def comment_issue(self, run_id, repo, number, body):
+        (told if told is not None else []).append(("comment", number, body))
+        return {"url": "https://github.test/c/1"}
 
     async def read_open_issues(self, run_id, repo):
         return issues
@@ -179,6 +189,8 @@ def _backlog_gateway(
             read_pr=read_pr,
             read_document=read_document,
             close_issue=close_issue,
+            close_pr=close_pr,
+            comment_issue=comment_issue,
         ),
     )
     return reads
@@ -351,6 +363,43 @@ def test_observe_reoffers_an_aborted_issue_run_with_its_attempt_count(
     assert [(i["number"], i["attempts"]) for i in observed["backlog"]] == [(3, 1)]
 
 
+def test_observe_reoffers_a_ticket_whose_delivery_was_refused(
+    observation, runs, monkeypatch, fake_gateway
+):
+    """A refused delivery gives its ticket back as one spent attempt: the
+    ticket is offered again carrying it, while a merged or superseded
+    delivery keeps its ticket concluded."""
+    _backlog_gateway(monkeypatch, fake_gateway, [_issue(3), _issue(5), _issue(7)])
+    for run_id, issue, pr, settled in (
+        ("run-a", 3, 4, "refused"),
+        ("run-b", 5, 6, "merged"),
+        ("run-c", 7, 8, "superseded"),
+    ):
+        runs.start(run_id, issue_run_task(issue), "implement", company=COMPANY)
+        runs.finish(run_id, "done", pr_url=f"https://github.test/example/repo/pull/{pr}")
+        runs.mark_pr_settled(COMPANY, pr, settled, "reason")
+    observed = asyncio.run(observation.heartbeat_observe(MAX_ATTEMPTS))
+    assert [(i["number"], i["attempts"]) for i in observed["backlog"]] == [(3, 1)]
+
+
+def test_a_run_parked_on_a_merge_verdict_holds_no_place(
+    observation, runs, monkeypatch, fake_gateway
+):
+    """A review parked on a person's merge verdict has given its place
+    back: it does not count against `max_concurrent_runs`, and the
+    decision text says it waits, apart."""
+    _backlog_gateway(monkeypatch, fake_gateway, [])
+    runs.start("run-r", "review pull request #4", "review", company=COMPANY)
+    runs.start("run-i", "implement issue #5", "implement", company=COMPANY)
+    runs.vacate("run-r")
+    observed = asyncio.run(observation.heartbeat_observe(MAX_ATTEMPTS))
+    assert (observed["active_runs"], observed["waiting_runs"]) == (1, 1)
+    prompt = decision_prompt(observed, ["implement"])
+    assert prompt.startswith(
+        "Heartbeat tick. Runs in flight: 1 (1 more waiting on a person's merge verdict)."
+    )
+
+
 def test_observe_excludes_an_issue_with_a_live_run(
     observation, runs, monkeypatch, fake_gateway
 ):
@@ -487,7 +536,7 @@ def test_observe_skips_an_unreadable_delivered_pr(
 
 
 def _bootstrap_issue(name: str, number: int) -> dict[str, Any]:
-    from orchestrator.activities.documents import BOOTSTRAP_TITLES
+    from common.documents import BOOTSTRAP_TITLES
 
     return {**_issue(number), "title": BOOTSTRAP_TITLES[name]}
 
@@ -626,9 +675,10 @@ def test_observe_drops_delivered_prs_the_world_has_settled(
     record of reviews that ran, never of PRs the world settled — but the
     settlement is remembered on the delivering run, so the next tick reads
     only what is still open. The hand-merged PR's ticket closes, once, on
-    the tick that first learns of the merge; the PR closed unmerged leaves
-    its ticket to the human."""
+    the tick that first learns of the merge; the PR closed unmerged is
+    refused, and its ticket is told it is back on the backlog."""
     closed: list[tuple[str, int, str]] = []
+    told: list[tuple[str, int, str]] = []
     reads = _backlog_gateway(
         monkeypatch,
         fake_gateway,
@@ -638,8 +688,12 @@ def test_observe_drops_delivered_prs_the_world_has_settled(
             6: _pr(6, state="closed"),
             8: _pr(8),
         },
-        unlisted={3: {"number": 3, "title": "Add slugify", "state": "open"}},
+        unlisted={
+            3: {"number": 3, "title": "Add slugify", "state": "open"},
+            5: {"number": 5, "title": "Add a CLI", "state": "open"},
+        },
         closed=closed,
+        told=told,
     )
     for run_id, issue, pr in (("run-a", 3, 4), ("run-b", 5, 6), ("run-c", 7, 8)):
         runs.start(run_id, issue_run_task(issue), "implement", company=COMPANY)
@@ -652,16 +706,28 @@ def test_observe_drops_delivered_prs_the_world_has_settled(
         (f"heartbeat-{COMPANY}", 4),
         (f"heartbeat-{COMPANY}", -3),
         (f"heartbeat-{COMPANY}", 6),
+        (f"heartbeat-{COMPANY}", -5),
         (f"heartbeat-{COMPANY}", 8),
     ]
     assert closed == [
         (f"heartbeat-{COMPANY}", 3, "pull request #4 merged outside the platform")
     ]
+    assert told == [
+        ("close_pr", 6, "closed outside the platform"),
+        (
+            "comment",
+            5,
+            "Pull request #6 was not merged: closed outside the platform\n\n"
+            "The ticket is back on the backlog: attempt 1 of 2.",
+        ),
+    ]
     assert runs.review_attempts(COMPANY) == {}
     assert (runs.get("run-a").pr_settled, runs.get("run-b").pr_settled) == (
         "merged",
-        "closed",
+        "refused",
     )
+    # The refused ticket is offered again, carrying its attempt.
+    assert runs.issue_attempts(COMPANY)[5].concluded is False
     reads.clear()
     asyncio.run(observation.heartbeat_observe(MAX_ATTEMPTS))
     assert reads == [(f"heartbeat-{COMPANY}", 8)]
@@ -684,7 +750,7 @@ def test_observe_reads_a_merged_pr_again_when_its_tickets_do_not_close(
         unlisted={3: {"number": 3, "title": "Add slugify", "state": "open"}},
     )
 
-    async def refuse(self, run_id, repo, number, rationale):
+    async def refuse(self, run_id, repo, number, reason, rationale):
         raise module.GatewayError("issues.close: backend down")
 
     monkeypatch.setattr(module.GatewayClient, "close_issue", refuse)

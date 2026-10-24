@@ -3,10 +3,10 @@ one side is caught by the other. This is where both spellings meet."""
 
 from blueprint.catalog import CREW_TEMPLATES, STEWARDSHIP_CREW
 from blueprint.documents import DOCUMENT_NAMES, document_header
+from common.documents import BOOTSTRAP_TITLES
 from common.tasks import crew_trailer
 from mcp_gateway.service import ARCHITECTURE_REQUEST_TITLE_PREFIX
 from mock_brain import brain
-from orchestrator.activities.documents import BOOTSTRAP_TITLES
 from orchestrator.activities.observation import decision_prompt
 
 

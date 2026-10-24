@@ -9,7 +9,7 @@ protected_branches := ["main"]
 declared_repo := "github.com/example-org/hello-saas"
 
 deny_rules contains "repo_not_declared" if {
-	input.tool in ["git.open_pr", "git.read", "git.comment", "issues.create", "issues.read", "issues.comment"]
+	input.tool in ["git.open_pr", "git.read", "git.comment", "issues.create", "issues.read", "issues.comment", "issues.dismiss"]
 	object.get(input, ["args", "repo"], "") != declared_repo
 }
 

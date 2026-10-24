@@ -877,6 +877,78 @@ def test_one_architecture_request_per_run(decide):
     assert pm["allow"] is False
 
 
+# -- dismissals ---------------------------------------------------------------
+
+
+def _dismissal(**facts) -> dict:
+    """The PM dismissing ticket #7 while it scopes, the gateway's facts as
+    given (a fact named None is left out of the input)."""
+    defaults = {
+        "workflow": "scope",
+        "run_live": True,
+        "dismissals": 0,
+        "dismiss_target": {"open": True, "bootstrap": False, "in_flight": False},
+    }
+    merged = {**defaults, **facts}
+    return {
+        **standing("pm", tool="issues.dismiss", args={"number": 7}),
+        **{k: v for k, v in merged.items() if v is not None},
+    }
+
+
+def test_the_pm_dismisses_an_open_ticket_nobody_works_while_scoping(decide):
+    assert decide(**_dismissal()) == {"allow": True, "rule": "role_pm_issues_dismiss"}
+
+
+@pytest.mark.parametrize(
+    ("facts", "rule"),
+    [
+        ({"workflow": "implement"}, "issues_dismiss_not_scoping"),
+        ({"run_live": False}, "issues_dismiss_not_scoping"),
+        (
+            {"dismiss_target": {"open": False, "bootstrap": False, "in_flight": False}},
+            "issues_dismiss_not_open",
+        ),
+        (
+            {"dismiss_target": {"open": True, "bootstrap": True, "in_flight": False}},
+            "issues_dismiss_bootstrap_ticket",
+        ),
+        (
+            {"dismiss_target": {"open": True, "bootstrap": False, "in_flight": True}},
+            "issues_dismiss_in_flight",
+        ),
+        ({"dismissals": 3}, "issues_dismiss_over_cap"),
+        ({"run_live": None}, "issues_dismiss_facts_missing"),
+        ({"dismissals": None}, "issues_dismiss_facts_missing"),
+        ({"dismiss_target": None}, "issues_dismiss_facts_missing"),
+        ({"dismiss_target": {"open": True}}, "issues_dismiss_facts_missing"),
+    ],
+)
+def test_each_dismissal_limit_denies_by_name(decide, facts, rule):
+    """Every limit is the compiled policy's, on facts the gateway reads;
+    an absent fact denies rather than leaving the rule unevaluated."""
+    assert decide(**_dismissal(**facts)) == {"allow": False, "rule": rule}
+
+
+def test_only_the_pm_dismisses(decide):
+    """No other role holds the tool, standing or ephemeral, whatever the
+    facts say."""
+    facts = {k: v for k, v in _dismissal().items() if k not in ("role", "lifecycle")}
+    for caller in (
+        {"lifecycle": "standing", "role": "implementer"},
+        {
+            "lifecycle": "ephemeral",
+            "role": "reviewer",
+            "crew_template": "feature-review",
+            "parent_agent_id": "pm-1",
+        },
+    ):
+        assert decide(**{**facts, **caller})["allow"] is False
+    other_repo = _dismissal()
+    other_repo["args"] = {"repo": "github.com/elsewhere/repo", "number": 7}
+    assert decide(**other_repo) == {"allow": False, "rule": "repo_not_declared"}
+
+
 # -- the company's documents ---------------------------------------------------
 
 

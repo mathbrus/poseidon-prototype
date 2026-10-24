@@ -3,9 +3,10 @@ run reads — composed once, rendered once.
 
 Retry safety: `heartbeat_observe` and `scope_observation` read the
 registry, the open backlog and the delivered PRs' live state under the
-platform identity, remember a PR the world settled on its run row
-(idempotent), and close the tickets of one a human merged by hand (each
-read first, skipped when already closed); safe to retry. Only numbers, titles, URLs and attempt counts
+platform identity, and settle a PR the world settled by hand
+(`settle_delivery`: the tickets of a merged one close, a closed one is
+refused and its ticket told why; each act is idempotent but that
+comment); safe to retry. Only numbers, titles, URLs and attempt counts
 leave here: issue bodies are untrusted input the implement run reads
 itself.
 
@@ -31,20 +32,17 @@ from typing import Any
 from temporalio import activity
 
 from blueprint.documents import DOCUMENT_NAMES
+from common.documents import BOOTSTRAP_TITLES
 from common.telemetry import get_logger
 from common.workflows import heartbeat_run_id
 from orchestrator.activities.blueprint import company_repo
 from orchestrator.activities.company import applied_company
 from orchestrator.activities.documents import (
-    BOOTSTRAP_TITLES,
     company_documents,
     read_documents,
     sections,
 )
-from orchestrator.activities.tickets import (
-    close_fulfilled_tickets,
-    merged_outside_rationale,
-)
+from orchestrator.activities.tickets import settle_delivery
 from orchestrator.clients import GatewayClient, GatewayError, pr_settled
 from orchestrator.config import WorkerSettings
 from registry import Attempts, BudgetLedger, Companies, FiledTickets, Runs
@@ -97,13 +95,21 @@ def _world(observed: dict[str, Any]) -> list[str]:
     ]
 
 
+def in_flight(observed: dict[str, Any]) -> str:
+    """The runs holding a place — what `max_concurrent_runs` bounds — and,
+    apart, the ones waiting on a person's merge verdict, which hold none."""
+    waiting = observed.get("waiting_runs") or 0
+    more = f" ({waiting} more waiting on a person's merge verdict)" if waiting else ""
+    return f"Runs in flight: {observed['active_runs']}{more}."
+
+
 def decision_prompt(observed: dict[str, Any], may_start: list[str]) -> str:
     """The decide dispatch's user message: the whole observation plus the
     closed action set and the two-line reply contract."""
     startable = ", ".join([*may_start, "idle"])
     return "\n\n".join(
         [
-            f"Heartbeat tick. Runs in flight: {observed['active_runs']}."
+            f"Heartbeat tick. {in_flight(observed)}"
             f" Spent today: ${observed['daily_spent_usd']:.2f}."
             f" Open tickets on the repository: {observed['open_tickets']}.\n"
             f"Startable actions: {startable}",
@@ -120,9 +126,8 @@ def scope_prompt(observed: dict[str, Any]) -> str:
     yield the next slice of work as tickets."""
     return "\n\n".join(
         [
-            "Scope the next slice of work. Runs in flight:"
-            f" {observed['active_runs']}. Open tickets on the repository:"
-            f" {observed['open_tickets']}.",
+            f"Scope the next slice of work. {in_flight(observed)} Open tickets"
+            f" on the repository: {observed['open_tickets']}.",
             *_world(observed),
         ]
     )
@@ -188,7 +193,7 @@ class ObservationActivities:
         of it could only fail at the head ref."""
 
         def read() -> tuple[
-            int, float, dict[int, Attempts], list[dict[str, Any]], list[Any]
+            int, int, float, dict[int, Attempts], list[dict[str, Any]], list[Any]
         ]:
             company = self._company()
             reviews = self._runs.review_attempts(company)
@@ -210,15 +215,21 @@ class ObservationActivities:
                 )
             return (
                 self._runs.active_count(company),
+                self._runs.vacated_count(company),
                 self._ledger.spent_today(company),
                 self._runs.issue_attempts(company),
                 delivered,
                 self._runs.recent(company, RECENT_RUNS_LIMIT),
             )
 
-        active_runs, daily_spent, issues, delivered, recent = await asyncio.to_thread(
-            read
-        )
+        (
+            active_runs,
+            waiting_runs,
+            daily_spent,
+            issues,
+            delivered,
+            recent,
+        ) = await asyncio.to_thread(read)
         reviewable = []
         repo = await self._repo()
         paths = await asyncio.to_thread(
@@ -257,35 +268,28 @@ class ObservationActivities:
                     )
                     continue
                 settled = pr_settled(pr)
-                if settled == "merged":
-                    # Merged outside the platform: the tickets it fulfils
-                    # close before the settle is remembered, so a close that
-                    # fails leaves the PR to be read — and closed — again.
+                if settled:
+                    # Settled by hand: a merge closes the tickets it fulfils,
+                    # a close refuses the delivery and gives its ticket
+                    # back. Observed once, remembered on the run row; a
+                    # failure leaves the PR to be read — and settled — again.
                     try:
-                        await close_fulfilled_tickets(
+                        await settle_delivery(
                             gateway,
                             self._runs,
                             self._company(),
                             run_id,
                             repo["url"],
                             candidate["number"],
-                            merged_outside_rationale(candidate["number"]),
+                            settled,
+                            max_attempts,
                         )
                     except GatewayError as exc:
                         self._log.info(
-                            "merged pr tickets not closed, read again next time",
+                            "settled pr not recorded, read again next time",
                             extra={"number": candidate["number"], "error": str(exc)},
                         )
                         continue
-                if settled:
-                    # Observed once, remembered: the run row keeps what the
-                    # world did, and no later tick reads this PR again.
-                    await asyncio.to_thread(
-                        self._runs.mark_pr_settled,
-                        self._company(),
-                        candidate["number"],
-                        settled,
-                    )
                     self._log.info(
                         "delivered pr no longer reviewable",
                         extra={"number": candidate["number"], "state": settled},
@@ -333,7 +337,10 @@ class ObservationActivities:
             key=lambda issue: issue["number"],
         )[:BACKLOG_LIMIT]
         observed = {
+            # What `max_concurrent_runs` bounds: the runs holding a place.
+            # A run parked on a person's merge verdict holds none.
             "active_runs": active_runs,
+            "waiting_runs": waiting_runs,
             "daily_spent_usd": daily_spent,
             # Every open issue, worked or not: the backlog the scoping cap
             # bounds is what the repository shows, not what is startable.

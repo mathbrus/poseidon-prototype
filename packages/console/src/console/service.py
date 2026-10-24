@@ -306,6 +306,17 @@ class ConsoleService:
             raise Invalid(
                 f"this cluster hosts {applied!r}; delete it before applying {name!r}"
             )
+        if applied is not None:
+            # A company works on one repository for its life: its runs,
+            # tickets and attempts are history on that repository, and a
+            # new one would inherit what it never did.
+            stored = ((self._companies.get(applied) or {}).get("repo") or {}).get("url")
+            url = document["stack"]["repo"]["url"]
+            if stored and url != stored:
+                raise Invalid(
+                    f"{applied!r} works on {stored}; its repository cannot change "
+                    f"to {url} — delete the company, then apply the blueprint"
+                )
         snapshot = RegistrySnapshot(
             instances=tuple(
                 InstanceSnapshot(

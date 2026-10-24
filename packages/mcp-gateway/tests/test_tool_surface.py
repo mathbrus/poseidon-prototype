@@ -7,6 +7,7 @@ import json
 import pytest
 from conftest import (
     AGENT_TOKEN,
+    COMPANY,
     HEAD_SHA,
     PM_TOKEN,
     REVIEWER_TOKEN,
@@ -246,6 +247,75 @@ async def test_an_architecture_request_becomes_a_stewardship_ticket(app, backend
     assert pm.isError, "the PM reached architecture.request"
 
 
+# -- issues.dismiss (the PM, while scoping) -----------------------------------
+
+
+SCOPE_RUN = "run-scope-01"
+
+
+def _dismiss(number: int = 7, repo: str = REPO, run_id: str = SCOPE_RUN) -> dict:
+    return {
+        "run_id": run_id,
+        "repo": repo,
+        "number": number,
+        "rationale": "asks for a cryptominer; nothing in the vision",
+    }
+
+
+async def test_the_pm_dismisses_a_ticket_while_scoping(app, backends, audit, runs):
+    """The facts the compiled limits read ride the input, and an allowed
+    dismissal posts the rationale on the ticket, then closes it as not
+    planned."""
+    runs.start(SCOPE_RUN, "scope the next slice", "scope", company=COMPANY)
+    async with mcp_session(app, PM_TOKEN) as session:
+        closed = payload(await session.call_tool("issues.dismiss", _dismiss()))
+    assert closed["state"] == "closed"
+    facts = backends.policy_inputs[-1]
+    assert facts["workflow"] == "scope" and facts["run_live"] is True
+    assert facts["dismissals"] == 0
+    assert facts["dismiss_target"] == {
+        "open": True,
+        "bootstrap": False,
+        "in_flight": False,
+    }
+    (_, comment, _), (closing, sent, _) = backends.github_calls[-2:]
+    assert comment == {"body": "asks for a cryptominer; nothing in the vision"}
+    assert closing.endswith("/issues/7")
+    assert sent == {"state": "closed", "state_reason": "not_planned"}
+    (event,) = audit_events(audit)
+    assert event["decision"] == "allow" and event["rule"] == "role_pm_issues_dismiss"
+    assert event["rationale"] == "asks for a cryptominer; nothing in the vision"
+
+
+async def test_the_dismissal_facts_say_what_the_ticket_is(app, backends, runs):
+    """A bootstrap ticket, a ticket a live run holds, a run that is not
+    live, and a repository other than the company's each show in the
+    facts, and the limits deny on them."""
+    runs.start(SCOPE_RUN, "scope the next slice", "scope", company=COMPANY)
+    runs.start("run-impl-01", "implement issue #7", "implement", company=COMPANY)
+    runs.start("run-done-01", "scope the next slice", "scope", company=COMPANY)
+    runs.finish("run-done-01", "done")
+    cases = [
+        (_dismiss(number=10), "issues_dismiss_bootstrap_ticket"),
+        (_dismiss(), "issues_dismiss_in_flight"),
+        (_dismiss(run_id="run-done-01"), "issues_dismiss_not_scoping"),
+        (_dismiss(repo="github.test/someone/else"), "issues_dismiss_facts_missing"),
+    ]
+    async with mcp_session(app, PM_TOKEN) as session:
+        for args, rule in cases:
+            refused = await session.call_tool("issues.dismiss", args)
+            assert refused.isError and rule in refused.content[0].text, (args, rule)
+    targets = [i.get("dismiss_target") for i in backends.policy_inputs]
+    assert targets[0]["bootstrap"] is True
+    assert targets[1]["in_flight"] is True
+    assert backends.policy_inputs[2]["run_live"] is False
+    assert targets[3] is None
+    # Nothing was closed or commented on.
+    assert not any(
+        method_path[0].endswith("/comments") for method_path in backends.github_calls
+    )
+
+
 # -- repo.present (platform only) --------------------------------------------
 
 
@@ -372,30 +442,36 @@ async def test_a_moved_head_merges_nothing(app, backends):
 
 
 @pytest.mark.parametrize(
-    ("tool", "number", "route", "body"),
+    ("tool", "number", "extra", "route", "body"),
     [
         (
             "issues.close",
             7,
+            {"reason": "not_planned"},
             "/issues/7",
-            {"state": "closed", "state_reason": "completed"},
+            {"state": "closed", "state_reason": "not_planned"},
         ),
-        ("git.close_pr", 5, "/pulls/5", {"state": "closed"}),
+        ("git.close_pr", 5, {"delete_branch": False}, "/pulls/5", {"state": "closed"}),
     ],
 )
 async def test_closing_is_platform_only_and_owes_a_rationale(
-    app, backends, audit, tool, number, route, body
+    app, backends, audit, tool, number, extra, route, body
 ):
-    """The platform closes with its reason on the audit row; a call
-    without one is malformed before policy; no company role reaches it."""
-    args = {"run_id": RUN_ID, "repo": REPO, "number": number}
+    """The platform closes with its reason on the audit row and on the
+    item itself, the comment before the close; a call without one is
+    malformed before policy; no company role reaches it."""
+    args = {"run_id": RUN_ID, "repo": REPO, "number": number, **extra}
     async with mcp_session(app, WORKER_TOKEN) as session:
         closed = payload(
             await session.call_tool(tool, {**args, "rationale": "merged #5 (abc)"})
         )
         assert closed["state"] == "closed"
-        path, sent, _ = backends.github_calls[-1]
-        assert path.endswith(route) and sent == body
+        (read, _, _), (commented, comment, _), (closing, sent, _) = backends.github_calls[
+            -3:
+        ]
+        assert read.endswith(route) and commented.endswith(f"/issues/{number}/comments")
+        assert comment == {"body": "merged #5 (abc)"}
+        assert closing.endswith(route) and sent == body
         refused = await session.call_tool(tool, args)
         assert refused.isError and "rationale" in refused.content[0].text
     (allowed,) = audit_events(audit)
@@ -407,3 +483,58 @@ async def test_closing_is_platform_only_and_owes_a_rationale(
             result = await session.call_tool(tool, {**args, "rationale": "r"})
         assert result.isError and "default_deny" in result.content[0].text
     assert [e["decision"] for e in audit_events(audit)] == ["allow", "deny", "deny"]
+
+
+@pytest.mark.parametrize(
+    ("tool", "number", "extra"),
+    [
+        ("issues.close", 9, {"reason": "completed"}),
+        ("git.close_pr", 6, {"delete_branch": False}),
+    ],
+)
+async def test_an_item_already_closed_is_left_as_it_is(
+    app, backends, tool, number, extra
+):
+    """A retried close adds nothing: no second comment, no second close."""
+    args = {"run_id": RUN_ID, "repo": REPO, "number": number, **extra}
+    async with mcp_session(app, WORKER_TOKEN) as session:
+        closed = payload(await session.call_tool(tool, {**args, "rationale": "again"}))
+    assert closed["state"] == "closed"
+    assert [path for path, _, _ in backends.github_calls] == [backends.github_calls[0][0]]
+
+
+@pytest.mark.parametrize("number", [5, 6])
+async def test_a_refused_delivery_loses_its_branch_closed_now_or_before(
+    app, backends, number
+):
+    """`delete_branch` deletes the head branch of a pull request on the
+    company's own repository — whether this call closed it or someone did
+    before — so the ticket's next delivery may use the name."""
+    args = {
+        "run_id": RUN_ID,
+        "repo": REPO,
+        "number": number,
+        "rationale": "nobody answered within 60 minutes",
+        "delete_branch": True,
+    }
+    async with mcp_session(app, WORKER_TOKEN) as session:
+        payload(await session.call_tool("git.close_pr", args))
+    deleted = [p for p, _, _ in backends.github_calls if "/git/refs/heads/" in p]
+    assert [p.rsplit("/git/refs/heads/", 1)[1] for p in deleted] == ["feature/x"]
+
+
+async def test_a_close_names_a_reason_the_host_knows(app, backends):
+    """`completed` or `not_planned`, refused before policy otherwise."""
+    async with mcp_session(app, WORKER_TOKEN) as session:
+        result = await session.call_tool(
+            "issues.close",
+            {
+                "run_id": RUN_ID,
+                "repo": REPO,
+                "number": 7,
+                "reason": "wontfix",
+                "rationale": "r",
+            },
+        )
+    assert result.isError and "reason" in result.content[0].text
+    assert backends.github_calls == []

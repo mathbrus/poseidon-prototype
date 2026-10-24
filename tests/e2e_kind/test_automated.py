@@ -149,8 +149,8 @@ def automated_overnight(stack: None, baseline_env: dict) -> dict:
         ]
         yield result
     finally:
-        close_pr(env, result.get("pr_number") or 0)
         close_issue(env, result.get("issue_number"))
+        close_pr(env, result.get("pr_number") or 0)
         restore_strategy(env)
         restore_pristine()
 
@@ -244,7 +244,8 @@ def test_automated_arc_had_no_human_act(automated_overnight: dict):
 # PM files contract-then-implement in one scope run, the loop implements
 # the lower-numbered contract ticket first, its review parks for the human,
 # and `max_concurrent_runs: 1` holds the implementation until that review
-# is over.
+# is over: a park whose pull request edits the contract tree keeps its
+# place, where any other park gives it back.
 
 
 @pytest.fixture(scope="module")
@@ -304,11 +305,11 @@ def contract_first(stack: None, baseline_env: dict) -> dict:
         ).json()
         yield result
     finally:
+        for issue in numbers:
+            close_issue(env, issue)
         for pr in (result.get("contract_pr"), result.get("implement_pr")):
             if pr:
                 close_pr(env, pr)
-        for issue in numbers:
-            close_issue(env, issue)
         restore_strategy(env)
         restore_pristine()
 
@@ -433,8 +434,8 @@ def tampered_review(stack: None, baseline_env: dict) -> dict:
         result["rework_issue"] = int(ticket.group(1)) if ticket else None
         yield result
     finally:
-        close_pr(env, result.get("pr_number") or 0)
         close_issue(env, result.get("rework_issue"))
+        close_pr(env, result.get("pr_number") or 0)
         restore_pristine()
 
 

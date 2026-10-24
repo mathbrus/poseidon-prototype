@@ -21,6 +21,12 @@ workflows:
 After the review, the run parks in the state `parked-merge_gate` and waits
 for you. You answer with `poseidon verdict` ([how](../how-to/gates-and-runs.md)).
 
+A parked run holds nothing while it waits. Its reviewer and its sandbox
+are gone, and it gives back its place under `max_concurrent_runs`, so the
+company keeps working. The one exception is a pull request that edits the
+contract tree: it keeps its place, so a one-place company implements
+nothing before its contract lands.
+
 The order of what follows is the point:
 
 1. The console verifies who you are.
@@ -38,6 +44,17 @@ unmerged, and the refusal is recorded as `gate_verdict_unverified`.
 
 If nobody answers, the gate escalates at half of `deadline_minutes` and
 expires at the end. Both events are recorded.
+
+## When the merge doesn't happen
+
+A rejection, an expired gate, an unverified verdict and a moved head all
+end the same way: the delivery is *refused*. The pull request closes
+without merging, with the reason on it. For a rejection, the reason is
+the one you gave. The ticket comes back on the backlog as one spent
+attempt, and the next delivery reads why the last one was refused. When
+its attempts are spent, the ticket closes as not planned.
+[How the heartbeat decides](heartbeat.md#how-a-ticket-ends) lists every
+way a ticket ends.
 
 ## When the merge is automated
 
@@ -131,9 +148,20 @@ spec can't be approved without anyone noticing.
 
 A review reads the pull request's head commit once, when it starts. Every
 sandbox the review uses is built from that commit, and the merge names
-it. If anyone pushes to the branch after that, GitHub refuses the merge:
-the run fails with `head moved after review`, and the pull request stays
-open for another review. This holds whoever resolves the gate.
+it. Just before the merge, the platform reads the pull request again:
+
+- **The head moved**: someone pushed after the review. The delivery is
+  refused with `head moved after review`.
+- **The base moved**: something merged into the base branch since the
+  review. The platform builds the head merged onto the new base in a
+  fresh sandbox and runs the tests there. Green, the merge goes ahead,
+  still pinned to the reviewed head. Red, or a merge conflict, and the
+  delivery is refused. A base that keeps moving is verified twice at
+  most.
+
+This holds whoever resolves the gate. GitHub's merge pins the head, not
+the base, so a narrow window stays: see
+[Limitations](limitations.md#the-base-can-move-after-the-last-read).
 
 ## After the merge
 

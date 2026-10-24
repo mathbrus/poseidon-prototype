@@ -213,6 +213,8 @@ class FakeGateway:
                 }
             case "issues.read":
                 return {"issues": []}
+            case "issues.dismiss":
+                return {"number": args["number"], "state": "closed"}
             case "git.open_pr":
                 branch = args["branch"]
                 if branch.lower() in {"main", "master"}:

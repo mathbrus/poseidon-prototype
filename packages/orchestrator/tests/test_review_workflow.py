@@ -51,12 +51,21 @@ BOUNDS = "Repository: github.com/example/repo, base ref main."
 PR = 41
 # The head commit read_pr reports: every fetch and the merge name it.
 HEAD_SHA = "f00d5ha"
+# The base branch's tip the review ran against.
+BASE_SHA = "ba5e000"
 
 AUTOMATED_GATE = {
     "deadline_minutes": 1,
     "automate": {"paths": ["src/", "tests/"], "max_reworks": 2},
 }
 HUMAN_GATE = {"deadline_minutes": 1}
+# A person's recorded rejection, as the console wrote it.
+REJECTED = {
+    "principal": "owner",
+    "approved": False,
+    "rationale": "guts the spec",
+    "ts": "t1",
+}
 
 
 def dispatch_result(**overrides: Any) -> dict[str, Any]:
@@ -106,8 +115,21 @@ class Harness:
     )
     depth: dict[str, Any] = field(default_factory=lambda: {"depth": 0, "root_pr": PR})
     # Someone pushed to the PR branch after the run read its head: the
-    # pinned merge is refused, as the real activity refuses it.
+    # merge site's read finds the head moved — or, pushed after that read,
+    # the host refuses the pinned merge.
     head_moved: bool = False
+    head_moved_at_merge: bool = False
+    # The base tips the merge site reads, one per read; the review's own
+    # base once they run out.
+    bases: list[str] = field(default_factory=list)
+    # The head merged onto a moved base: whether it conflicts, and how its
+    # suite runs (green unless stated).
+    merge_conflicts: bool = False
+    merge_verify: dict[str, Any] = field(default_factory=lambda: {"passed": True})
+    # The bases each merge verify built the head onto.
+    merge_verifies: list[str] = field(default_factory=list)
+    # The tree the sandbox was last provisioned from.
+    provisioned: str = ""
 
     verify_calls: int = 0
     scoped_verifies: list[list[str]] = field(default_factory=list)
@@ -124,11 +146,21 @@ class Harness:
     # The head commit each merge named.
     merge_heads: list[str] = field(default_factory=list)
     # The world-changing platform acts in order: the merge, the closing of
-    # the tickets it fulfilled, a rework ticket and the PR it supersedes.
+    # the tickets it fulfilled, a rework ticket and the PR it supersedes,
+    # a refused delivery.
     effects: list[str] = field(default_factory=list)
+    # The reasons each refused delivery was refused with, in order.
+    refusals: list[str] = field(default_factory=list)
     # A ticket close the gateway keeps refusing.
     close_fails: bool = False
     torn_down: list[tuple[dict[str, Any] | None, str | None]] = field(
+        default_factory=list
+    )
+    # The sandbox handle each teardown was given.
+    torn_down_handles: list[dict[str, Any] | None] = field(default_factory=list)
+    # Each give-back before a merge park: (handle, keep_slot, the gate
+    # outcomes recorded before it).
+    vacated: list[tuple[dict[str, Any] | None, bool, list[str]]] = field(
         default_factory=list
     )
     # The runs that asked the platform, after teardown, whether they spent
@@ -137,6 +169,8 @@ class Harness:
     wakes: int = 0
     # A dispatch that never answers, so a test can cancel the run mid-flight.
     dispatch_hangs: bool = False
+    # The first dispatch hits the run's budget cap and parks on `budget`.
+    budget_capped: bool = False
     dispatches: int = 0
     # The head verify and the reviewer dispatch, in the order they ran.
     sequence: list[str] = field(default_factory=list)
@@ -184,10 +218,17 @@ class Harness:
                 "title": "Add slugify utility",
                 "head": "feature/slugify-x",
                 "head_sha": HEAD_SHA,
+                "base_sha": BASE_SHA,
                 "url": f"https://git.test/r/pulls/{pr_number}",
                 "paths": list(harness.pr_paths),
                 "contract_deletions": harness.deletions,
             }
+
+        @activity.defn(name="pr_tips")
+        async def pr_tips(run_id: str, pr_number: int) -> dict[str, Any]:
+            base = harness.bases.pop(0) if harness.bases else BASE_SHA
+            head = "pu5h3d" if harness.head_moved else HEAD_SHA
+            return {"head_sha": head, "base_sha": base, "settled": None}
 
         @activity.defn(name="warn_contract_edit")
         async def warn_contract_edit(
@@ -203,14 +244,28 @@ class Harness:
 
         @activity.defn(name="fetch_workspace")
         async def fetch_workspace(
-            run_id: str, ref: str, overlay_paths: list[str] | None = None
+            run_id: str,
+            ref: str,
+            overlay_paths: list[str] | None = None,
+            merge_onto: str | None = None,
         ) -> str:
+            if merge_onto:
+                harness.merge_verifies.append(merge_onto)
+                if harness.merge_conflicts:
+                    raise ApplicationError(
+                        f"merge conflict: {ref} does not merge cleanly onto"
+                        f" {merge_onto} (conflicts in slugify.py)",
+                        type="merge conflict",
+                        non_retryable=True,
+                    )
+                return "merged-tar"
             harness.fetches.append([ref, overlay_paths])
             return "workspace-tar"
 
         @activity.defn(name="provision_sandbox")
         async def provision_sandbox(run_id: str, tar: str) -> dict[str, Any]:
             harness.provisions += 1
+            harness.provisioned = tar
             return {"sandbox": "sbx-1"}
 
         @activity.defn(name="fulfill_crew")
@@ -241,6 +296,8 @@ class Harness:
                 # Heartbeat so the workflow's cancel reaches the activity.
                 activity.heartbeat()
                 await asyncio.sleep(0.05)
+            if harness.budget_capped and harness.dispatches == 1:
+                return {"status": "failed", "error": "budget_exhausted: cap reached"}
             return dict(harness.dispatch)
 
         @activity.defn(name="record_verdict")
@@ -256,6 +313,9 @@ class Harness:
             if paths:
                 harness.scoped_verifies.append(list(paths))
                 return dict(harness.contract_verify)
+            if harness.provisioned == "merged-tar":
+                harness.sequence.append("merge verify")
+                return dict(harness.merge_verify)
             harness.verify_calls += 1
             harness.sequence.append("verify")
             return dict(harness.verify)
@@ -322,15 +382,21 @@ class Harness:
         @activity.defn(name="merge_pr")
         async def merge_pr(run_id: str, pr_number: int, head_sha: str) -> dict[str, Any]:
             harness.merge_heads.append(head_sha)
-            if harness.head_moved:
-                raise ApplicationError(
-                    f"head moved after review: pull request #{pr_number} is no"
-                    f" longer at {head_sha}",
-                    non_retryable=True,
-                )
+            if harness.head_moved_at_merge:
+                return {
+                    "merged": False,
+                    "sha": "",
+                    "refused": f"head moved after review: pull request #{pr_number}"
+                    f" is no longer at {head_sha}",
+                }
             harness.merges.append(pr_number)
             harness.effects.append("merge")
             return {"merged": True, "sha": "abc123"}
+
+        @activity.defn(name="refuse_delivery")
+        async def refuse_delivery(run_id: str, pr_number: int, reason: str) -> None:
+            harness.effects.append(f"refuse #{pr_number}")
+            harness.refusals.append(reason)
 
         @activity.defn(name="close_tickets")
         async def close_tickets(
@@ -341,10 +407,16 @@ class Harness:
             harness.effects.append(f"close_tickets #{pr_number} {sha} {pr_title}")
             return [7]
 
-        @activity.defn(name="record_attempts_exhausted")
-        async def record_attempts_exhausted(run_id: str, workflow_id: str) -> dict:
+        @activity.defn(name="abandon_exhausted")
+        async def abandon_exhausted(run_id: str, workflow_id: str) -> dict:
             harness.attempts_recorded.append(run_id)
             return {"exhausted": False}
+
+        @activity.defn(name="vacate")
+        async def vacate(
+            run_id: str, handle: dict[str, Any] | None, keep_slot: bool
+        ) -> None:
+            harness.vacated.append((handle, keep_slot, list(harness.gate_events)))
 
         @activity.defn(name="teardown")
         async def teardown(
@@ -354,6 +426,7 @@ class Harness:
             error: str | None,
         ) -> dict[str, Any]:
             harness.torn_down.append((result, error))
+            harness.torn_down_handles.append(handle)
             # Spread first: the dispatch result carries its own status
             # field, and the record's status/error must win, like the
             # real teardown's honest terminal write — which also reads a
@@ -390,10 +463,13 @@ class Harness:
             rework_depth,
             file_rework,
             close_superseded_pr,
+            refuse_delivery,
+            pr_tips,
             record_gate_outcome,
             merge_pr,
             close_tickets,
-            record_attempts_exhausted,
+            abandon_exhausted,
+            vacate,
             teardown,
             wake_heartbeat,
         ]
@@ -779,8 +855,9 @@ async def test_a_contract_tree_pr_parks_before_any_layer_is_spent(env):
 
 async def test_a_rejected_contract_pr_fails_honestly(env):
     """The other half of the human's authority over the spec: a rejection
-    merges nothing and the run finalizes failed — a gutted contract never
-    slips through by timeout or default."""
+    merges nothing, refuses the delivery with the person's words, and the
+    run finalizes failed — a gutted contract never slips through by
+    timeout or default."""
     harness = Harness(
         merge_gate=AUTOMATED_GATE,
         contract_paths=["tests/contract/"],
@@ -791,6 +868,7 @@ async def test_a_rejected_contract_pr_fails_honestly(env):
             "removed_asserts": 4,
             "added_asserts": 1,
         },
+        human_verdict=REJECTED,
     )
     worker, handle = await start_review(env.client, harness)
     try:
@@ -802,7 +880,8 @@ async def test_a_rejected_contract_pr_fails_honestly(env):
 
     assert harness.merges == []
     assert harness.reworks == []
-    assert harness.effects == []
+    assert harness.effects == [f"refuse #{PR}"]
+    assert harness.refusals == ["owner rejected the merge: guts the spec"]
     assert harness.gate_events == ["automation_declined", "parked", "rejected"]
     assert record["status"] == "failed"
     assert "merge gate rejected" in record["error"]
@@ -840,7 +919,8 @@ async def test_revocation_mid_flight_flips_the_gate_to_human_only(env):
     """Config read at run start grants nothing by itself: once the live
     bundle no longer carries the automation (the blueprint diff), the
     resolve denies and the run is human-only — unanswered, it escalates
-    and expires like any human gate, and nothing merges."""
+    and expires like any human gate, nothing merges, and the delivery is
+    refused with the deadline nobody met."""
     harness = Harness(
         merge_gate=AUTOMATED_GATE,
         resolve={"allow": False, "rule": "default_deny"},
@@ -854,6 +934,8 @@ async def test_revocation_mid_flight_flips_the_gate_to_human_only(env):
         "escalated",
         "expired",
     ]
+    assert harness.effects == [f"refuse #{PR}"]
+    assert harness.refusals == ["nobody answered within 1 minutes"]
     assert record["status"] == "failed"
     assert "merge gate expired" in record["error"]
 
@@ -864,11 +946,13 @@ async def test_revocation_mid_flight_flips_the_gate_to_human_only(env):
 async def test_an_exhausted_rework_chain_escalates_to_the_human(env):
     """At max_reworks the chain stops feeding the backlog: no new ticket,
     a rework_exhausted process-gate event, and the human decides — here,
-    a rejection, which fails the run honestly with nothing merged."""
+    a rejection, which refuses the delivery and fails the run honestly
+    with nothing merged."""
     harness = Harness(
         merge_gate=AUTOMATED_GATE,
         dispatch=dispatch_result(verdict="fail", verdict_rationale="Still blocking."),
         depth={"depth": 2, "root_pr": 38},
+        human_verdict=REJECTED,
     )
     worker, handle = await start_review(env.client, harness)
     try:
@@ -881,8 +965,8 @@ async def test_an_exhausted_rework_chain_escalates_to_the_human(env):
         await worker.__aexit__(None, None, None)
 
     assert harness.merges == []
-    # No ticket filed, so the PR is not superseded; no merge, no close.
-    assert harness.effects == []
+    # No ticket filed, so the PR is not superseded: it is refused.
+    assert harness.effects == [f"refuse #{PR}"]
     assert harness.gate_events == ["rework_exhausted", "parked", "rejected"]
     assert record["status"] == "failed"
     assert "merge gate rejected" in record["error"]
@@ -913,6 +997,76 @@ async def test_a_human_gate_never_touches_the_automation_machinery(env):
     assert record["merged"] is True
 
 
+async def test_a_merge_park_gives_back_its_crew_sandbox_and_place(env):
+    """Before the merge park is recorded, the run gives back its crew and
+    its sandbox and its place under `max_concurrent_runs`, and nudges the
+    heartbeat; teardown then has no sandbox left to destroy."""
+    harness = Harness(merge_gate=HUMAN_GATE)
+    worker, handle = await start_review(env.client, harness)
+    try:
+        await wait_for_park(handle)
+        assert harness.vacated == [({"sandbox": "sbx-1"}, False, [])]
+        assert harness.wakes == 1
+        await handle.signal("merge", args=[True])
+        record = await handle.result()
+    finally:
+        await worker.__aexit__(None, None, None)
+
+    assert record["merged"] is True
+    assert harness.torn_down_handles == [None]
+    assert harness.wakes == 2
+
+
+async def test_a_contract_tree_park_keeps_its_place(env):
+    """A pull request editing the contract tree keeps its place while it
+    waits, so a one-place company implements nothing before its contract
+    lands; its crew and sandbox are still given back, and no nudge is due."""
+    harness = Harness(
+        merge_gate=AUTOMATED_GATE,
+        contract_paths=["tests/contract/"],
+        pr_paths=["tests/contract/test_slugify_contract.py"],
+        deletions={
+            "removed_tests": 0,
+            "added_tests": 4,
+            "removed_asserts": 0,
+            "added_asserts": 4,
+        },
+    )
+    worker, handle = await start_review(env.client, harness)
+    try:
+        await wait_for_park(handle)
+        assert harness.vacated == [({"sandbox": "sbx-1"}, True, ["automation_declined"])]
+        assert harness.wakes == 0
+        await handle.signal("merge", args=[True])
+        await handle.result()
+    finally:
+        await worker.__aexit__(None, None, None)
+    assert harness.torn_down_handles == [None]
+
+
+async def test_a_budget_park_gives_nothing_back(env):
+    """The budget park re-dispatches into the same agent and sandbox once
+    approved, so it holds both; only a merge park gives them back."""
+    harness = Harness(merge_gate=None, budget_capped=True)
+    worker, handle = await start_review(env.client, harness)
+    try:
+        for _ in range(200):
+            if await handle.query("state") == "parked-budget_exhausted":
+                break
+            await asyncio.sleep(0.05)
+        else:
+            raise AssertionError("the review never parked on its budget")
+        await handle.signal("budget", args=[True])
+        record = await handle.result()
+    finally:
+        await worker.__aexit__(None, None, None)
+
+    assert harness.dispatches == 2
+    assert harness.vacated == []
+    assert harness.torn_down_handles == [{"sandbox": "sbx-1"}]
+    assert record["status"] == "done"
+
+
 async def test_a_close_that_keeps_failing_ends_the_run_with_the_merge_recorded(env):
     """The merge landed; the tickets did not close. The run ends in error
     rather than leaving the open ticket silent, and the record still says
@@ -927,13 +1081,22 @@ async def test_a_close_that_keeps_failing_ends_the_run_with_the_merge_recorded(e
     assert record["merge_sha"] == "abc123"
 
 
-@pytest.mark.parametrize("gate", [HUMAN_GATE, AUTOMATED_GATE])
-async def test_a_head_that_moved_after_review_merges_nothing(env, gate):
+@pytest.mark.parametrize(
+    ("gate", "moved"),
+    [
+        (HUMAN_GATE, "head_moved"),
+        (AUTOMATED_GATE, "head_moved"),
+        (HUMAN_GATE, "head_moved_at_merge"),
+        (AUTOMATED_GATE, "head_moved_at_merge"),
+    ],
+)
+async def test_a_head_that_moved_after_review_merges_nothing(env, gate, moved):
     """A push to the PR branch after the run read its head: both resolvers
-    merge through the same pinned call, the host refuses it, and the run
-    fails with the refusal — no merge, no ticket closed, the PR left open
-    for another review."""
-    harness = Harness(merge_gate=gate, head_moved=True)
+    reach the one merge site, which reads the PR again and finds it — or,
+    pushed after that read, the host refuses the pinned merge. The run
+    fails with the refusal — no merge, no ticket closed, and the delivery
+    refused, so its ticket comes back."""
+    harness = Harness(merge_gate=gate, **{moved: True})
     worker, handle = await start_review(env.client, harness)
     try:
         if gate is HUMAN_GATE:
@@ -943,11 +1106,91 @@ async def test_a_head_that_moved_after_review_merges_nothing(env, gate):
     finally:
         await worker.__aexit__(None, None, None)
 
-    assert harness.merge_heads == [HEAD_SHA]
+    assert harness.merge_heads == ([] if moved == "head_moved" else [HEAD_SHA])
     assert harness.merges == []
-    assert harness.effects == []
+    assert harness.effects == [f"refuse #{PR}"]
+    assert harness.refusals[0].startswith("head moved after review")
     assert record["status"] == "failed"
     assert "head moved after review" in record["error"]
+
+
+# -- a moved base is verified before the merge --------------------------------
+
+
+async def _approved_review(env, harness: Harness) -> dict[str, Any]:
+    """The review to its end, a person approving when the gate parks."""
+    if harness.merge_gate is not HUMAN_GATE:
+        return await run_review(env.client, harness)
+    worker, handle = await start_review(env.client, harness)
+    try:
+        await wait_for_park(handle)
+        await handle.signal("merge", args=[True])
+        return await handle.result()
+    finally:
+        await worker.__aexit__(None, None, None)
+
+
+@pytest.mark.parametrize("gate", [HUMAN_GATE, AUTOMATED_GATE])
+async def test_a_base_that_held_still_merges_without_a_verify(env, gate):
+    harness = Harness(merge_gate=gate)
+    record = await _approved_review(env, harness)
+    assert harness.merge_verifies == []
+    assert record["merged"] is True
+
+
+@pytest.mark.parametrize("gate", [HUMAN_GATE, AUTOMATED_GATE])
+async def test_a_moved_base_is_verified_then_merged(env, gate):
+    """The base moved since the review: the head merged onto the new base
+    is built in a fresh sandbox and run by the platform, the sandbox given
+    back, and — green, the base still there — the head merges, still
+    pinned."""
+    harness = Harness(merge_gate=gate, bases=["ba5e001", "ba5e001"])
+    record = await _approved_review(env, harness)
+    assert harness.merge_verifies == ["ba5e001"]
+    assert harness.sequence[-1] == "merge verify"
+    # The verify's sandbox is given back, the run's place untouched.
+    assert harness.vacated[-1][:2] == ({"sandbox": "sbx-1"}, True)
+    assert harness.merge_heads == [HEAD_SHA]
+    assert record["merged"] is True
+    assert harness.torn_down_handles == [None]
+
+
+@pytest.mark.parametrize("gate", [HUMAN_GATE, AUTOMATED_GATE])
+@pytest.mark.parametrize(
+    ("scripted", "reason"),
+    [
+        (
+            {"merge_verify": {"passed": False, "output": "1 failed"}},
+            "the head merged onto the moved base ba5e001 is red: 1 failed",
+        ),
+        (
+            {"merge_conflicts": True},
+            f"merge conflict: {HEAD_SHA} does not merge cleanly onto ba5e001",
+        ),
+    ],
+)
+async def test_a_red_or_conflicting_merge_onto_a_moved_base_is_refused(
+    env, gate, scripted, reason
+):
+    harness = Harness(merge_gate=gate, bases=["ba5e001"], **scripted)
+    record = await _approved_review(env, harness)
+    assert harness.merges == [] and harness.merge_heads == []
+    assert harness.refusals[0].startswith(reason)
+    assert record["status"] == "failed"
+
+
+@pytest.mark.parametrize("gate", [HUMAN_GATE, AUTOMATED_GATE])
+async def test_a_base_that_keeps_moving_is_refused(env, gate):
+    """Each green verify finds the base moved again: after
+    `MERGE_VERIFY_ROUNDS` verifies the merge is refused."""
+    harness = Harness(merge_gate=gate, bases=["b1", "b2", "b3"])
+    record = await _approved_review(env, harness)
+    assert harness.merge_verifies == ["b1", "b2"]
+    assert harness.merges == []
+    assert harness.refusals == [
+        "the base kept moving: it moved again after 2 verifies of the head merged onto it"
+    ]
+    assert record["status"] == "failed"
 
 
 # -- the release is the recorded verdict, not the signal ---------------------
@@ -956,8 +1199,8 @@ async def test_a_head_that_moved_after_review_merges_nothing(env, gate):
 async def test_a_signal_without_a_recorded_verdict_merges_nothing(env):
     """A `merge` signal that reached the workflow by any road but the
     console — network reach to the engine — finds no recorded verdict:
-    the resolve denies by name, the gate records it, nothing merges, and
-    the run ends failed."""
+    the resolve denies by name, the gate records it, nothing merges, the
+    delivery is refused, and the run ends failed."""
     harness = Harness(
         merge_gate=HUMAN_GATE,
         human_verdict=None,
@@ -974,6 +1217,9 @@ async def test_a_signal_without_a_recorded_verdict_merges_nothing(env):
     assert harness.resolve_args == [["human", {}]]
     assert harness.merges == []
     assert harness.gate_events == ["parked", "approved", "verdict_unverified"]
+    assert harness.refusals == [
+        "no verified human verdict (merge_resolve_no_human_verdict)"
+    ]
     assert record["status"] == "failed"
     assert "no verified human verdict (merge_resolve_no_human_verdict)" in record["error"]
 

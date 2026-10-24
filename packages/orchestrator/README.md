@@ -54,13 +54,14 @@ activity.
 | `heartbeat` | `heartbeat_config` → `heartbeat_observe` → [`heartbeat_bootstrap`] → `heartbeat_decide` → `heartbeat_authorize` → start a child run (abandoned) → `record_tick` → wait for a `wake` signal or `reconcile_minutes` → continue-as-new |
 | `scope` | birth → `scope_observation` → dispatch the conductor's `scope` procedure → teardown |
 | `implement` | birth → `read_issue` → `fetch_workspace` → `provision_sandbox` → `fulfill_crew` → `dispatch_documents` → `implement` / `platform_verify` loop → `deliver` → teardown |
-| `review` | birth → `read_pr` → `fetch_workspace` → `provision_sandbox` → `fulfill_crew` → `review` → `record_verdict` → merge gate → `merge_pr` → `close_tickets` → teardown |
+| `review` | birth → `read_pr` → `fetch_workspace` → `provision_sandbox` → `fulfill_crew` → `review` → `record_verdict` → merge gate (`vacate` before a park) → `pr_tips` [→ the merge verify on a moved base] → `merge_pr` → `close_tickets`, or `refuse_delivery` → teardown |
 
 Birth is `create_run` → `check_budget` → `workflow_config`. A run born
 without budget headroom fails before any dispatch. Every dispatch
 carries the bounds `workflow_config` rendered. After teardown, a run
-that concluded nothing calls `record_attempts_exhausted`. Every run then
-wakes the heartbeat.
+that concluded nothing calls `abandon_exhausted`, which abandons its item
+when that run spent the last attempt. Every run then wakes the
+heartbeat.
 
 The implementer's completion claim is advisory. `platform_verify`, the
 worker's own test run in the sandbox, is the gate of record. A red
@@ -73,9 +74,20 @@ release. `read_human_verdict` reads the verdict the console recorded,
 and `resolve_merge` evaluates `merge.resolve` on it. With no recorded
 verdict, the run ends unmerged with a `gate_verdict_unverified` event.
 On the automated path, a failed layer files a rework ticket and closes
-the pull request. At `max_reworks`, or when automation declines, the run
-parks on the human. See [The merge gate](../../docs/explanation/merge-gate.md)
-and [The heartbeat](../../docs/explanation/heartbeat.md).
+the pull request (`superseded`). At `max_reworks`, or when automation
+declines, the run parks on the human. Before it parks, `vacate` gives
+back its crew, its sandbox and, unless the pull request edits the
+contract tree, its place under `max_concurrent_runs`.
+
+`_merge_pr` is the one merge site. It reads the PR again (`pr_tips`): a
+moved head is refused, and a moved base is verified first, the head
+merged onto it (`fetch_workspace` with `merge_onto`) and run by
+`platform_verify`. Every ending that is neither a merge nor a rework calls
+`refuse_delivery` (`activities/tickets.py`): the PR closes with the reason,
+its branch goes, the run row records `pr_settled: refused`, and the ticket
+comes back or, its attempts spent, is abandoned. See
+[The merge gate](../../docs/explanation/merge-gate.md) and
+[The heartbeat](../../docs/explanation/heartbeat.md).
 
 ### Waits are gates, and teardown always runs
 
@@ -109,8 +121,9 @@ pod. A refusal raises `EphemeralPodAbandoned`. `activeDeadlineSeconds`
 
 `teardown` runs on every terminal path, worker death included. Its order
 is fixed: revoke the run's ephemeral agents, destroy ephemeral pods,
-destroy the sandbox, unregister it at the gateway, link filed tickets,
-then write the terminal run record. A failed step never skips
+destroy the sandbox, unregister it at the gateway (`_give_back`, which
+`vacate` also runs), link filed tickets, then write the terminal run
+record. A failed step never skips
 the steps after it. Most failures become the run's error when it has
 none yet.
 

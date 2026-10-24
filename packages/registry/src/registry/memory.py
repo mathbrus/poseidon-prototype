@@ -21,8 +21,8 @@ from typing import Any
 
 from common.audit import AuditEvent
 from common.policy import GATE_RESOLVE, verdict_rule
-from common.tasks import ISSUE_TASK_RE, REVIEW_TASK_RE
-from common.workflows import HEARTBEAT_WORKFLOW, RUN_WORKFLOWS
+from common.tasks import ISSUE_TASK_RE, REVIEW_TASK_RE, issue_run_task
+from common.workflows import HEARTBEAT_WORKFLOW, PR_REFUSED, RUN_WORKFLOWS
 from registry.participants import ParticipantRevoked
 from registry.runs import Attempts, RunRecord
 
@@ -61,6 +61,7 @@ class InMemoryAuditStore:
         return {
             "principal": last.agent_id,
             "approved": last.rule == verdict_rule(gate, True),
+            "rationale": last.rationale or "",
             "ts": last.ts,
         }
 
@@ -455,6 +456,7 @@ class InMemoryRuns:
         record = self.rows.get(run_id) or RunRecord(run_id=run_id)
         record.task = task
         record.status = "running"
+        record.occupies = True
         record.workflow = workflow
         record.workflow_id = workflow_id
         record.company = company
@@ -508,17 +510,32 @@ class InMemoryRuns:
         ]
 
     def active_count(self, company: str) -> int:
+        return self._running(company, occupies=True)
+
+    def vacated_count(self, company: str) -> int:
+        return self._running(company, occupies=False)
+
+    def _running(self, company: str, occupies: bool) -> int:
         return sum(
             1
             for r in self.rows.values()
             if r.company == company
             and r.status == "running"
+            and r.occupies is occupies
             and r.workflow in RUN_WORKFLOWS
         )
 
+    def vacate(self, run_id: str) -> None:
+        record = self.rows.get(run_id)
+        if record is not None:
+            record.occupies = False
+
     def issue_attempts(self, company: str) -> dict[int, Attempts]:
         return self._attempts(
-            company, "implement", ISSUE_TASK_RE, lambda r: r.pr_url is not None
+            company,
+            "implement",
+            ISSUE_TASK_RE,
+            lambda r: r.pr_url is not None and r.pr_settled != PR_REFUSED,
         )
 
     def review_attempts(self, company: str) -> dict[int, Attempts]:
@@ -560,7 +577,9 @@ class InMemoryRuns:
             and r.pr_settled is None
         ]
 
-    def mark_pr_settled(self, company: str, pr_number: int, state: str) -> None:
+    def mark_pr_settled(
+        self, company: str, pr_number: int, state: str, reason: str | None = None
+    ) -> None:
         for r in self.rows.values():
             if (
                 r.company == company
@@ -568,6 +587,18 @@ class InMemoryRuns:
                 and (r.pr_url or "").endswith(f"/pull/{pr_number}")
             ):
                 r.pr_settled = state
+                r.pr_settled_reason = reason
+
+    def refusals(self, company: str, issue_number: int) -> list[tuple[str, str]]:
+        # Insertion order stands in for finished_at, oldest first.
+        return [
+            (r.pr_url or "", r.pr_settled_reason or "")
+            for r in self.rows.values()
+            if r.company == company
+            and r.workflow == "implement"
+            and r.task == issue_run_task(issue_number)
+            and r.pr_settled == PR_REFUSED
+        ]
 
     def implement_run_for_pr(self, company: str, pr_number: int) -> RunRecord | None:
         candidates = [

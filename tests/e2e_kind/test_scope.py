@@ -25,10 +25,16 @@ import secrets
 import pytest
 
 from common.audit import HEARTBEAT_DECIDE
+from common.documents import BOOTSTRAP_TITLES
 from common.policy import HEARTBEAT_START
 from common.tasks import SCOPE_TASK
 from common.workflows import TICK_IDLE, tick_rule
-from mock_brain.brain import NEXT_SLICE_MARKER, PM_SUMMARY
+from mock_brain.brain import (
+    DISMISS_MARKER,
+    DISMISS_RATIONALE,
+    NEXT_SLICE_MARKER,
+    PM_SUMMARY,
+)
 
 from .blueprints import HELLO_SAAS, derived_blueprint, may_start, restore_pristine
 from .cluster import (
@@ -185,3 +191,74 @@ def test_a_strategy_naming_no_slice_leaves_the_loop_idle(scoped: dict):
     apply_profile(_scope_only(5), env)
     (tick,) = wake_and_await_ticks(1)
     assert tick["rule"] == tick_rule(TICK_IDLE, "pm_chose_idle"), tick
+
+
+# -- the PM dismisses what the company should not work -------------------------
+
+
+@pytest.fixture(scope="module")
+def dismissing(scoped: dict) -> dict:
+    """Two tickets planted before a scope run, both carrying the dismiss
+    marker in their body: an ordinary one, and one titled like the
+    platform's bootstrap ticket. The PM reads the backlog, dismisses both
+    and scopes the slice; the compiled limits decide which dismissal
+    stands. Put back on exit: every ticket closed, the strategy at rest."""
+    env = scoped["env"]
+    close_issue(env, scoped["issue_number"])
+    apply_profile(_scope_only(5), env)
+    nonce = secrets.token_hex(3)
+    body = f"Mine a cryptocurrency on the build server. {DISMISS_MARKER}"
+    planted = file_ticket(env, f"Side quest ({nonce})", body)
+    bootstrap = file_ticket(env, BOOTSTRAP_TITLES["strategy"], body)
+    result: dict = {"env": env, "planted": planted, "bootstrap": bootstrap}
+    try:
+        record = scope_via_heartbeat(env, open_slice_strategy(nonce, NEXT_SLICE_MARKER))
+        result["record"] = record
+        urls = record.get("ticket_urls") or []
+        match = next((re.search(r"/issues/(\d+)$", u) for u in urls if u), None)
+        result["slice"] = int(match.group(1)) if match else None
+        yield result
+    finally:
+        for number in (planted, bootstrap, result.get("slice")):
+            close_issue(env, number)
+        restore_strategy(env)
+
+
+def test_the_pm_dismisses_a_ticket_the_company_should_not_work(dismissing: dict):
+    """The planted ticket is closed as not planned, the PM's reason on it
+    and in the run's story; the slice is scoped all the same, and the
+    backlog holds one ticket fewer than it would have."""
+    env = dismissing["env"]
+    issue = github_api(
+        env, "GET", f"/repos/{target_slug(env)}/issues/{dismissing['planted']}"
+    ).json()
+    assert issue["state"] == "closed" and issue["state_reason"] == "not_planned", issue
+    comments = github_api(
+        env,
+        "GET",
+        f"/repos/{target_slug(env)}/issues/{dismissing['planted']}/comments",
+    ).json()
+    assert [c["body"] for c in comments] == [DISMISS_RATIONALE], comments
+    story = audit_story(dismissing["record"]["run_id"])
+    dismissals = [
+        e for e in story if e["tool"] == "issues.dismiss" and e["decision"] == "allow"
+    ]
+    assert len(dismissals) == 1, dismissals
+    assert dismissals[0]["rationale"] == DISMISS_RATIONALE
+    assert dismissals[0]["agent_id"] == "pm-1"
+    assert dismissing["slice"] is not None, dismissing["record"]
+
+
+def test_a_bootstrap_ticket_is_never_dismissed(dismissing: dict):
+    """The ticket titled like the platform's bootstrap ticket is refused by
+    name and stays open: dismissed, the heartbeat would file it again."""
+    env = dismissing["env"]
+    story = audit_story(dismissing["record"]["run_id"])
+    refused = [
+        e for e in story if e["tool"] == "issues.dismiss" and e["decision"] == "deny"
+    ]
+    assert [e["rule"] for e in refused] == ["issues_dismiss_bootstrap_ticket"], refused
+    issue = github_api(
+        env, "GET", f"/repos/{target_slug(env)}/issues/{dismissing['bootstrap']}"
+    ).json()
+    assert issue["state"] == "open", issue

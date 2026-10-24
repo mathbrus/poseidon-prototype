@@ -15,6 +15,8 @@ from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 from temporalio import activity
 
+from common.workflows import PR_MERGED, PR_REFUSED
+
 # How often a dispatch polls the agent for its terminal status.
 POLL_INTERVAL_S = 2.0
 
@@ -114,14 +116,19 @@ class GatewayClient:
         ref: str,
         overlay_ref: str | None = None,
         overlay_paths: list[str] | None = None,
+        merge_onto: str | None = None,
     ) -> bytes:
         """Archive `ref` — optionally with `overlay_paths` mirrored from
-        `overlay_ref`, the composed tree the contract verify runs on."""
+        `overlay_ref`, the composed tree the contract verify runs on, or
+        merged onto `merge_onto`, the tree a merge onto a moved base would
+        land."""
         assert self._session is not None, "use `async with GatewayClient(...)`"
         args: dict[str, Any] = {"run_id": run_id, "repo": repo, "ref": ref}
         if overlay_ref:
             args["overlay_ref"] = overlay_ref
             args["overlay_paths"] = overlay_paths or []
+        if merge_onto:
+            args["merge_onto"] = merge_onto
         result = await self._tool("repo.archive", args)
         return base64.b64decode(result["archive_b64"])
 
@@ -190,7 +197,7 @@ class GatewayClient:
         self, run_id: str, repo: str, title: str, body: str, rationale: str
     ) -> dict[str, Any]:
         """File a ticket under the platform identity — the rework loop's
-        write (a failed policy-gated review puts its findings back into the
+        write (a failed automated review puts its findings back into the
         same backlog the conductor already consumes) and the bootstrap's.
         The rationale is the platform's reason, recorded with the call."""
         return await self._tool(
@@ -205,13 +212,20 @@ class GatewayClient:
         )
 
     async def close_issue(
-        self, run_id: str, repo: str, number: int, rationale: str
+        self, run_id: str, repo: str, number: int, reason: str, rationale: str
     ) -> dict[str, Any]:
-        """Close a ticket under the platform identity — the consequence of
-        a merge, never a role's act. The rationale names the merge."""
+        """Close a ticket under the platform identity, `completed` or
+        `not_planned` — the consequence of a merge or of the company giving
+        it up, never a role's act. The rationale is posted on the ticket."""
         return await self._tool(
             "issues.close",
-            {"run_id": run_id, "repo": repo, "number": number, "rationale": rationale},
+            {
+                "run_id": run_id,
+                "repo": repo,
+                "number": number,
+                "reason": reason,
+                "rationale": rationale,
+            },
         )
 
     async def read_open_issues(self, run_id: str, repo: str) -> list[dict[str, Any]]:
@@ -260,14 +274,25 @@ class GatewayClient:
         )
 
     async def close_pr(
-        self, run_id: str, repo: str, number: int, rationale: str
+        self,
+        run_id: str,
+        repo: str,
+        number: int,
+        rationale: str,
+        delete_branch: bool,
     ) -> dict[str, Any]:
-        """Close a pull request unmerged under the platform identity — the
-        rework loop's act once a failed review's findings are a ticket.
-        The rationale names the ticket that supersedes it."""
+        """Close a pull request unmerged under the platform identity. The
+        rationale is posted on the pull request: why it will not merge.
+        With `delete_branch` its head branch goes too."""
         return await self._tool(
             "git.close_pr",
-            {"run_id": run_id, "repo": repo, "number": number, "rationale": rationale},
+            {
+                "run_id": run_id,
+                "repo": repo,
+                "number": number,
+                "rationale": rationale,
+                "delete_branch": delete_branch,
+            },
         )
 
     async def register_sandbox(
@@ -307,14 +332,14 @@ class GatewayClient:
 
 def pr_settled(pr: dict[str, Any]) -> str | None:
     """Why a pull request is no longer reviewable, from the metadata
-    `read_pr` returns: `"merged"`, `"closed"` (closed without merging), or
-    None while it is open. The git host is the authority on this — the
-    registry only knows which PRs the company delivered and which reviews
-    it ran, never what a human or another harness did to them since."""
+    `read_pr` returns: merged, refused (closed without merging), or None
+    while it is open. The git host is the authority on this — the registry
+    only knows which PRs the company delivered and which reviews it ran,
+    never what a human or another harness did to them since."""
     if pr.get("merged"):
-        return "merged"
+        return PR_MERGED
     if str(pr.get("state") or "") != "open":
-        return "closed"
+        return PR_REFUSED
     return None
 
 

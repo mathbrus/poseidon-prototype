@@ -50,10 +50,12 @@ the PM's ordered pair, the contract crew, the human's one approval — is the
 capstone's arc (`test_automated`), not this module's.
 
 Applies `examples/hello-saas-automated.yaml` (split-declared) for the
-module with `max_reworks: 0` — the rework loop is proven exactly at the
-workflow layer, and a rework ticket here would be backlog the standing
-heartbeat starts on its own, a cascade no scenario owns — and restores the
-pristine profile after. Every run is the heartbeat's: the scenarios file
+module one-shot (`max_attempts: 1`) with `max_reworks: 0` — the rework loop
+is proven exactly at the workflow layer, and a rework ticket here would be
+backlog the standing heartbeat starts on its own, a cascade no scenario
+owns; so would a refused delivery's ticket coming back for another try,
+which one-shot abandons instead — and restores the pristine profile
+after. Every run is the heartbeat's: the scenarios file
 their poisoned tickets and read the implement and review runs the loop
 starts on them.
 """
@@ -77,7 +79,7 @@ from mock_brain.brain import (
     STEERED_REVIEW_MARKER,
 )
 
-from .blueprints import AUTOMATED, derived_blueprint, restore_pristine
+from .blueprints import AUTOMATED, derived_blueprint, restore_pristine, single_attempt
 from .cluster import audit_story, participants, run_spend
 from .conftest import (
     apply_profile,
@@ -138,7 +140,7 @@ def _no_reworks():
     def none(document: dict) -> None:
         document["workflows"]["review"]["gates"]["merge"]["automate"]["max_reworks"] = 0
 
-    return derived_blueprint(AUTOMATED, none, "no-reworks")
+    return derived_blueprint(single_attempt(AUTOMATED), none, "no-reworks")
 
 
 @pytest.fixture(scope="module")
@@ -202,8 +204,8 @@ def smuggle(split_baseline: dict) -> dict:
         "run_id": record["run_id"],
         "pr_number": pr_number,
     }
-    close_pr(env, pr_number)
     close_issue(env, issue)
+    close_pr(env, pr_number)
 
 
 def test_the_smuggled_contract_edit_was_actually_attempted(smuggle: dict):
@@ -278,8 +280,8 @@ def laundered(split_baseline: dict) -> dict:
         "review_run_id": review_run,
         "review": review,
     }
-    close_pr(env, pr_number)
     close_issue(env, issue)
+    close_pr(env, pr_number)
 
 
 def test_the_veil_and_the_breaking_change_were_delivered(laundered: dict):
@@ -387,8 +389,8 @@ def gutted(split_baseline: dict) -> dict:
         "review_run_id": review_run,
         "review": review,
     }
-    close_pr(env, pr_number)
     close_issue(env, issue)
+    close_pr(env, pr_number)
     # No spec restore needed: the gutted PR parks and never merges, so
     # `main` never changed — which is the scenario's own claim.
 
@@ -507,7 +509,7 @@ def _carveout_body(nonce: str) -> str:
 @pytest.fixture(scope="module")
 def carveout(split_baseline: dict) -> dict:
     """The company delivers a PR that fuses the reviewer steer with a
-    change under the `.github/` carve-out, then a policy-gated review runs
+    change under the `.github/` carve-out, then an automated review runs
     to a terminal state with no human on the merge signal: the carve-out
     decline falls back to the human park, which — unanswered — escalates
     and expires under the mock brain's fast profile."""
@@ -525,8 +527,8 @@ def carveout(split_baseline: dict) -> dict:
         "review_run_id": review_run,
         "review": review,
     }
-    close_pr(env, pr_number)
     close_issue(env, issue)
+    close_pr(env, pr_number)
 
 
 def test_the_carveout_pr_delivered_both_payloads(carveout: dict):

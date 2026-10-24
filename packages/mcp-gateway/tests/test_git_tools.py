@@ -143,6 +143,83 @@ async def test_archive_overlay_composes_the_baseline_tree(target_repo, tmp_path)
     assert not (extracted / "tests" / "contract2").exists()
 
 
+def _backend():
+    from mcp_gateway.config import McpGatewaySettings
+    from mcp_gateway.git_backend import GitBackend
+
+    return GitBackend(
+        McpGatewaySettings(
+            platform_namespace=PLATFORM_NAMESPACE,
+            opa_url="http://opa.test:8181",
+            git_token=GIT_TOKEN,
+        ),
+        http_client=None,
+    )
+
+
+def _moved_base(target_repo, tmp_path, base_edit: tuple[str, str]) -> str:
+    """A branch that changes app.py, then main moving on with `base_edit`
+    (path, text). Returns main's new tip."""
+    work = tmp_path / "merge-work"
+    git("clone", str(target_repo), str(work))
+    git("checkout", "-b", "feature/greet", cwd=work)
+    (work / "app.py").write_text("def hello():\n    return 'hello'\n")
+    git("commit", "-am", "greet", cwd=work)
+    git("push", "origin", "feature/greet", cwd=work)
+    git("checkout", "main", cwd=work)
+    path, text = base_edit
+    (work / path).write_text(text)
+    git("add", "-A", cwd=work)
+    git("commit", "-m", "main moves on", cwd=work)
+    git("push", "origin", "main", cwd=work)
+    return git("rev-parse", "HEAD", cwd=work).strip()
+
+
+def test_archive_merges_the_head_onto_a_moved_base(target_repo, tmp_path):
+    """`merge_onto`: the tree a merge would land — the base's new file and
+    the head's change together, the head merged in as the platform."""
+    tip = _moved_base(target_repo, tmp_path, ("NOTES.md", "notes\n"))
+    result = _backend()._archive_sync(str(target_repo), "feature/greet", merge_onto=tip)
+    extracted = tmp_path / "merged"
+    with tarfile.open(fileobj=io.BytesIO(base64.b64decode(result["archive_b64"]))) as tar:
+        tar.extractall(extracted, filter="data")
+    assert (extracted / "NOTES.md").read_text() == "notes\n"
+    assert "'hello'" in (extracted / "app.py").read_text()
+    parents = git("log", "-1", "--format=%P %an", cwd=extracted).split()
+    assert len(parents) == 3 and parents[-1] == "orchestrator"
+
+
+def test_a_head_that_conflicts_with_the_moved_base_names_the_conflict(
+    target_repo, tmp_path
+):
+    from mcp_gateway.git_backend import GitBackendError
+
+    tip = _moved_base(
+        target_repo, tmp_path, ("app.py", "def hello():\n    return 'bonjour'\n")
+    )
+    with pytest.raises(GitBackendError) as caught:
+        _backend()._archive_sync(str(target_repo), "feature/greet", merge_onto=tip)
+    assert str(caught.value) == (
+        f"merge conflict: feature/greet does not merge cleanly onto {tip}"
+        " (conflicts in app.py)"
+    )
+
+
+async def test_read_pr_answers_the_base_branchs_tip(app, backends):
+    """The pull request's own `base.sha` goes stale when the base moves:
+    the tip is read off the branch ref."""
+    backends.force_allow = True
+    async with mcp_session(app, WORKER_TOKEN) as session:
+        read = tool_payload(
+            await session.call_tool(
+                "git.read",
+                {"run_id": RUN_ID, "repo": "github.test/example/target", "number": 5},
+            )
+        )
+    assert read["base"] == "main" and read["base_sha"] == "ba5e5ha"
+    assert backends.github_calls[-1][0].endswith("/git/ref/heads/main")
+
+
 async def test_agent_token_cannot_archive(app, target_repo, audit):
     async with mcp_session(app, AGENT_TOKEN) as session:
         result = await session.call_tool(

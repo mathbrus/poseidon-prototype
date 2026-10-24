@@ -20,6 +20,10 @@ from pydantic import BaseModel
 # Policy keys on the lifecycle; these names are what the audit story shows.
 ORCHESTRATOR_ID = "orchestrator"
 PLATFORM_ROLE = "platform"
+# The commits the platform makes are authored by the principal that asked
+# — an agent's delivery commit, the platform's merge onto a moved base;
+# git wants an address, and this domain says it is no mailbox.
+COMMIT_EMAIL_DOMAIN = "agents.poseidon.invalid"
 
 LIFECYCLE_STANDING = "standing"
 LIFECYCLE_EPHEMERAL = "ephemeral"

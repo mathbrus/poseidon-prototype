@@ -15,8 +15,9 @@
     verdict) -> record_verdict (the journaled judgement) -> MERGE GATE ->
     approve: the orchestrator merges that same head commit via
     git.merge_pr under its platform identity, then closes the tickets the
-    PR fulfilled (issues.close); reject/timeout: honest failure ->
-    teardown.
+    PR fulfilled (issues.close); reject, expiry, an unverified verdict or a
+    head that moved: the delivery is refused (refuse_delivery) and the run
+    fails honestly -> teardown.
 
 The merge gate owns the merge guarantee, and the blueprint says whether
 it is automated — gate config comes from the compiled plan, never
@@ -41,9 +42,12 @@ and the merge itself is a gateway-audited tool call — so one run_id
 query tells the whole story: findings, verdict, checks, resolution,
 merge.
 
-Review is orchestrator-sequenced over HTTP. A human reject stays the
-honest minimum: findings are already on the PR, the run finalizes failed
-with the gate's verdict. Under an automated gate, a failed quality
+Review is orchestrator-sequenced over HTTP. Every merge-gate ending that
+is neither a merge nor a filed rework refuses the delivery: the PR closes
+with the reason on it — the person's recorded rationale for a reject,
+the deadline for an expiry — its ticket goes back on the backlog as one
+spent attempt, and the run finalizes failed with the gate's error. Under
+an automated gate, a failed quality
 layer instead feeds the bounded rework loop: the findings become a
 backlog ticket the conductor consumes, the platform closes the PR the
 ticket supersedes (git.close_pr), the chain depth rides the canonical
@@ -59,7 +63,7 @@ from datetime import timedelta
 from typing import Any
 
 from temporalio import workflow
-from temporalio.exceptions import ActivityError
+from temporalio.exceptions import ActivityError, ApplicationError
 
 from common.tasks import review_run_task
 from common.workflows import (
@@ -68,10 +72,12 @@ from common.workflows import (
     GATE_AUTOMATED,
     GATE_AUTOMATION_DECLINED,
     GATE_ESCALATED,
+    GATE_EXPIRED,
     GATE_PARKED,
     GATE_REWORK_EXHAUSTED,
     GATE_REWORK_FILED,
     GATE_VERDICT_UNVERIFIED,
+    MERGE_CONFLICT,
     MERGE_GATE,
     PARKED_STATE,
     RUN_FINALIZING,
@@ -85,11 +91,29 @@ from orchestrator.workflows.base import (
     gate_deadline,
 )
 
+# How many times the one merge site verifies a head merged onto a base that
+# keeps moving before it refuses the merge.
+MERGE_VERIFY_ROUNDS = 2
+
+
+def refusal(reason: str) -> dict[str, Any]:
+    """A merge-gate ending that refuses the delivery, `reason` its error."""
+    return {"error": reason, "refused": reason}
+
 
 @dataclass
 class ReviewInput:
     run_id: str
     pr_number: int
+
+
+def rejection(verdict: dict[str, Any] | None) -> str:
+    """Why a rejected merge is refused, in the person's words as the
+    console recorded them."""
+    if verdict and not verdict.get("approved"):
+        reason = verdict.get("rationale") or "no reason given"
+        return f"{verdict['principal']} rejected the merge: {reason}"
+    return "rejected, with no verdict recorded by the console"
 
 
 def review_task(pr_number: int, title: str, url: str) -> str:
@@ -112,6 +136,9 @@ class ReviewWorkflow(RunWorkflow):
         self._state = RUN_RUNNING
         self._budget_gate = Gate(BUDGET_GATE)
         self._merge_gate = Gate(MERGE_GATE)
+        # The run's sandbox while it holds one: teardown destroys it, and
+        # a merge park gives it back early and forgets it.
+        self._handle: dict[str, Any] | None = None
 
     @workflow.signal
     def budget(self, approved: bool) -> None:
@@ -338,10 +365,104 @@ class ReviewWorkflow(RunWorkflow):
         """The merge itself — one platform tool call, issued only after a
         gate (human or automated) resolved to merge. Both resolvers land here,
         so there is exactly one place the branch reaches `main`, and it
-        names the head this run read: what was reviewed is what merges."""
-        return await workflow.execute_activity(
+        names the head this run read: what was reviewed is what merges.
+
+        The pull request is read again first. A head that moved since the
+        run pinned it is refused. A base that moved since the review is
+        verified before the merge: the head merged onto the new base, built
+        in a fresh sandbox and run by the platform (`_verify_merge`) —
+        green, the merge goes ahead still pinned to the head, so the
+        verdict stands; red or conflicting, the delivery is refused. A base
+        that keeps moving is verified at most `MERGE_VERIFY_ROUNDS` times.
+        A window stays between the last read and the host's merge, which
+        pins the head, not the base."""
+        verified = pr.get("base_sha") or ""
+        rounds = 0
+        while True:
+            tips = await workflow.execute_activity(
+                "pr_tips",
+                args=[input.run_id, input.pr_number],
+                start_to_close_timeout=timedelta(seconds=self._profile.step_s),
+                retry_policy=STEP_RETRY,
+            )
+            if tips.get("settled"):
+                # Settled by hand while the run waited; the read settled it.
+                return {
+                    "error": f"pull request #{input.pr_number} was {tips['settled']}"
+                    " outside the platform before the merge"
+                }
+            if tips["head_sha"] != pr["head_sha"]:
+                return refusal(
+                    f"head moved after review: pull request #{input.pr_number} is no"
+                    f" longer at {pr['head_sha']}"
+                )
+            if tips["base_sha"] == verified:
+                break
+            if rounds == MERGE_VERIFY_ROUNDS:
+                return refusal(
+                    f"the base kept moving: it moved again after {rounds} verifies"
+                    " of the head merged onto it"
+                )
+            rounds += 1
+            refused = await self._verify_merge(input, pr, tips["base_sha"])
+            if refused:
+                return refusal(refused)
+            verified = tips["base_sha"]
+        merged = await workflow.execute_activity(
             "merge_pr",
             args=[input.run_id, input.pr_number, pr["head_sha"]],
+            start_to_close_timeout=timedelta(seconds=self._profile.step_s),
+            retry_policy=STEP_RETRY,
+        )
+        if merged.get("refused"):
+            return refusal(merged["refused"])
+        return {"released": merged}
+
+    async def _verify_merge(
+        self, input: "ReviewInput", pr: dict[str, Any], base_sha: str
+    ) -> str | None:
+        """The head merged onto the moved base `base_sha`, built in a fresh
+        sandbox under the run's name, its suite run by the platform, then
+        the sandbox given back. Returns why the merge is refused — the
+        conflict, or the red suite's tail — or None when it is green."""
+        try:
+            merged_tar = await workflow.execute_activity(
+                "fetch_workspace",
+                args=[input.run_id, pr["head_sha"], None, base_sha],
+                start_to_close_timeout=timedelta(seconds=self._profile.step_s),
+                retry_policy=STEP_RETRY,
+            )
+        except ActivityError as exc:
+            cause = exc.cause
+            if isinstance(cause, ApplicationError) and cause.type == MERGE_CONFLICT:
+                return cause.message
+            raise
+        self._handle = await workflow.execute_activity(
+            "provision_sandbox",
+            args=[input.run_id, merged_tar],
+            start_to_close_timeout=timedelta(seconds=self._profile.step_s),
+            retry_policy=STEP_RETRY,
+        )
+        verify = await self._verify(input)
+        await workflow.execute_activity(
+            "vacate",
+            args=[input.run_id, self._handle, True],
+            start_to_close_timeout=timedelta(seconds=self._profile.step_s),
+            retry_policy=STEP_RETRY,
+        )
+        self._handle = None
+        if verify.get("passed"):
+            return None
+        tail = (verify.get("output") or "")[-600:]
+        return f"the head merged onto the moved base {base_sha[:12]} is red: {tail}"
+
+    async def _refuse(self, input: "ReviewInput", reason: str) -> None:
+        """The merge gate ended without a merge or a rework: the PR closes
+        with `reason` on it, and its ticket goes back on the backlog as one
+        spent attempt, told why."""
+        await workflow.execute_activity(
+            "refuse_delivery",
+            args=[input.run_id, input.pr_number, reason],
             start_to_close_timeout=timedelta(seconds=self._profile.step_s),
             retry_policy=STEP_RETRY,
         )
@@ -359,21 +480,42 @@ class ReviewWorkflow(RunWorkflow):
         )
 
     async def _human_merge(
-        self, input: "ReviewInput", pr: dict[str, Any], gate: dict[str, Any]
+        self,
+        input: "ReviewInput",
+        pr: dict[str, Any],
+        gate: dict[str, Any],
+        keep_slot: bool,
     ) -> dict[str, Any]:
         """The human gate: every gate without `automate`, and the fallback
         whenever automation declines or its rework chain is spent. Park on
         the signal, escalate at half the deadline, expire at the end — every
         transition a process-gate audit event — and return the same
-        `{released}|{error}` shape the automated path does, so the run
-        has one merge-application site.
+        `{released}|{error, refused?}` shape the automated path does, so
+        the run has one merge-application site. Every ending but a merge
+        carries the reason the delivery is refused with.
 
         An approving signal is not the release. The release is policy's:
         the verdict the console recorded under the human's name is read
         back from the audit store and `merge.resolve` decides on it — so a
         signal delivered by any other road (network reach to the workflow
         engine, a human the company did not name) finds no recorded
-        verdict and ends the run unmerged, by a rule that says so."""
+        verdict and ends the run unmerged, by a rule that says so.
+
+        A run waiting on a person holds nothing: its crew and its sandbox
+        are given back before it parks — the merge itself names the head,
+        never a sandbox — and so is its place under `max_concurrent_runs`,
+        unless `keep_slot` (a pull request editing the contract tree, so a
+        one-place company implements nothing before its contract lands)."""
+        await workflow.execute_activity(
+            "vacate",
+            args=[input.run_id, self._handle, keep_slot],
+            start_to_close_timeout=timedelta(seconds=self._profile.step_s),
+            retry_policy=STEP_RETRY,
+        )
+        self._handle = None
+        if not keep_slot:
+            # The place is free: the heartbeat may start other work now.
+            await self.wake_heartbeat()
         # The row first, then the state: a run that reads parked always has
         # the row its deadlines are measured from.
         await self.record_gate(input.run_id, MERGE_GATE, GATE_PARKED)
@@ -386,33 +528,36 @@ class ReviewWorkflow(RunWorkflow):
         )
         self._state = RUN_RUNNING
         await self.record_gate(input.run_id, MERGE_GATE, outcome.kind)
-        if outcome.kind != GATE_APPROVED:
-            return {"error": f"merge gate {outcome.kind}"}
+        if outcome.kind == GATE_EXPIRED:
+            return {
+                "error": f"merge gate {outcome.kind}",
+                "refused": f"nobody answered within {gate['deadline_minutes']} minutes",
+            }
         verdict = await workflow.execute_activity(
             "read_human_verdict",
             args=[input.run_id],
             start_to_close_timeout=timedelta(seconds=BOOTSTRAP_S),
             retry_policy=STEP_RETRY,
         )
+        if outcome.kind != GATE_APPROVED:
+            return {"error": f"merge gate {outcome.kind}", "refused": rejection(verdict)}
         resolve = await self._resolve(
             input, "human", {"human_verdict": verdict} if verdict else {}
         )
         if not resolve.get("allow"):
             await self.record_gate(input.run_id, MERGE_GATE, GATE_VERDICT_UNVERIFIED)
-            return {
-                "error": f"merge gate: no verified human verdict ({resolve.get('rule')})"
-            }
-        return {"released": await self._merge_pr(input, pr)}
+            unverified = f"no verified human verdict ({resolve.get('rule')})"
+            return {"error": f"merge gate: {unverified}", "refused": unverified}
+        return await self._merge_pr(input, pr)
 
     async def _release(self, input: "ReviewInput", pr: dict[str, Any]) -> dict[str, Any]:
         """The automated release: gate outcome first, then the merge —
         strictly after the compiled allow."""
         await self.record_gate(input.run_id, MERGE_GATE, GATE_AUTOMATED)
-        return {"released": await self._merge_pr(input, pr)}
+        return await self._merge_pr(input, pr)
 
     @workflow.run
     async def run(self, input: ReviewInput) -> dict[str, Any]:
-        handle: dict[str, Any] | None = None
         result: dict[str, Any] | None = None
         error: str | None = None
         cancelled = False
@@ -453,7 +598,7 @@ class ReviewWorkflow(RunWorkflow):
                 start_to_close_timeout=timedelta(seconds=self._profile.step_s),
                 retry_policy=STEP_RETRY,
             )
-            handle = await workflow.execute_activity(
+            self._handle = await workflow.execute_activity(
                 "provision_sandbox",
                 args=[input.run_id, workspace_tar],
                 start_to_close_timeout=timedelta(seconds=self._profile.step_s),
@@ -544,14 +689,15 @@ class ReviewWorkflow(RunWorkflow):
             outcome: dict[str, Any] = {}
             if automated:
                 outcome = await self._automated_merge(input, pr, result, config, verify)
-                if outcome.get("error"):
-                    error = outcome["error"]
-                    raise _ReviewOver()
-            if not outcome.get("released"):
-                outcome = await self._human_merge(input, pr, gate)
-                if outcome.get("error"):
-                    error = outcome["error"]
-                    raise _ReviewOver()
+            if not outcome.get("released") and not outcome.get("error"):
+                outcome = await self._human_merge(
+                    input, pr, gate, keep_slot=self._touches_contract(pr, config)
+                )
+            if outcome.get("refused"):
+                await self._refuse(input, outcome["refused"])
+            if outcome.get("error"):
+                error = outcome["error"]
+                raise _ReviewOver()
             result["merged"] = True
             result["merge_sha"] = outcome["released"].get("sha")
             # The merge fulfilled the PR's ticket (a rework chain's, all of
@@ -578,9 +724,9 @@ class ReviewWorkflow(RunWorkflow):
             cause = exc.cause
             error = f"{exc.message}: {cause}" if cause else exc.message
         self._state = RUN_FINALIZING
-        record = await self.teardown(input.run_id, handle, result, error)
+        record = await self.teardown(input.run_id, self._handle, result, error)
         if not concluded:
-            await self.record_attempts(input.run_id)
+            await self.abandon_exhausted(input.run_id)
         # However this run ended, it changed the world the standing
         # heartbeat watches — nudge it; the reconcile timer covers a
         # nudge that goes missing.

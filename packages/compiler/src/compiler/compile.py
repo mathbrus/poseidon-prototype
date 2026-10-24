@@ -52,7 +52,7 @@ PLATFORM_SCOPE = sorted(
         # The implement workflow resolves an issue-driven run's ticket
         # before dispatch — the same platform-read posture as git.read.
         "issues.read",
-        # The review workflow's rework loop files a failed policy-gated
+        # The review workflow's rework loop files a failed automated
         # review's findings back into the backlog as a ticket — a platform
         # write, attributed to the review run, that the conductor then
         # consumes like any other issue.
@@ -62,10 +62,9 @@ PLATFORM_SCOPE = sorted(
         # so the human resolving the merge signal reads them first — a
         # gutted spec must be impossible to approve silently.
         "git.comment",
-        # The attempt-exhaustion notice: when the heartbeat's last allowed
-        # run on a PR or issue aborts, the platform says so on the item
-        # itself (git.comment above for a PR, issues.comment for a ticket),
-        # so the abandonment is never silent.
+        # The platform's word on a ticket that stays open: why its delivery
+        # was refused and the ticket is back, or why the heartbeat halts on
+        # a bootstrap ticket — so neither is ever silent.
         "issues.comment",
         "/admin/sandboxes",
         "/admin/sandboxes.delete",

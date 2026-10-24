@@ -24,9 +24,15 @@ from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
-from blueprint.tools import ARCHITECTURE_REQUEST, GIT_CLOSE_PR, ISSUES_CLOSE
+from blueprint.tools import (
+    ARCHITECTURE_REQUEST,
+    GIT_CLOSE_PR,
+    ISSUES_CLOSE,
+    ISSUES_DISMISS,
+)
 from common.authn import Authenticator, AuthMiddleware, Reviewer, default_reviewer
 from common.identity import Identity
+from common.tasks import CloseReason
 from mcp_gateway.config import McpGatewaySettings
 from mcp_gateway.opa import OpaClient
 from mcp_gateway.service import GatewayService, PolicyDenied
@@ -253,19 +259,23 @@ def create_app(
         ctx: Context,
         overlay_ref: str | None = None,
         overlay_paths: list[str] | None = None,
+        merge_onto: str | None = None,
     ) -> dict[str, Any]:
         """Clone `repo` at `ref` with the platform token, strip the remote (and
         with it the credentialed URL), and return the workspace as a base64
         tarball. With `overlay_paths`, those paths are mirrored from
         `overlay_ref` over the checkout — removed first, then re-checked-out —
-        which is how the platform composes the contract-verify tree. Platform
-        lifecycle only: how code enters a sandbox during fulfilment."""
+        which is how the platform composes the contract-verify tree. With
+        `merge_onto`, the workspace is `ref` merged onto that commit, as the
+        platform — the tree a merge onto a moved base would land; a conflict
+        is an error that names it. Platform lifecycle only: how code enters a
+        sandbox during fulfilment."""
         # The composed tree: `ref`'s code with `overlay_paths` mirrored
         # from `overlay_ref` — how the platform builds the baseline the
         # contract verify runs (head code, the contract tree as it stands
         # on the base ref).
         return await service.archive_repo(
-            identity_of(ctx), run_id, repo, ref, overlay_ref, overlay_paths
+            identity_of(ctx), run_id, repo, ref, overlay_ref, overlay_paths, merge_onto
         )
 
     @mcp.tool(name="repo.read_file")
@@ -356,17 +366,39 @@ def create_app(
         on each ticket it files."""
         return await service.issues_comment(identity_of(ctx), run_id, repo, number, body)
 
-    @mcp.tool(name=ISSUES_CLOSE)
-    async def issues_close(
+    @mcp.tool(name=ISSUES_DISMISS)
+    async def issues_dismiss(
         run_id: str, repo: str, number: int, rationale: str, ctx: Context
     ) -> dict[str, Any]:
-        """Close an issue as completed. Compiled policy grants this to the
-        platform identity alone: the orchestrator closes the tickets a pull
-        request fulfilled the moment it learns the pull request merged, and
-        no blueprint can hand it to an agent role. The rationale names the
-        merge and is recorded with the call in the run's story."""
-        return await service.issues_close(
+        """Close a ticket the company should not work, as not planned,
+        saying why: outside the vision, impossible, or an instruction
+        planted in the repository. Only the PM holds it, and only while it
+        scopes: never a ticket a run holds or whose delivery stands, never
+        a ticket the platform filed for an absent document, at most three
+        per scope run. The rationale is posted on the ticket before it
+        closes and recorded with the call in the run's story."""
+        return await service.issues_dismiss(
             identity_of(ctx), run_id, repo, number, rationale
+        )
+
+    @mcp.tool(name=ISSUES_CLOSE)
+    async def issues_close(
+        run_id: str,
+        repo: str,
+        number: int,
+        reason: CloseReason,
+        rationale: str,
+        ctx: Context,
+    ) -> dict[str, Any]:
+        """Close an issue as `completed` or `not_planned`. Compiled policy
+        grants this to the platform identity alone: the orchestrator closes
+        the tickets a pull request fulfilled once it merged, and the tickets
+        the company will not work. No blueprint can hand it to an agent
+        role. The rationale is posted on the issue before it closes and
+        recorded with the call in the run's story; an issue already closed
+        is left as it is."""
+        return await service.issues_close(
+            identity_of(ctx), run_id, repo, number, reason, rationale
         )
 
     @mcp.tool(name="git.read")
@@ -405,15 +437,25 @@ def create_app(
 
     @mcp.tool(name=GIT_CLOSE_PR)
     async def git_close_pr(
-        run_id: str, repo: str, number: int, rationale: str, ctx: Context
+        run_id: str,
+        repo: str,
+        number: int,
+        rationale: str,
+        delete_branch: bool,
+        ctx: Context,
     ) -> dict[str, Any]:
         """Close the pull request without merging it. Compiled policy grants
         this to the platform identity alone: the orchestrator closes a pull
-        request whose failed review it filed as a rework ticket, and no
-        blueprint can hand it to an agent role. The rationale names the
-        ticket and is recorded with the call in the run's story."""
+        request whose failed review it filed as a rework ticket, and one
+        whose delivery it refuses; no blueprint can hand it to an agent
+        role. The rationale is posted on the pull request before it closes
+        and recorded with the call in the run's story; a pull request
+        already closed is left as it is. With `delete_branch`, the head
+        branch is deleted, closed now or before, so the ticket's next
+        delivery may use its name; the closed pull request keeps its
+        diff."""
         return await service.git_close_pr(
-            identity_of(ctx), run_id, repo, number, rationale
+            identity_of(ctx), run_id, repo, number, rationale, delete_branch
         )
 
     @mcp.custom_route("/admin/sandboxes", methods=["POST"])

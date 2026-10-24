@@ -25,9 +25,11 @@ from blueprint.tools import (
     ARCHITECTURE_REQUEST,
     GIT_CLOSE_PR,
     ISSUES_CLOSE,
+    ISSUES_DISMISS,
     RATIONALE_TOOLS,
 )
 from common.audit import RATIONALE_LIMIT, AuditEvent, args_digest
+from common.documents import BOOTSTRAP_TITLES
 from common.identity import (
     LIFECYCLE_EPHEMERAL,
     LIFECYCLE_PLATFORM,
@@ -45,8 +47,9 @@ from common.policy import (
     REPO_NOT_DECLARED,
     company_decision_path,
 )
-from common.tasks import crew_trailer
+from common.tasks import CLOSE_NOT_PLANNED, crew_trailer
 from common.telemetry import get_logger
+from common.workflows import RUN_STATUS_RUNNING
 from mcp_gateway.config import McpGatewaySettings
 from mcp_gateway.git_backend import GitBackend
 from mcp_gateway.opa import OpaClient
@@ -384,7 +387,52 @@ class GatewayService:
             policy_input["architecture_requests"] = await asyncio.to_thread(
                 self._audit_store.count_allowed, run_id, ARCHITECTURE_REQUEST
             )
+        if tool == ISSUES_DISMISS:
+            policy_input.update(await self._dismiss_facts(identity, args, run_row))
         return policy_input
+
+    async def _dismiss_facts(
+        self, identity: Identity, args: dict[str, Any], run_row: Any
+    ) -> dict[str, Any]:
+        """What the compiled dismissal limits read: whether the claimed run
+        is a live run of the caller's company (`run_live`, beside the
+        input's `workflow`), how many dismissals it already made, off the
+        gateway's own audit trail (`dismissals`), and the ticket as the git
+        host and the registry know it (`dismiss_target`: open, filed for an
+        absent document, held by a live run or a standing delivery). The
+        ticket is read only on the company's own repository; one that
+        cannot be read leaves its facts out, and an absent fact denies."""
+        company = identity.company or ""
+        run_id = str(args.get("run_id") or "")
+        facts: dict[str, Any] = {
+            "run_live": bool(
+                run_row is not None
+                and run_row.status == RUN_STATUS_RUNNING
+                and run_row.company == company
+            ),
+            "dismissals": await asyncio.to_thread(
+                self._audit_store.count_allowed, run_id, ISSUES_DISMISS
+            ),
+        }
+        spec = await asyncio.to_thread(self._companies.get, company) or {}
+        repo = str(args.get("repo") or "")
+        if repo != (spec.get("repo") or {}).get("url"):
+            return facts
+        try:
+            number = int(args["number"])
+            (issue,) = (await self._git.read_issues(repo, number))["issues"]
+        except Exception as exc:  # an unreadable ticket is a fact left out
+            self._log.info("dismissal target unreadable", extra={"error": str(exc)})
+            return facts
+        attempts = (await asyncio.to_thread(self._runs.issue_attempts, company)).get(
+            number
+        )
+        facts["dismiss_target"] = {
+            "open": issue.get("state") == "open",
+            "bootstrap": issue.get("title") in BOOTSTRAP_TITLES.values(),
+            "in_flight": bool(attempts and (attempts.live or attempts.concluded)),
+        }
+        return facts
 
     async def proxy_sandbox(self, tool: str, args: dict[str, Any]) -> dict[str, Any]:
         """Forward an allowed sandbox.* call to the run's registered tool server."""
@@ -435,21 +483,24 @@ class GatewayService:
         ref: str,
         overlay_ref: str | None = None,
         overlay_paths: list[str] | None = None,
+        merge_onto: str | None = None,
     ) -> Any:
         # run_id rides the args so the workspace fetch is attributable like
         # every other step: without it this event is the one hole in "the
-        # whole story for run X". The overlay composition is part of
-        # the audited args for the same reason: which tree was built is
-        # part of what happened.
+        # whole story for run X". The overlay composition and the merge
+        # are part of the audited args for the same reason: which tree was
+        # built is part of what happened.
         args: dict[str, Any] = {"run_id": run_id, "repo": repo, "ref": ref}
         if overlay_ref:
             args["overlay_ref"] = overlay_ref
             args["overlay_paths"] = overlay_paths or []
+        if merge_onto:
+            args["merge_onto"] = merge_onto
         return await self.call(
             identity,
             "repo.archive",
             args,
-            lambda: self._git.archive(repo, ref, overlay_ref, overlay_paths),
+            lambda: self._git.archive(repo, ref, overlay_ref, overlay_paths, merge_onto),
         )
 
     async def read_file(
@@ -615,16 +666,43 @@ class GatewayService:
         )
 
     async def issues_close(
-        self, identity: Identity, run_id: str, repo: str, number: int, rationale: str
+        self,
+        identity: Identity,
+        run_id: str,
+        repo: str,
+        number: int,
+        reason: str,
+        rationale: str,
     ) -> Any:
         """Policy restricts this to the platform lifecycle — the
-        orchestrator closes the tickets a merged pull request fulfils."""
-        args = {"run_id": run_id, "repo": repo, "number": number, "rationale": rationale}
+        orchestrator closes the tickets a merged pull request fulfils and
+        the ones the company will not work."""
+        args = {
+            "run_id": run_id,
+            "repo": repo,
+            "number": number,
+            "reason": reason,
+            "rationale": rationale,
+        }
         return await self.call(
             identity,
             ISSUES_CLOSE,
             args,
-            lambda: self._git.close_issue(repo, number),
+            lambda: self._git.close_issue(repo, number, reason, rationale),
+        )
+
+    async def issues_dismiss(
+        self, identity: Identity, run_id: str, repo: str, number: int, rationale: str
+    ) -> Any:
+        """The PM closes, while it scopes, a ticket the company should not
+        work: as not planned, its rationale posted on it. The limits are
+        the compiled policy's, on the facts `_dismiss_facts` reads."""
+        args = {"run_id": run_id, "repo": repo, "number": number, "rationale": rationale}
+        return await self.call(
+            identity,
+            ISSUES_DISMISS,
+            args,
+            lambda: self._git.close_issue(repo, number, CLOSE_NOT_PLANNED, rationale),
         )
 
     async def git_read(
@@ -672,16 +750,29 @@ class GatewayService:
         )
 
     async def git_close_pr(
-        self, identity: Identity, run_id: str, repo: str, number: int, rationale: str
+        self,
+        identity: Identity,
+        run_id: str,
+        repo: str,
+        number: int,
+        rationale: str,
+        delete_branch: bool,
     ) -> Any:
         """Policy restricts this to the platform lifecycle — the
-        orchestrator closes a pull request its rework ticket supersedes."""
-        args = {"run_id": run_id, "repo": repo, "number": number, "rationale": rationale}
+        orchestrator closes a pull request its rework ticket supersedes, and
+        one whose delivery it refuses."""
+        args = {
+            "run_id": run_id,
+            "repo": repo,
+            "number": number,
+            "rationale": rationale,
+            "delete_branch": delete_branch,
+        }
         return await self.call(
             identity,
             GIT_CLOSE_PR,
             args,
-            lambda: self._git.close_pr(repo, number),
+            lambda: self._git.close_pr(repo, number, rationale, delete_branch),
         )
 
     # -- audit --------------------------------------------------------------

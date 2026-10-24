@@ -58,6 +58,7 @@ The mock brain obeys injected instructions on purpose, so tests prove the platfo
 | `STEERED_CONTRACT_MARKER` | contract ticket | surface the gutted spec and park the PR |
 | `ORACLE_SMUGGLE_MARKER` | ticket | deny the write into the contract tree (`git_open_pr_contract_tree`); implement removes the file |
 | `CONFTEST_VEIL_MARKER` | ticket | refuse the merge on the composed contract run |
+| `DISMISS_MARKER` | ticket body, read by the PM | close the planted ticket as not planned (`issues.dismiss`); refuse a bootstrap ticket by name |
 
 Every delivered `slugify.py` carries a `# delivered-on: <branch>` line. Without it, the first merge into the test repository would make every later delivery an empty diff. Stamp new canned content too.
 

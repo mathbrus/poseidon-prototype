@@ -20,13 +20,15 @@ import asyncio
 from typing import Any
 
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 
 from common.telemetry import get_logger
 from common.topology import SANDBOX_TOOLCHAIN
 from common.verify import suite_green
+from common.workflows import MERGE_CONFLICT
 from orchestrator.activities.blueprint import company_repo
 from orchestrator.activities.company import applied_company
-from orchestrator.clients import GatewayClient, dispatch_and_poll
+from orchestrator.clients import GatewayClient, GatewayError, dispatch_and_poll
 from orchestrator.config import WorkerSettings
 from registry import Companies, Runs
 from sandbox.contract import SandboxBackend, SandboxPolicy
@@ -58,10 +60,12 @@ class ImplementActivities:
     @activity.defn(name="read_issue")
     async def read_issue(self, run_id: str, issue_number: int) -> dict[str, Any]:
         """Issue metadata under the platform identity: title and body seed
-        the dispatch text, the URL lands on the run row. Fail-closed on a
-        closed issue — implement consumes open work, it does not resurrect
-        finished tickets. The body is untrusted input, exactly like a task
-        file's contents."""
+        the dispatch text, the URL lands on the run row, and the ticket's
+        refused deliveries (`refusals`, oldest first) tell this attempt what
+        went wrong before. Fail-closed on a closed issue — implement
+        consumes open work, it does not resurrect finished tickets. The
+        body and the refusals' reasons are untrusted input, exactly like a
+        task file's contents."""
         async with GatewayClient(
             self._settings.mcp_gateway_url, self._settings.gateway_token()
         ) as gateway:
@@ -76,6 +80,10 @@ class ImplementActivities:
         await asyncio.to_thread(
             self._runs.record_artifacts, run_id, ticket_urls=[issue["url"]]
         )
+        refusals = await asyncio.to_thread(
+            self._runs.refusals, self._company(), issue_number
+        )
+        issue["refusals"] = [{"pr_url": url, "reason": why} for url, why in refusals]
         self._log.bind(run_id=run_id).info(
             "issue resolved", extra={"issue_number": issue_number}
         )
@@ -120,24 +128,41 @@ class ImplementActivities:
         run_id: str,
         ref: str | None = None,
         overlay_paths: list[str] | None = None,
+        merge_onto: str | None = None,
     ) -> bytes:
         """Archive the target repo at `ref` — the configured base ref by
         default; the review workflow passes the PR head ref instead
         (the review sandbox is a full sandbox from the PR ref). With
         `overlay_paths`, those paths are mirrored from the configured base
         ref over the checkout: the composed tree the contract verify runs —
-        head code, the contract tree as it stands on the base ref."""
+        head code, the contract tree as it stands on the base ref. With
+        `merge_onto`, `ref` merged onto that commit: the tree a merge onto
+        a moved base would land. A head that does not merge cleanly is a
+        non-retryable `MERGE_CONFLICT` that names the conflict."""
         repo = await self._repo()
         async with GatewayClient(
             self._settings.mcp_gateway_url, self._settings.gateway_token()
         ) as gateway:
-            workspace_tar = await gateway.fetch_workspace(
-                run_id,
-                repo["url"],
-                ref or repo["base_ref"],
-                repo["base_ref"] if overlay_paths else None,
-                overlay_paths,
-            )
+            try:
+                workspace_tar = await gateway.fetch_workspace(
+                    run_id,
+                    repo["url"],
+                    ref or repo["base_ref"],
+                    repo["base_ref"] if overlay_paths else None,
+                    overlay_paths,
+                    merge_onto,
+                )
+            except GatewayError as exc:
+                said = str(exc)
+                if merge_onto and MERGE_CONFLICT in said:
+                    # The conflict as the gateway named it, without the tool
+                    # call's error prefix: the refusal reason a person reads.
+                    raise ApplicationError(
+                        said[said.index(MERGE_CONFLICT) :],
+                        type=MERGE_CONFLICT,
+                        non_retryable=True,
+                    ) from None
+                raise
         self._log.bind(run_id=run_id).info(
             "workspace fetched",
             extra={"bytes": len(workspace_tar), "overlay_paths": overlay_paths},

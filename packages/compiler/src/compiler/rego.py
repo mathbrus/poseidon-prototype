@@ -34,7 +34,7 @@ from typing import Any
 
 from blueprint.catalog import STEWARD_ROLE
 from blueprint.gates import NEVER_AUTOMATED_PATHS
-from blueprint.tools import ARCHITECTURE_REQUEST, RUN_SCOPED
+from blueprint.tools import ARCHITECTURE_REQUEST, ISSUES_DISMISS, RUN_SCOPED
 from common.identity import LIFECYCLE_CONSOLE
 from common.policy import (
     BLUEPRINT_APPLY,
@@ -179,6 +179,61 @@ deny_rules contains "architecture_request_over_cap" if {{
 deny_rules contains "architecture_request_count_missing" if {{
 	input.tool == {json.dumps(ARCHITECTURE_REQUEST)}
 	not is_number(object.get(input, ["architecture_requests"], null))
+}}
+"""
+
+# The PM dismisses a ticket only while it scopes, a few per run, never one
+# the company is working on nor one the platform filed for an absent
+# document. The facts ride the input, read by the gateway off the git host
+# and the registry; an absent fact denies.
+DISMISSALS_PER_RUN = 3
+_DISMISS = json.dumps(ISSUES_DISMISS)
+_DISMISS_RULES = f"""
+dismiss_facts_complete if {{
+	is_boolean(input.run_live)
+	is_number(input.dismissals)
+	is_boolean(input.dismiss_target.open)
+	is_boolean(input.dismiss_target.bootstrap)
+	is_boolean(input.dismiss_target.in_flight)
+}}
+
+deny_rules contains "issues_dismiss_facts_missing" if {{
+	input.tool == {_DISMISS}
+	not dismiss_facts_complete
+}}
+
+# Only while scoping: the claimed run is a live scope run of the company.
+deny_rules contains "issues_dismiss_not_scoping" if {{
+	input.tool == {_DISMISS}
+	input.workflow != "scope"
+}}
+
+deny_rules contains "issues_dismiss_not_scoping" if {{
+	input.tool == {_DISMISS}
+	input.run_live == false
+}}
+
+deny_rules contains "issues_dismiss_not_open" if {{
+	input.tool == {_DISMISS}
+	input.dismiss_target.open == false
+}}
+
+# A bootstrap ticket is the heartbeat's: dismissed, it would be filed again.
+deny_rules contains "issues_dismiss_bootstrap_ticket" if {{
+	input.tool == {_DISMISS}
+	input.dismiss_target.bootstrap == true
+}}
+
+# A ticket a live run holds, or whose delivery stands, is being worked.
+deny_rules contains "issues_dismiss_in_flight" if {{
+	input.tool == {_DISMISS}
+	input.dismiss_target.in_flight == true
+}}
+
+# At most {DISMISSALS_PER_RUN} dismissals per scope run.
+deny_rules contains "issues_dismiss_over_cap" if {{
+	input.tool == {_DISMISS}
+	input.dismissals >= {DISMISSALS_PER_RUN}
 }}
 """
 
@@ -638,6 +693,7 @@ REPO_TOOLS = (
     "issues.create",
     "issues.read",
     "issues.comment",
+    ISSUES_DISMISS,
 )
 
 
@@ -763,7 +819,10 @@ def build_bundle(
     is declared — all under the company's own package."""
     files = {
         "authz.rego": _decision_file(
-            company_package(company), _NO_BUDGET_RULE, _ARCHITECTURE_CAP_RULE
+            company_package(company),
+            _NO_BUDGET_RULE,
+            _ARCHITECTURE_CAP_RULE,
+            _DISMISS_RULES,
         )
     }
     for instance in instances:

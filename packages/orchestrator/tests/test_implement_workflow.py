@@ -43,6 +43,8 @@ class Harness:
         default_factory=lambda: {"status": "done", "error": None, "pr_url": PR_URL}
     )
     dispatch_hangs: bool = False
+    # The ticket's refused deliveries, as `read_issue` reports them.
+    refusals: list[dict[str, str]] = field(default_factory=list)
 
     dispatches: list[str] = field(default_factory=list)
     # (procedure, documents, bounds) per dispatch: the implement dispatches
@@ -100,6 +102,7 @@ class Harness:
                 "title": "Add slugify",
                 "body": "Deliver on `feature/slugify-x`.",
                 "url": f"https://git.test/r/issues/{number}",
+                "refusals": list(harness.refusals),
             }
 
         @activity.defn(name="fetch_workspace")
@@ -153,8 +156,8 @@ class Harness:
                 return harness.verify_outcomes.pop(0)
             return {"passed": True, "output": ""}
 
-        @activity.defn(name="record_attempts_exhausted")
-        async def record_attempts_exhausted(run_id: str, workflow_id: str) -> dict:
+        @activity.defn(name="abandon_exhausted")
+        async def abandon_exhausted(run_id: str, workflow_id: str) -> dict:
             harness.attempts_recorded.append(run_id)
             return {"exhausted": False}
 
@@ -189,7 +192,7 @@ class Harness:
             dispatch_documents,
             dispatch_agent,
             platform_verify,
-            record_attempts_exhausted,
+            abandon_exhausted,
             teardown,
             wake_heartbeat,
         ]
@@ -246,6 +249,19 @@ async def test_a_delivered_run_concluded_its_issue(env):
     ]
     assert harness.attempts_recorded == []
     assert harness.wakes == 1  # the delivered PR is the heartbeat's to offer
+
+
+async def test_a_retry_is_told_why_its_ticket_came_back(env):
+    """The ticket's refused deliveries ride the implementer's brief, after
+    the body, so the next attempt reads what went wrong before."""
+    harness = Harness(
+        refusals=[{"pr_url": "https://git.test/r/pulls/5", "reason": "owner rejected it"}]
+    )
+    await run_implement(env.client, harness)
+    assert harness.implement_texts[0].endswith(
+        "Earlier deliveries of this ticket were not merged:\n"
+        "- https://git.test/r/pulls/5: owner rejected it"
+    )
 
 
 async def test_an_implementer_that_died_leaves_the_issue_for_another_try(env):

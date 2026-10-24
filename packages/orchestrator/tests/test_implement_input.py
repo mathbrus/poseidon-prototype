@@ -14,6 +14,28 @@ def test_issue_task_carries_number_url_title_and_body():
     )
 
 
+def test_a_retry_reads_why_its_earlier_deliveries_were_refused():
+    text = issue_task(
+        42,
+        "Add slugify",
+        "spec body",
+        "https://github.test/i/42",
+        [
+            {
+                "pr_url": "https://github.test/p/5",
+                "reason": "owner rejected the merge: no",
+            },
+            {"pr_url": "https://github.test/p/6", "reason": "head moved after review"},
+        ],
+    )
+    assert text.endswith(
+        "spec body\n\nEarlier deliveries of this ticket were not merged:\n"
+        "- https://github.test/p/5: owner rejected the merge: no\n"
+        "- https://github.test/p/6: head moved after review"
+    )
+    assert issue_task(42, "t", "b", "u", []) == issue_task(42, "t", "b", "u")
+
+
 def test_a_ticket_names_its_crew_by_trailer():
     text = issue_task(
         7,

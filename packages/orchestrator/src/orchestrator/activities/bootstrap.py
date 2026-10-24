@@ -15,12 +15,12 @@ from typing import Any
 from temporalio import activity
 
 from common.audit import HEARTBEAT_BOOTSTRAP, args_digest
+from common.documents import BOOTSTRAP_TITLES
 from common.telemetry import get_logger
 from common.workflows import heartbeat_run_id
 from orchestrator.activities.blueprint import company_repo
 from orchestrator.activities.company import applied_company
 from orchestrator.activities.documents import (
-    BOOTSTRAP_TITLES,
     bootstrap_body,
     company_documents,
     read_documents,

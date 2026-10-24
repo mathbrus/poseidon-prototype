@@ -83,11 +83,29 @@ HEARTBEAT_STATES = (HEARTBEAT_SLEEPING, HEARTBEAT_TICKING, HEARTBEAT_PAUSED)
 
 # What a run's registry row says of it: running until its teardown
 # writes the terminal status, done or failed. Not the workflow's state:
-# a run parked on a gate is still `running` here.
+# a run parked on a gate is still `running` here. A run parked on a
+# person's merge verdict has vacated (`runs.occupies` false): it gave back
+# its crew, its sandbox and its place under `max_concurrent_runs`, unless
+# its pull request edits the contract tree.
 RUN_STATUS_RUNNING = "running"
 RUN_STATUS_DONE = "done"
 RUN_STATUS_FAILED = "failed"
 RUN_STATUSES = (RUN_STATUS_RUNNING, RUN_STATUS_DONE, RUN_STATUS_FAILED)
+
+# What became of a delivered pull request, on its implement run's row once
+# the platform learned it: merged; refused (closed without merging — a
+# person rejected it, its gate expired, its head moved, its review was
+# abandoned, or someone closed it on the git host), which returns its
+# ticket to the backlog; or superseded by a rework ticket that carries
+# its work on, which does not.
+PR_MERGED = "merged"
+PR_REFUSED = "refused"
+PR_SUPERSEDED = "superseded"
+PR_SETTLED = (PR_MERGED, PR_REFUSED, PR_SUPERSEDED)
+# The gateway's word when a pull request's head does not merge cleanly
+# onto its moved base: the archive refuses with it, and the review refuses
+# the delivery on it.
+MERGE_CONFLICT = "merge conflict"
 
 # What happened at a gate: one outcome per kind, written on the gate's
 # process-gate audit row as `gate_<kind>` by the orchestrator and read

@@ -57,7 +57,7 @@ documents reach it after those lists, clipped and marked untrusted.
 | Field | The heartbeat refuses to start a run when… |
 |---|---|
 | `may_start` | the workflow is not on the list. A company that may not `implement` waits for you to run `poseidon start implement <n>`. |
-| `max_concurrent_runs` | that many of the company's runs are already in flight. |
+| `max_concurrent_runs` | that many of the company's runs are already in flight. A review waiting on your merge verdict doesn't count, unless its pull request edits the contract tree. |
 | `daily_cap.usd` | the day's spend has reached the cap. |
 | `max_attempts` | that many runs have already taken up the ticket or pull request. |
 | `max_open_tickets` | (for `scope` only) that many tickets are already open. |
@@ -73,18 +73,31 @@ be authority nobody wrote down.
 ## Retries and attempts
 
 A ticket or pull request leaves the backlog when a run *concludes* it: an
-implement run delivered a pull request, or a review reached a verdict.
-That holds whatever the gate did next.
+implement run delivered a pull request that was not refused, or a review
+reached a verdict.
 
 A run that ends without concluding anything, because a model call timed
 out or the agent hit its step limit, leaves its item for another try. The
-item is offered again until `max_attempts` runs have tried. The run that
-spends the last attempt records a `gate_exhausted` event and comments on
-the ticket or pull request, so the company never silently gives up.
+item is offered again until `max_attempts` runs have tried.
 
-A bootstrap ticket whose every attempt fails halts the loop with
-`heartbeat_bootstrap_exhausted` instead of planning without a strategy.
-Close the ticket and the heartbeat files a new one.
+## How a ticket ends
+
+Every ticket ends one of four ways, each recorded and shown on GitHub:
+
+| Ending | What happens |
+|---|---|
+| Its pull request merges | The platform closes the ticket as completed. A rework chain's tickets close with it. |
+| Its pull request is refused | The pull request closes without merging, with the reason on it: your rejection, an expired gate, a head or base that moved, a review that never reached a verdict, or a close on GitHub. The ticket comes back as one spent attempt, says why, and the next attempt reads the reason. |
+| Its attempts are spent | The ticket is abandoned: closed as not planned with its rework chain, the notice on it. |
+| The PM dismisses it | While it scopes, the PM may close a ticket the company should not work, as not planned, saying why. |
+
+A bootstrap ticket is never closed for spent attempts. The loop halts on
+it with `heartbeat_bootstrap_exhausted` instead of planning without a
+strategy. Close the ticket and the heartbeat files a new one.
+
+The open tickets are the backlog the company works on, plus issues
+others filed that the PM has not yet read. `max_open_tickets` bounds
+them.
 
 ## What the PM remembers
 

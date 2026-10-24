@@ -5,7 +5,8 @@ module walks the one that stays open — a port-forward with cluster
 credentials, beneath any policy — and proves it is harmless: a `merge`
 signal delivered straight to the workflow engine finds no verdict the
 console recorded, `merge.resolve` refuses it by name, the run ends failed
-and the pull request stays unmerged. Then the same verdict through the
+and the pull request is refused: closed, never merged. Then the same
+verdict through the
 console, on the review of a second PR, merges — and the story names the
 person.
 
@@ -123,7 +124,8 @@ def raw_review(delivered: dict) -> dict:
 def test_a_signal_past_the_console_releases_nothing(raw_review: dict, delivered) -> None:
     """The workflow took the signal as a nudge, read the audit store for
     the verdict, found none, and refused by name: no merge, no
-    `git.merge_pr` call, the PR still open."""
+    `git.merge_pr` call, and the delivery refused — the PR closed with
+    the reason on it, never merged."""
     record = raw_review["record"]
     assert record["status"] == "failed", record
     assert "no verified human verdict" in (record["error"] or "")
@@ -136,8 +138,11 @@ def test_a_signal_past_the_console_releases_nothing(raw_review: dict, delivered)
     assert resolves[-1]["rule"] == "merge_resolve_no_human_verdict"
     assert not any(e["tool"] == "git.merge_pr" for e in story), "a merge was attempted"
     assert not any(e["source"] == "console" for e in story), "the console never spoke"
+    closes = [e for e in story if e["tool"] == "git.close_pr"]
+    assert closes and closes[-1]["decision"] == "allow", closes
+    assert "no verified human verdict" in (closes[-1]["rationale"] or "")
     pull = _pull(delivered["env"], raw_review["pr_number"])
-    assert pull["state"] == "open" and pull["merged"] is False
+    assert pull["state"] == "closed" and pull["merged"] is False
 
 
 def _merge_approval(env: dict, run_id: str):

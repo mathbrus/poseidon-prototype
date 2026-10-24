@@ -7,14 +7,18 @@ Retry safety, per activity:
                           named rule `pr_not_open` (non-retryable, audited)
                           — nothing downstream can succeed on it, and the
                           ledger should not pay for a run that can only
-                          fail at the head ref. A PR first learned merged
-                          here closes the tickets it fulfils (each skipped
-                          when already closed), so a retry is still safe.
+                          fail at the head ref. A delivered PR first learned
+                          settled here is settled like the observation
+                          settles it (`settle_delivery`: idempotent but a
+                          refusal's comment on its ticket).
     record_verdict      — appends the reviewer's journaled verdict (same
                           append-only posture) and sets it on the run row,
                           an idempotent update.
     reviewer_independent— read-only against the registry; safe.
     read_human_verdict  — read-only against the audit store; safe.
+    pr_tips             — read-only against GitHub via the gateway, but a
+                          PR found settled is settled like `read_pr`
+                          settles it; safe the same way.
     resolve_merge       — re-evaluates the compiled merge.resolve decision
                           and re-audits; the honest record of what was
                           asked (the heartbeat_authorize posture).
@@ -24,14 +28,17 @@ Retry safety, per activity:
                           file a duplicate ticket — a noisy backlog, never
                           a lost finding.
     close_superseded_pr — closes the failed PR once its rework ticket is
-                          filed; closing a closed PR answers the same, so
-                          safe. Its own activity, so a retried close never
-                          files the ticket twice.
+                          filed and marks it superseded; closing a closed
+                          PR adds nothing, so safe. Its own activity, so a
+                          retried close never files the ticket twice.
+    refuse_delivery     — closes the PR, marks it refused and comments on
+                          its ticket; a retry can repeat only the comment.
     close_tickets       — closes the tickets the merged PR fulfils, each
                           read first and skipped when already closed; safe.
     merge_pr            — GitHub's merge endpoint is idempotent for an
                           already-merged PR (it answers 405, surfaced as a
-                          backend error the workflow reports honestly).
+                          backend error the workflow reports honestly); a
+                          head that moved answers the host's refusal.
 
 The merge itself: `git.merge_pr` is a *gateway tool
 call* under the orchestrator's platform identity — one of the two mediation
@@ -63,15 +70,16 @@ from common.identity import LIFECYCLE_PLATFORM, ORCHESTRATOR_ID, PLATFORM_ROLE
 from common.opa import evaluate_decision
 from common.policy import MERGE_RESOLVE
 from common.telemetry import get_logger
-from common.workflows import MERGE_GATE, workflow_id
+from common.workflows import MERGE_GATE, PR_SUPERSEDED, workflow_id
 from orchestrator.activities.blueprint import company_repo
 from orchestrator.activities.company import applied_company
 from orchestrator.activities.tickets import (
     REWORK_TITLE_RE,
     close_fulfilled_tickets,
     consumed_ticket,
-    merged_outside_rationale,
+    refuse_delivery,
     rework_title,
+    settle_delivery,
 )
 from orchestrator.audit import record_event
 from orchestrator.clients import GatewayClient, pr_settled
@@ -151,7 +159,7 @@ def rework_body(
     and the changed surface."""
     changed = "\n".join(f"- {p}" for p in paths) or "(none recorded)"
     return (
-        f"Pull request #{pr_number} ({pr_url}) failed its policy-gated"
+        f"Pull request #{pr_number} ({pr_url}) failed its automated"
         f" review: {reason}.\n\n"
         f"Reviewer findings: {findings}\n\n"
         f"Changed paths under review:\n{changed}\n\n"
@@ -185,11 +193,10 @@ class ReviewActivities:
     def _company(self) -> str:
         return applied_company(self._companies)
 
-    def _first_learned_merged(self, company: str, pr_number: int) -> bool:
-        """Whether the company delivered this PR and nothing has yet
-        recorded it settled — the one moment its tickets close."""
-        delivering = self._runs.implement_run_for_pr(company, pr_number)
-        return delivering is not None and delivering.pr_settled is None
+    def _max_attempts(self) -> int:
+        """The blueprint's attempt cap on a work item."""
+        spec = self._companies.get(self._company()) or {}
+        return int(spec["heartbeat"]["max_attempts"])
 
     @activity.defn(name="read_pr")
     async def read_pr(
@@ -213,38 +220,35 @@ class ReviewActivities:
         ) as gateway:
             pr = await gateway.read_pr(run_id, repo_url, pr_number)
             settled = pr_settled(pr)
-            if settled == "merged" and await asyncio.to_thread(
-                self._first_learned_merged, company, pr_number
-            ):
-                # Merged outside the platform, first learned here: the
-                # tickets it fulfils close before the settle is remembered,
-                # so a retry of this read still closes them.
-                await close_fulfilled_tickets(
+            if settled:
+                # Settled outside the platform and perhaps first learned
+                # here: settled like the observation settles it, so no
+                # later observation reads this PR again.
+                await settle_delivery(
                     gateway,
                     self._runs,
                     company,
                     run_id,
                     repo_url,
                     pr_number,
-                    merged_outside_rationale(pr_number),
+                    settled,
+                    await asyncio.to_thread(self._max_attempts),
                 )
         if settled:
-            # Learned here, remembered here: no later observation reads
-            # this PR again.
-            await asyncio.to_thread(
-                self._runs.mark_pr_settled, company, pr_number, settled
-            )
+            # The git host's word, merged or closed, whatever became of
+            # the delivery.
+            state = "merged" if pr.get("merged") else "closed"
             await self._append_event(
                 run_id=run_id,
                 tool=REVIEW_READ_PR,
-                payload={"number": pr_number, "state": settled},
+                payload={"number": pr_number, "state": state},
                 decision="deny",
                 rule=PR_NOT_OPEN,
                 source="process-lifecycle",
                 workflow_id=workflow_id("review", run_id),
             )
             raise ApplicationError(
-                f"{PR_NOT_OPEN}: pull request #{pr_number} is {settled}"
+                f"{PR_NOT_OPEN}: pull request #{pr_number} is {state}"
                 " — nothing to review",
                 non_retryable=True,
             )
@@ -266,6 +270,37 @@ class ReviewActivities:
             pr.get("files") or [], contract_paths or []
         )
         return shaped
+
+    @activity.defn(name="pr_tips")
+    async def pr_tips(self, run_id: str, pr_number: int) -> dict[str, Any]:
+        """The pull request's head and its base branch's tip as they stand
+        now — what the one merge site compares with the head the run
+        pinned and the base it was reviewed against. A PR someone merged
+        or closed while the run waited is settled here as `read_pr`
+        settles it, and answered `settled`."""
+        company = self._company()
+        repo_url = (await self._repo())["url"]
+        async with GatewayClient(
+            self._settings.mcp_gateway_url, self._settings.gateway_token()
+        ) as gateway:
+            pr = await gateway.read_pr(run_id, repo_url, pr_number)
+            settled = pr_settled(pr)
+            if settled:
+                await settle_delivery(
+                    gateway,
+                    self._runs,
+                    company,
+                    run_id,
+                    repo_url,
+                    pr_number,
+                    settled,
+                    await asyncio.to_thread(self._max_attempts),
+                )
+        return {
+            "head_sha": pr.get("head_sha") or "",
+            "base_sha": pr.get("base_sha") or "",
+            "settled": "merged" if pr.get("merged") else "closed" if settled else None,
+        }
 
     @activity.defn(name="contract_tree")
     async def contract_tree(self, run_id: str, contract_paths: list[str]) -> list[str]:
@@ -578,8 +613,9 @@ class ReviewActivities:
         orchestrator's platform identity — audited at the gateway — that
         the workflow issues strictly after the merge gate approved. It
         names the head the run reviewed: a head that moved since merges
-        nothing, and the run fails with the host's refusal — no retry
-        brings the reviewed head back."""
+        nothing and answers the host's refusal (`refused`), which the
+        workflow turns into a refused delivery — no retry brings the
+        reviewed head back."""
         started = time.monotonic()
         async with GatewayClient(
             self._settings.mcp_gateway_url, self._settings.gateway_token()
@@ -595,9 +631,7 @@ class ReviewActivities:
                 "latency_ms": int((time.monotonic() - started) * 1000),
             },
         )
-        if result.get("refused"):
-            raise ApplicationError(result["refused"], non_retryable=True)
-        if not result.get("merged"):
+        if not result.get("merged") and not result.get("refused"):
             raise RuntimeError(f"merge of pull request #{pr_number} did not land")
         return result
 
@@ -608,7 +642,9 @@ class ReviewActivities:
         """Close the PR whose failed review the rework ticket now carries,
         under the platform identity: the ticket supersedes it, and an open
         PR nobody will review again is debris on the host. Its diff and
-        findings stay readable through `git.read` — the ticket names it."""
+        findings stay readable through `git.read` — the ticket names it.
+        Superseded is not refused: the rework ticket carries the work on,
+        so the ticket this PR delivered stays concluded."""
         async with GatewayClient(
             self._settings.mcp_gateway_url, self._settings.gateway_token()
         ) as gateway:
@@ -617,12 +653,35 @@ class ReviewActivities:
                 (await self._repo())["url"],
                 pr_number,
                 f"superseded by rework ticket #{ticket_number}",
+                delete_branch=False,
             )
+        await asyncio.to_thread(
+            self._runs.mark_pr_settled, self._company(), pr_number, PR_SUPERSEDED
+        )
         self._log.bind(run_id=run_id).info(
             "superseded pr closed",
             extra={"pr_number": pr_number, "ticket": ticket_number},
         )
         return result
+
+    @activity.defn(name="refuse_delivery")
+    async def refuse_delivery(self, run_id: str, pr_number: int, reason: str) -> None:
+        """The merge gate ended without a merge or a rework: the PR closes
+        with the reason on it, and its ticket goes back on the backlog as
+        one spent attempt, told why (`tickets.refuse_delivery`)."""
+        async with GatewayClient(
+            self._settings.mcp_gateway_url, self._settings.gateway_token()
+        ) as gateway:
+            await refuse_delivery(
+                gateway,
+                self._runs,
+                self._company(),
+                run_id,
+                (await self._repo())["url"],
+                pr_number,
+                reason,
+                await asyncio.to_thread(self._max_attempts),
+            )
 
     @activity.defn(name="close_tickets")
     async def close_tickets(
@@ -647,6 +706,7 @@ class ReviewActivities:
     def all(self) -> list[Any]:
         return [
             self.read_pr,
+            self.pr_tips,
             self.contract_tree,
             self.record_verdict,
             self.reviewer_independent,
@@ -656,6 +716,7 @@ class ReviewActivities:
             self.rework_depth,
             self.file_rework,
             self.close_superseded_pr,
+            self.refuse_delivery,
             self.merge_pr,
             self.close_tickets,
         ]

@@ -496,6 +496,25 @@ def test_active_count_counts_every_running_run_of_the_company(registry: Registry
     assert Runs(registry).active_count("hello-saas") == 3
 
 
+def test_a_vacated_run_holds_no_place_until_it_starts_again(registry: Registry):
+    """A review parked on a person's merge verdict gives its place back: it
+    is still running, counted apart; a retried start takes the place
+    again."""
+    runs = Runs(registry)
+    runs.start("run-vc-1", "review pull request #4", "review", None, "hello-saas")
+    runs.start("run-vc-2", "implement issue #5", "implement", None, "hello-saas")
+    runs.vacate("run-vc-1")
+    assert runs.active_count("hello-saas") == 1
+    assert runs.vacated_count("hello-saas") == 1
+    assert runs.get("run-vc-1").status == "running"
+    assert runs.get("run-vc-1").occupies is False
+    runs.start("run-vc-1", "review pull request #4", "review", None, "hello-saas")
+    assert (runs.active_count("hello-saas"), runs.vacated_count("hello-saas")) == (2, 0)
+    runs.vacate("run-vc-1")
+    runs.finish("run-vc-1", "done")
+    assert runs.vacated_count("hello-saas") == 0
+
+
 def test_issue_attempts_fold_every_run_on_the_ticket(registry: Registry):
     """One `Attempts` per issue, from the canonical task: the count spans
     every status, `live` is any running run, and `concluded` is a delivered
@@ -514,6 +533,37 @@ def test_issue_attempts_fold_every_run_on_the_ticket(registry: Registry):
         3: Attempts(count=1, live=True, concluded=False),
         12: Attempts(count=2, live=False, concluded=True),
     }
+
+
+def test_a_refused_delivery_gives_its_ticket_back(registry: Registry):
+    """A delivery the platform refused does not conclude its ticket: the
+    attempt still counts, and the next attempt reads why, oldest first.
+    Merged and superseded deliveries still conclude."""
+    runs = Runs(registry)
+    for run_id, number, pr in (
+        ("run-rf-1", 5, 21),
+        ("run-rf-2", 5, 22),
+        ("run-rf-3", 6, 23),
+        ("run-rf-4", 7, 24),
+    ):
+        runs.start(run_id, f"implement issue #{number}", "implement", None, "hello-saas")
+        runs.finish(run_id, "done", pr_url=f"https://git.test/r/pull/{pr}")
+    runs.mark_pr_settled("hello-saas", 21, "refused", "owner rejected the merge: no")
+    runs.mark_pr_settled("hello-saas", 22, "refused", "nobody answered within 60 minutes")
+    runs.mark_pr_settled("hello-saas", 23, "merged")
+    runs.mark_pr_settled("hello-saas", 24, "superseded")
+    assert Runs(registry).issue_attempts("hello-saas") == {
+        5: Attempts(count=2, live=False, concluded=False),
+        6: Attempts(count=1, live=False, concluded=True),
+        7: Attempts(count=1, live=False, concluded=True),
+    }
+    assert runs.refusals("hello-saas", 5) == [
+        ("https://git.test/r/pull/21", "owner rejected the merge: no"),
+        ("https://git.test/r/pull/22", "nobody answered within 60 minutes"),
+    ]
+    assert runs.refusals("hello-saas", 6) == []
+    assert runs.refusals("other-co", 5) == []
+    assert runs.get("run-rf-3").pr_settled_reason is None
 
 
 def test_spent_today_sums_the_company_since_utc_midnight(registry: Registry):
@@ -554,9 +604,10 @@ def test_delivered_pr_urls_are_done_implement_runs_only(registry: Registry):
         "https://git.test/r/pull/9",
     ]
     # The world settled one: remembered on the run, offered no more.
-    runs.mark_pr_settled("hello-saas", 4, "closed")
+    runs.mark_pr_settled("hello-saas", 4, "refused", "closed outside the platform")
     assert Runs(registry).delivered_pr_urls("hello-saas") == ["https://git.test/r/pull/9"]
-    assert runs.get("run-pr-1").pr_settled == "closed"
+    assert runs.get("run-pr-1").pr_settled == "refused"
+    assert runs.get("run-pr-1").pr_settled_reason == "closed outside the platform"
 
 
 def test_review_attempts_conclude_on_a_recorded_verdict(registry: Registry):
@@ -797,6 +848,7 @@ def test_latest_human_verdict_is_the_consoles_last_word(registry: Registry):
     verdict(False, gate="budget", ts="2026-01-01T00:00:06+00:00")
     read = audit.latest_human_verdict(RUN_ID, "merge")
     assert read["principal"] == "owner" and read["approved"] is True
-    verdict(False, ts="2026-01-01T00:00:02+00:00")
+    verdict(False, ts="2026-01-01T00:00:02+00:00", rationale="not this way")
     assert audit.latest_human_verdict(RUN_ID, "merge")["approved"] is False
+    assert audit.latest_human_verdict(RUN_ID, "merge")["rationale"] == "not this way"
     assert audit.latest_human_verdict(RUN_ID, "budget")["approved"] is False

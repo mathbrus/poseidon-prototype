@@ -133,10 +133,55 @@ def test_read_issue_returns_the_view_and_links_the_ticket(
             "url": "https://github.test/i/42",
         },
     )
+    runs.start("run-before", issue_run_task(42), "implement", company="hello-saas")
+    runs.finish("run-before", "done", pr_url="https://github.test/pull/5")
+    runs.mark_pr_settled("hello-saas", 5, "refused", "nobody answered within 60 minutes")
     runs.start(RUN_ID, issue_run_task(42), "implement", company="hello-saas")
     issue = asyncio.run(activities.read_issue(RUN_ID, 42))
     assert issue["title"] == "Add slugify" and issue["body"] == "spec"
     assert runs.get(RUN_ID).ticket_urls == ["https://github.test/i/42"]
+    # The attempt before was refused: this one reads why.
+    assert issue["refusals"] == [
+        {
+            "pr_url": "https://github.test/pull/5",
+            "reason": "nobody answered within 60 minutes",
+        }
+    ]
+
+
+def test_a_merge_conflict_is_named_not_retried(activities, monkeypatch, fake_gateway):
+    """A head that does not merge onto the moved base is a non-retryable
+    error of its own type, the conflict in its message; any other failure
+    of the same fetch is an ordinary, retryable one."""
+    from temporalio.exceptions import ApplicationError
+
+    import orchestrator.activities.implement as module
+    from orchestrator.clients import GatewayError
+
+    failures = iter(
+        [
+            GatewayError(
+                "Error executing tool repo.archive: merge conflict: f00d does not"
+                " merge cleanly onto ba5e (conflicts in app.py)"
+            ),
+            GatewayError("git clone failed: network"),
+        ]
+    )
+
+    async def fetch_workspace(self, *args):
+        raise next(failures)
+
+    monkeypatch.setattr(
+        module, "GatewayClient", fake_gateway(fetch_workspace=fetch_workspace)
+    )
+    with pytest.raises(ApplicationError) as caught:
+        asyncio.run(activities.fetch_workspace(RUN_ID, "f00d", None, "ba5e"))
+    assert caught.value.type == "merge conflict" and caught.value.non_retryable
+    assert caught.value.message == (
+        "merge conflict: f00d does not merge cleanly onto ba5e (conflicts in app.py)"
+    )
+    with pytest.raises(GatewayError, match="network"):
+        asyncio.run(activities.fetch_workspace(RUN_ID, "f00d", None, "ba5e"))
 
 
 def test_read_issue_refuses_a_closed_issue(activities, monkeypatch, fake_gateway):

@@ -29,6 +29,24 @@ How a release is decided is the Releasing page of the docs site
   `poseidon blueprint new` asks whether routine changes may merge without
   a person instead of who decides; `examples/hello-saas-delegated.yaml`
   is `examples/hello-saas-automated.yaml` (#97)
+- Every way a ticket ends is recorded and shown on GitHub. A delivery
+  whose pull request closes without merging is refused: the pull request
+  closes with the reason on it (your rejection's words, an expired gate,
+  a moved head, a red or conflicting merge onto a moved base, an
+  abandoned review, a close on GitHub), its branch goes, and the ticket
+  comes back as one spent attempt whose next delivery reads why. A ticket
+  whose attempts are spent closes as not planned with its rework chain.
+  The PM may dismiss a ticket the company should not work while it
+  scopes, through `issues.dismiss`, within compiled limits. A review
+  waiting on your merge verdict gives back its crew, its sandbox and its
+  place under `max_concurrent_runs`, unless its pull request edits the
+  contract tree. A merge onto a base that moved since the review is
+  verified first. *Changed:* applying a blueprint with another
+  `stack.repo.url` is refused while the company lives; `issues.close`
+  takes `reason`, `git.close_pr` takes `delete_branch`, `repo.archive`
+  takes `merge_onto`, and `git.read` answers `base_sha`; new rules
+  `issues_dismiss_*`; the activity `record_attempts_exhausted` is
+  `abandon_exhausted` (#98)
 
 ## [0.4.0+2026.10.22] - 2026-10-22
 

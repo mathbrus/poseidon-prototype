@@ -5,11 +5,13 @@ workflow's terminal record and what the CLI prints when a run completes.
 
 The row also says whether the run *concluded* its work item, which is a
 different question from whether it succeeded: an implement run concluded
-when it delivered a PR (`pr_url`), a review run when its reviewer reached
-a verdict (`verdict`) — a rework filed or a gate rejected is still a
-conclusion. A run that ended with neither aborted (a timed-out model
-call, a step cap, a cancel), and the heartbeat's consumption rule reads
-that difference off the attempt aggregates below.
+when it delivered a PR (`pr_url`) and that delivery was not refused
+(`pr_settled`), a review run when its reviewer reached a verdict
+(`verdict`) — a rework filed or a gate rejected is still a review that
+concluded. An implement run that ended short of a delivery aborted (a
+timed-out model call, a step cap, a cancel); one whose delivery was
+refused spent an attempt on its ticket and gave it back. The heartbeat's
+consumption rule reads that difference off the attempt aggregates below.
 """
 
 import json
@@ -18,8 +20,8 @@ from typing import Any
 
 from psycopg.errors import UniqueViolation
 
-from common.tasks import ISSUE_TASK_RE, REVIEW_TASK_RE
-from common.workflows import HEARTBEAT_WORKFLOW, RUN_WORKFLOWS
+from common.tasks import ISSUE_TASK_RE, REVIEW_TASK_RE, issue_run_task
+from common.workflows import HEARTBEAT_WORKFLOW, PR_REFUSED, RUN_WORKFLOWS
 from registry.db import Registry
 
 
@@ -38,11 +40,13 @@ class RunRecord:
     run_id: str
     task: str = ""
     status: str = "running"
+    occupies: bool = True
     workflow: str = "implement"
     workflow_id: str | None = None
     company: str | None = None
     pr_url: str | None = None
     pr_settled: str | None = None
+    pr_settled_reason: str | None = None
     verdict: str | None = None
     ticket_urls: list[str] = field(default_factory=list)
     iterations: int = 0
@@ -56,11 +60,13 @@ class RunRecord:
             run_id=row["run_id"],
             task=row["task"],
             status=row["status"],
+            occupies=row["occupies"],
             workflow=row["workflow"],
             workflow_id=row["workflow_id"],
             company=row["company"],
             pr_url=row["pr_url"],
             pr_settled=row["pr_settled"],
+            pr_settled_reason=row["pr_settled_reason"],
             verdict=row["verdict"],
             ticket_urls=list(row["ticket_urls"] or []),
             iterations=row["iterations"],
@@ -112,6 +118,7 @@ class Runs:
                 ON CONFLICT (run_id) DO UPDATE SET
                     task = EXCLUDED.task,
                     status = 'running',
+                    occupies = true,
                     workflow = EXCLUDED.workflow,
                     workflow_id = EXCLUDED.workflow_id,
                     company = EXCLUDED.company,
@@ -205,23 +212,44 @@ class Runs:
     def active_count(self, company: str) -> int:
         """Runs currently occupying the company — what the heartbeat
         compares against `max_concurrent_runs`: every run the heartbeat
-        may start, the conductor's own scope run included. Only the
-        heartbeat's decision rows are not runs."""
+        may start, the conductor's own scope run included, but a run that
+        gave its place back while it waits on a person (`vacate`). Only
+        the heartbeat's decision rows are not runs."""
+        return self._running(company, occupies=True)
+
+    def vacated_count(self, company: str) -> int:
+        """Runs still running that hold no place: parked on a person's
+        merge verdict, their crew and sandbox given back."""
+        return self._running(company, occupies=False)
+
+    def _running(self, company: str, occupies: bool) -> int:
         rows = self._db.query(
             "SELECT COUNT(*) AS n FROM registry.runs"
-            " WHERE company = %s AND status = 'running'"
+            " WHERE company = %s AND status = 'running' AND occupies = %s"
             "   AND workflow = ANY(%s)",
-            (company, list(RUN_WORKFLOWS)),
+            (company, occupies, list(RUN_WORKFLOWS)),
         )
         return int(rows[0]["n"])
+
+    def vacate(self, run_id: str) -> None:
+        """The run gives its place under `max_concurrent_runs` back while
+        it waits on a person; it is still running."""
+        self._db.execute(
+            "UPDATE registry.runs SET occupies = false WHERE run_id = %s", (run_id,)
+        )
 
     def issue_attempts(self, company: str) -> dict[int, Attempts]:
         """Every issue the company's implement runs ever took up, keyed by
         number, with the runs on it folded into one `Attempts`. Concluded
-        means delivered: a `pr_url` on any of the runs, whatever their
-        status — a failed teardown after delivery still delivered."""
+        means delivered and not refused: a `pr_url` on any of the runs,
+        whatever their status — a failed teardown after delivery still
+        delivered — unless the platform refused that delivery, which gives
+        the ticket back as one spent attempt."""
         return self._attempts(
-            company, "implement", ISSUE_TASK_RE.pattern, "pr_url IS NOT NULL"
+            company,
+            "implement",
+            ISSUE_TASK_RE.pattern,
+            f"pr_url IS NOT NULL AND pr_settled IS DISTINCT FROM '{PR_REFUSED}'",
         )
 
     def review_attempts(self, company: str) -> dict[int, Attempts]:
@@ -270,15 +298,30 @@ class Runs:
         )
         return [row["pr_url"] for row in rows]
 
-    def mark_pr_settled(self, company: str, pr_number: int, state: str) -> None:
-        """The world settled a delivered PR (`merged`, `closed`): remember
-        it on the delivering run so no later observation reads it again.
-        Keyed the way every reader keys PRs — by number, the URL's tail."""
+    def mark_pr_settled(
+        self, company: str, pr_number: int, state: str, reason: str | None = None
+    ) -> None:
+        """What became of a delivered PR (`common.workflows.PR_SETTLED`),
+        and why when it was refused: remembered on the delivering run so
+        no later observation reads it again. Keyed the way every reader
+        keys PRs — by number, the URL's tail."""
         self._db.execute(
-            "UPDATE registry.runs SET pr_settled = %s"
+            "UPDATE registry.runs SET pr_settled = %s, pr_settled_reason = %s"
             " WHERE company = %s AND workflow = 'implement' AND pr_url ~ %s",
-            (state, company, f"/pull/{pr_number}$"),
+            (state, reason, company, f"/pull/{pr_number}$"),
         )
+
+    def refusals(self, company: str, issue_number: int) -> list[tuple[str, str]]:
+        """The ticket's refused deliveries as `(pr_url, reason)`, oldest
+        first — what the next attempt's brief says went wrong before."""
+        rows = self._db.query(
+            "SELECT pr_url, pr_settled_reason FROM registry.runs"
+            " WHERE company = %s AND workflow = 'implement' AND task = %s"
+            "   AND pr_settled = %s"
+            " ORDER BY finished_at NULLS LAST, created_at",
+            (company, issue_run_task(issue_number), PR_REFUSED),
+        )
+        return [(row["pr_url"], row["pr_settled_reason"] or "") for row in rows]
 
     def implement_run_for_pr(self, company: str, pr_number: int) -> RunRecord | None:
         """The implement run that delivered a pull request — the PR's run

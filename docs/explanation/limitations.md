@@ -15,6 +15,7 @@ guarantees stop. Read it before you trust it with anything that matters.
 | [Base images are pinned by tag, not digest](#base-images-are-pinned-by-tag-not-digest) | `python:3.12-slim` can change under you. | Python dependencies are locked; CI audits them. |
 | [Tested on kind only](#tested-on-kind-only) | Nothing has run on a managed cluster or in production. | One replica per service, development defaults for internal secrets. |
 | [An agent pod that dies starts over](#an-agent-pod-that-dies-starts-over) | The model's conversation is lost; the files it wrote survive. | The orchestrator itself is durable. |
+| [The base can move after the last read](#the-base-can-move-after-the-last-read) | A commit that lands on the base branch between the platform's last read and GitHub's merge is not verified with the pull request. | The window is one API call wide; the merge still names the reviewed head. |
 | [An automated merge trusts the contract](#an-automated-merge-trusts-the-contract) | Code that meets the contract but is wrong elsewhere still merges. | Contract changes always need you. |
 | [The company writes its own strategy](#the-company-writes-its-own-strategy) | The first strategy is the agents' reading of your vision, and nothing revises it. | Review the strategy pull request yourself. |
 
@@ -108,6 +109,16 @@ Keeping the conversation would need somewhere the agent can write that is
 neither its pod nor the sandbox. That would be new authority for the one
 process assumed compromised, so it hasn't been added.
 
+## The base can move after the last read
+
+Before it merges, the platform reads the pull request again. If the base
+branch moved since the review, it builds the head merged onto the new base
+in a fresh sandbox and runs the tests there, and merges only on green. But
+GitHub's merge endpoint pins the head, not the base. A commit that lands
+on the base branch after that last read and before the merge is merged
+with the pull request unverified. The window is the time between two API
+calls.
+
 ## An automated merge trusts the contract
 
 When the merge gate is automated:
@@ -118,6 +129,10 @@ When the merge gate is automated:
   as the person who approved it. A vague spec passes, and the code merges.
   Proving a spec adequate (mutation testing, coverage floors) is out of
   scope.
+- **Contract-first order needs a one-place company.** A contract pull
+  request waiting on you keeps its place under `max_concurrent_runs`, so
+  with one place the implementation waits for its contract. With two or
+  more, the implementation can merge before its contract lands.
 - **Rework depth is read from a ticket title.** No agent can edit a
   ticket title, so it can't be lowered. Storing the depth in the registry
   would be sturdier. Issue

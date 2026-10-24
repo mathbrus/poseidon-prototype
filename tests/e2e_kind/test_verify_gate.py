@@ -24,8 +24,8 @@ from .conftest import close_issue, close_pr_url, run_implement
 def verify_red_run(stack: None, env: dict) -> dict:
     record = run_implement("verify-red", env)
     yield record
-    close_pr_url(env, record.get("pr_url"))
     close_issue(env, record["issue_number"])
+    close_pr_url(env, record.get("pr_url"))
 
 
 def test_red_gate_feeds_back_and_the_run_still_delivers(

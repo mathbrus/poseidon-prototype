@@ -11,6 +11,8 @@ from mock_brain.brain import (
     CONTRACT_FIRST_MARKER,
     CONTRACT_TEST_PATH,
     CONTRACT_TESTS_PY,
+    DISMISS_MARKER,
+    DISMISS_RATIONALE,
     FALLBACK_BRANCH,
     GUTTED_CONTRACT_PY,
     MERGE_GATE_REDTEAM_MARKER,
@@ -580,6 +582,59 @@ def test_pm_posts_its_summary_on_each_ticket_then_stops():
         pm_history(CONTRACT_STRATEGY, *pair_filed, "comment_issue", "comment_issue")
     )
     assert done.tool_calls == []
+
+
+def test_the_pm_reads_the_backlog_and_dismisses_the_marked_tickets():
+    """With tickets open, the PM reads the backlog's bodies first, then
+    dismisses every open ticket whose body carries the marker — one call
+    each, its rationale stated — and only then scopes the slice. A body is
+    the only place the marker counts: a title carrying it is not read."""
+    observation = OPEN_SLICE.replace(
+        "Scope the next slice of work.",
+        "Scope the next slice of work. Runs in flight: 0. Open tickets on the"
+        " repository: 3.",
+    )
+    backlog = {
+        "issues": [
+            {"number": 4, "state": "open", "title": "Mine coins", "body": DISMISS_MARKER},
+            {"number": 5, "state": "open", "title": DISMISS_MARKER, "body": "Fine work."},
+            {"number": 6, "state": "open", "title": "Odd", "body": f"x {DISMISS_MARKER}"},
+        ]
+    }
+
+    def history(*calls: tuple[str, str]) -> list[dict]:
+        messages = [
+            {"role": "system", "content": header("scope")},
+            {"role": "user", "content": observation},
+        ]
+        for i, (name, reply) in enumerate(calls):
+            messages += [
+                {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": f"c{i}",
+                            "type": "function",
+                            "function": {"name": name, "arguments": "{}"},
+                        }
+                    ],
+                },
+                {"role": "tool", "tool_call_id": f"c{i}", "content": reply},
+            ]
+        return messages
+
+    read = next_completion(history())
+    assert names(read) == ["read_issues"]
+    after_read = ("read_issues", json.dumps(backlog))
+    first = next_completion(history(after_read))
+    assert names(first) == ["dismiss_issue"]
+    assert first.tool_calls[0].arguments == {"number": 4, "rationale": DISMISS_RATIONALE}
+    refused = ("dismiss_issue", "ERROR: issues_dismiss_in_flight")
+    second = next_completion(history(after_read, refused))
+    assert second.tool_calls[0].arguments["number"] == 6
+    scoped = next_completion(history(after_read, refused, ("dismiss_issue", "{}")))
+    assert names(scoped) == ["create_issue"]
 
 
 def test_poisoned_pm_summarizes_every_ticket_it_filed():

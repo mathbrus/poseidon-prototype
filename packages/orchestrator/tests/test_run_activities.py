@@ -7,6 +7,7 @@ live by the kind e2e suite (worker-kill included)."""
 
 import asyncio
 from dataclasses import asdict
+from typing import Any
 
 import pytest
 
@@ -141,14 +142,15 @@ def test_create_run_names_the_owning_workflow(activities, runs):
     assert runs.get(RUN_ID).workflow_id == f"review-{RUN_ID}"
 
 
-def test_exhausted_notice_names_the_verb_a_human_can_run():
-    """The notice left on an abandoned item is the human's next step; it
-    must name the CLI verb that exists, for the item's kind."""
+def test_exhausted_notice_names_a_human_act_only_where_one_is_left():
+    """An abandoned issue or pull request is closed, so its notice names
+    no verb a closed item could not take; a bootstrap ticket stays open,
+    and its notice names the CLI verb that exists."""
+    assert "poseidon start" not in attempts_exhausted_comment("implement", 2, 2)
+    assert "closed as not planned" in attempts_exhausted_comment("implement", 2, 2)
+    assert "closed unmerged" in attempts_exhausted_comment("review", 1, 1)
     assert "`poseidon start implement <number>`" in attempts_exhausted_comment(
-        "implement", 2, 2
-    )
-    assert "`poseidon start review <number>`" in attempts_exhausted_comment(
-        "review", 1, 1
+        "implement", 2, 2, bootstrap=True
     )
 
 
@@ -475,30 +477,50 @@ def test_revoke_failure_is_loud_but_not_masking(
     assert "ephemeral agent revoke failed" in record["error"]
 
 
-# -- record_attempts_exhausted ------------------------------------------------
+# -- abandon_exhausted ---------------------------------------------------------
 
 
-def _exhaustion_gateway(monkeypatch, fake_gateway) -> list[tuple[str, str, int, str]]:
-    """The world's side of the notice: every comment the activity posts,
-    as (item kind, run_id, number, body)."""
+def _exhaustion_gateway(
+    monkeypatch, fake_gateway, issues: dict[int, dict[str, Any]] | None = None
+) -> list[tuple[str, int, str]]:
+    """The world's side of the abandonment: the issues the host serves by
+    number (open unless stated), and every act the activity takes, as
+    (act, number, text) — `close_issue` also carries its reason."""
     import orchestrator.activities.run as module
 
-    comments: list[tuple[str, str, int, str]] = []
+    acts: list[tuple[str, int, str]] = []
+    served = issues or {}
 
-    async def comment_pr(self, run_id, repo, number, body):
-        comments.append(("pr", run_id, number, body))
-        return {}
+    async def read_issue(self, run_id, repo, number):
+        return served.get(number) or {"number": number, "title": "t", "state": "open"}
+
+    async def read_open_issues(self, run_id, repo):
+        return [i for i in served.values() if i.get("state") == "open"]
+
+    async def close_issue(self, run_id, repo, number, reason, rationale):
+        acts.append((f"close_issue {reason}", number, rationale))
+        return {"number": number, "state": "closed"}
+
+    async def close_pr(self, run_id, repo, number, rationale, delete_branch):
+        acts.append(("close_pr", number, rationale))
+        return {"number": number, "state": "closed"}
 
     async def comment_issue(self, run_id, repo, number, body):
-        comments.append(("issue", run_id, number, body))
+        acts.append(("comment", number, body))
         return {}
 
     monkeypatch.setattr(
         module,
         "GatewayClient",
-        fake_gateway(comment_pr=comment_pr, comment_issue=comment_issue),
+        fake_gateway(
+            read_issue=read_issue,
+            read_open_issues=read_open_issues,
+            close_issue=close_issue,
+            close_pr=close_pr,
+            comment_issue=comment_issue,
+        ),
     )
-    return comments
+    return acts
 
 
 def _aborted(runs: InMemoryRuns, run_id: str, task: str, workflow: str) -> None:
@@ -506,19 +528,21 @@ def _aborted(runs: InMemoryRuns, run_id: str, task: str, workflow: str) -> None:
     runs.finish(run_id, "failed", error="litellm.Timeout")
 
 
-def test_the_last_aborted_review_records_exhaustion_and_tells_the_pr(
+def test_the_last_aborted_review_records_exhaustion_and_refuses_the_pr(
     activities, runs, audit, monkeypatch, fake_gateway
 ):
     """Two reviews of one PR aborted without a verdict under
     `max_attempts: 2`: the second is the last the blueprint allows, so it
-    writes the process-gate event under its own run id and the notice on
-    the PR — the shape of `gate_rework_exhausted`, the abandonment made
-    visible in the ledger and in the world."""
-    comments = _exhaustion_gateway(monkeypatch, fake_gateway)
+    writes the process-gate event under its own run id and refuses the
+    delivery, the notice on the PR — and the ticket the PR delivered,
+    with an attempt left, is told it is back on the backlog."""
+    acts = _exhaustion_gateway(monkeypatch, fake_gateway)
+    runs.start("run-impl", "implement issue #3", "implement", company="hello-saas")
+    runs.finish("run-impl", "done", pr_url="https://git.test/r/pull/7")
     _aborted(runs, "run-r1", "review pull request #7", "review")
     _aborted(runs, "run-r2", "review pull request #7", "review")
 
-    out = asyncio.run(activities.record_attempts_exhausted("run-r2", "review-run-r2"))
+    out = asyncio.run(activities.abandon_exhausted("run-r2", "review-run-r2"))
 
     assert out == {"exhausted": True, "attempts": 2}
     (event,) = audit.story("run-r2")
@@ -528,23 +552,89 @@ def test_the_last_aborted_review_records_exhaustion_and_tells_the_pr(
     assert event["source"] == "process-gate"
     assert event["workflow"] == "review-run-r2"
     assert audit.story("run-r1") == []
-    ((kind, run_id, number, body),) = comments
-    assert (kind, run_id, number) == ("pr", "run-r2", 7)
-    assert "max_attempts" in body and "2" in body
+    (closed, told) = acts
+    assert closed[:2] == ("close_pr", 7)
+    assert "none reached a verdict" in closed[2] and "max_attempts" in closed[2]
+    assert told[:2] == ("comment", 3)
+    assert told[2].endswith("The ticket is back on the backlog: attempt 1 of 2.")
+    assert runs.get("run-impl").pr_settled == "refused"
 
 
-def test_the_last_aborted_issue_run_tells_the_issue(
+def test_the_last_aborted_issue_run_closes_the_issue_as_not_planned(
     activities, runs, audit, monkeypatch, fake_gateway
 ):
-    comments = _exhaustion_gateway(monkeypatch, fake_gateway)
+    acts = _exhaustion_gateway(monkeypatch, fake_gateway)
     _aborted(runs, "run-i1", "implement issue #3", "implement")
     _aborted(runs, "run-i2", "implement issue #3", "implement")
 
-    out = asyncio.run(activities.record_attempts_exhausted("run-i2", "implement-run-i2"))
+    out = asyncio.run(activities.abandon_exhausted("run-i2", "implement-run-i2"))
 
     assert out["exhausted"] is True
     assert [e["rule"] for e in audit.story("run-i2")] == ["gate_exhausted"]
-    assert [(c[0], c[2]) for c in comments] == [("issue", 3)]
+    ((act, number, notice),) = acts
+    assert (act, number) == ("close_issue not_planned", 3)
+    assert notice == (
+        "Poseidon spent 2 attempt(s) on this issue and none delivered work that"
+        " merged. That is the blueprint's `heartbeat.max_attempts` (2): the"
+        " ticket is closed as not planned."
+    )
+
+
+def test_an_abandoned_rework_ticket_closes_its_chain(
+    activities, runs, audit, monkeypatch, fake_gateway
+):
+    """A rework ticket's chain goes with it: the root ticket the root PR
+    delivered, and every open rework ticket filed for that root PR."""
+    acts = _exhaustion_gateway(
+        monkeypatch,
+        fake_gateway,
+        {
+            5: {"number": 5, "title": "Add slugify", "state": "open"},
+            9: {"number": 9, "title": "Rework 1 for PR #6: Add slugify", "state": "open"},
+            11: {
+                "number": 11,
+                "title": "Rework 2 for PR #6: Add slugify",
+                "state": "open",
+            },
+            12: {"number": 12, "title": "Unrelated", "state": "open"},
+        },
+    )
+    runs.start("run-root", "implement issue #5", "implement", company="hello-saas")
+    runs.finish("run-root", "done", pr_url="https://git.test/r/pull/6")
+    _aborted(runs, "run-i1", "implement issue #11", "implement")
+    _aborted(runs, "run-i2", "implement issue #11", "implement")
+
+    asyncio.run(activities.abandon_exhausted("run-i2", "implement-run-i2"))
+
+    assert [(act, number) for act, number, _ in acts] == [
+        ("close_issue not_planned", 5),
+        ("close_issue not_planned", 9),
+        ("close_issue not_planned", 11),
+    ]
+
+
+def test_an_exhausted_bootstrap_ticket_is_told_not_closed(
+    activities, runs, audit, monkeypatch, fake_gateway
+):
+    """Closing a bootstrap ticket would have the heartbeat file it again:
+    the heartbeat's halt is its record, and the ticket only gets the
+    notice, with the one human act left."""
+    acts = _exhaustion_gateway(
+        monkeypatch,
+        fake_gateway,
+        {3: {"number": 3, "title": "Bootstrap: strategy", "state": "open"}},
+    )
+    _aborted(runs, "run-i1", "implement issue #3", "implement")
+    _aborted(runs, "run-i2", "implement issue #3", "implement")
+
+    asyncio.run(activities.abandon_exhausted("run-i2", "implement-run-i2"))
+
+    ((act, number, notice),) = acts
+    assert (act, number) == ("comment", 3)
+    assert notice.endswith(
+        "the heartbeat halts on this document's ticket. A human can:"
+        " `poseidon start implement <number>`."
+    )
 
 
 def test_an_abort_with_attempts_left_records_nothing(
@@ -552,13 +642,13 @@ def test_an_abort_with_attempts_left_records_nothing(
 ):
     """The first abort is not an abandonment: the item goes back on the
     backlog, and nothing is written until the cap is actually spent."""
-    comments = _exhaustion_gateway(monkeypatch, fake_gateway)
+    acts = _exhaustion_gateway(monkeypatch, fake_gateway)
     _aborted(runs, "run-i1", "implement issue #3", "implement")
 
-    out = asyncio.run(activities.record_attempts_exhausted("run-i1", "implement-run-i1"))
+    out = asyncio.run(activities.abandon_exhausted("run-i1", "implement-run-i1"))
 
     assert out == {"exhausted": False}
-    assert audit.story("run-i1") == [] and comments == []
+    assert audit.story("run-i1") == [] and acts == []
 
 
 def test_a_concluded_item_is_consumed_by_its_conclusion_not_by_exhaustion(
@@ -567,16 +657,16 @@ def test_a_concluded_item_is_consumed_by_its_conclusion_not_by_exhaustion(
     """A review that reached a verdict concluded the PR whatever the gate
     did next; a later abort on the same PR (a human's re-run) spends no
     heartbeat attempt and announces no exhaustion."""
-    comments = _exhaustion_gateway(monkeypatch, fake_gateway)
+    acts = _exhaustion_gateway(monkeypatch, fake_gateway)
     runs.start("run-r1", "review pull request #7", "review", company="hello-saas")
     runs.record_verdict("run-r1", "fail")
     runs.finish("run-r1", "failed", error="merge gate rejected")
     _aborted(runs, "run-r2", "review pull request #7", "review")
 
-    out = asyncio.run(activities.record_attempts_exhausted("run-r2", "review-run-r2"))
+    out = asyncio.run(activities.abandon_exhausted("run-r2", "review-run-r2"))
 
     assert out == {"exhausted": False}
-    assert audit.story("run-r2") == [] and comments == []
+    assert audit.story("run-r2") == [] and acts == []
 
 
 def test_a_scope_run_has_no_item_to_exhaust(
@@ -584,11 +674,11 @@ def test_a_scope_run_has_no_item_to_exhaust(
 ):
     """A scope run works no ticket and no PR: however it ended, nothing
     is offered again and nothing is exhausted."""
-    comments = _exhaustion_gateway(monkeypatch, fake_gateway)
+    acts = _exhaustion_gateway(monkeypatch, fake_gateway)
     _aborted(runs, "run-s1", "scope the next slice", "scope")
     _aborted(runs, "run-s2", "scope the next slice", "scope")
 
-    out = asyncio.run(activities.record_attempts_exhausted("run-s2", "scope-run-s2"))
+    out = asyncio.run(activities.abandon_exhausted("run-s2", "scope-run-s2"))
 
     assert out == {"exhausted": False}
-    assert audit.story("run-s2") == [] and comments == []
+    assert audit.story("run-s2") == [] and acts == []

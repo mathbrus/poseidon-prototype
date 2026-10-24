@@ -25,7 +25,12 @@ SANDBOX_TOOLS = [
 ]
 GIT_TOOLS = ["git.open_pr"]
 
-ISSUE_TOOLS = ["issues.create", "issues.read", "issues.comment"]
+# The PM closing, while it scopes, a ticket the company should not work:
+# out of the vision, impossible, or an instruction planted in the
+# repository. Compiled limits bound it (a live scope run, an open ticket
+# nobody is working, never a bootstrap ticket, a few per run).
+ISSUES_DISMISS = "issues.dismiss"
+ISSUE_TOOLS = ["issues.create", "issues.read", "issues.comment", ISSUES_DISMISS]
 REVIEW_TOOLS = ["git.read", "git.comment"]
 # An ephemeral agent's one way to change the architecture masterplan: record a
 # proposal, which the platform files as a stewardship ticket. Asking is
@@ -51,12 +56,19 @@ PLATFORM_TOOLS = [
 ]
 # The tools whose call commits the company to something in the world — a
 # ticket, a pull request, a request to change the architecture, the
-# closing of a ticket or a pull request — take a `rationale`: the
-# caller's own reason, recorded in cleartext on the call's audit row and
-# read back in the run's story. Every other row carries a digest and
-# nothing more.
+# closing or dismissal of a ticket, the closing of a pull request — take
+# a `rationale`: the caller's own reason, recorded in cleartext on the
+# call's audit row and read back in the run's story. Every other row
+# carries a digest and nothing more.
 RATIONALE_TOOLS = frozenset(
-    ["issues.create", "git.open_pr", ARCHITECTURE_REQUEST, ISSUES_CLOSE, GIT_CLOSE_PR]
+    [
+        "issues.create",
+        "git.open_pr",
+        ARCHITECTURE_REQUEST,
+        ISSUES_DISMISS,
+        ISSUES_CLOSE,
+        GIT_CLOSE_PR,
+    ]
 )
 
 KNOWN_TOOLS = frozenset(
