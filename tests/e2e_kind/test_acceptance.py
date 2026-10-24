@@ -7,10 +7,13 @@ plus the cross-suite claims that only make sense once everything else ran.
 
 What the suite proves, and where:
 
-  1 declarative   test_reconciler_lifecycle (apply / edit / teardown with the
-                  failed post-teardown call); HERE: compile and preview as
-                  scripted e2e steps, and compile-is-what's-live (the local
-                  compile's content-addressed revision == the served one)
+  1 declarative   test_reconciler_lifecycle (apply / edit), test_delete
+                  (teardown with the failed post-teardown call, no row and
+                  no workflow history of the company left, a company
+                  applied again with no history, the repository purged);
+                  HERE: compile and preview as scripted e2e steps, and
+                  compile-is-what's-live (the local compile's
+                  content-addressed revision == the served one)
   2 durable       test_happy_path (kill-worker resume),
                   test_registry_durability, test_crew_fulfillment
                   (worker-kill crew sweep); HERE: the killed happy-path run itself

@@ -82,7 +82,8 @@ windows (`cluster.wake_and_await_ticks`), never on the ledger's whole
 history.
 
 Collection order is the hook's, not the filenames': the capstones run
-after every module whose runs they read, and `test_quiet` runs last.
+after every module whose runs they read, the delete after the capstones
+(it erases what they read), and `test_quiet` runs last.
 """
 
 import base64
@@ -151,11 +152,14 @@ DOCUMENT_PATHS: dict[str, str] = yaml.safe_load(HELLO_SAAS.read_text())["company
 
 # The modules that must run after everything else, in this order: the
 # acceptance capstone reads what the whole suite produced; the two
-# autonomy capstones add runs of their own; the quiet check comes last.
+# autonomy capstones add runs of their own; the delete erases every row
+# and history the session made, so nothing after it may read them; the
+# quiet check comes last.
 ORDERED_LAST = [
     "test_acceptance.py",
     "test_overnight.py",
     "test_automated.py",
+    "test_delete.py",
     "test_quiet.py",
 ]
 
@@ -689,13 +693,19 @@ def await_no_runs_in_flight(deadline_s: int = 1200) -> None:
 def baseline_env(env: dict[str, str]) -> dict[str, str]:
     """Establish the declared shape of the disposable repository's main once per session —
     autouse, so a standalone module run gets the same contract the full
-    suite does and a fresh disposable repo needs no manual seeding.
-    Idempotent: a repo already at baseline gets reads, not commits."""
+    suite does and a fresh disposable repo needs no manual seeding."""
+    seed_baseline(env)
+    return env
+
+
+def seed_baseline(env: dict[str, str]) -> None:
+    """Write the declared shape onto main and prune what it refuses.
+    Idempotent: a repo already at baseline gets reads, not commits; an
+    empty one — a purged one — gets every file."""
     for path, content in REPO_BASELINE.items():
         put_repo_file(env, path, content, f"suite baseline: {path}")
     for path in REPO_PRUNED:
         delete_repo_file(env, path, f"suite baseline: prune {path}")
-    return env
 
 
 # --- leave the campsite clean ------------------------------------------------
