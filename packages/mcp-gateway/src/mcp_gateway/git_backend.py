@@ -410,13 +410,20 @@ class GitBackend:
             "issues": [self._issue_view(i) for i in listing if "pull_request" not in i]
         }
 
-    async def close_issue(self, repo: str, number: int) -> dict[str, Any]:
-        """Close an issue as completed. Closing a closed issue answers the
-        same view, so a retried close is harmless."""
+    async def close_issue(
+        self, repo: str, number: int, reason: str, comment: str
+    ) -> dict[str, Any]:
+        """Close an issue with `reason` (`completed` or `not_planned`),
+        `comment` posted on it first so a person reads why on the host. An
+        issue already closed gets neither and answers its view as it is,
+        so a retried close adds nothing."""
+        path = f"/repos/{repo_slug(repo)}/issues/{number}"
+        issue = await self._github("GET", path)
+        if issue.get("state") == "closed":
+            return self._issue_view(issue)
+        await self.comment_issue(repo, number, comment)
         issue = await self._github(
-            "PATCH",
-            f"/repos/{repo_slug(repo)}/issues/{number}",
-            json={"state": "closed", "state_reason": "completed"},
+            "PATCH", path, json={"state": "closed", "state_reason": reason}
         )
         return self._issue_view(issue)
 
@@ -479,13 +486,15 @@ class GitBackend:
         self._log.info("pr merged", extra={"repo": repo_slug(repo), "number": number})
         return {"merged": bool(result.get("merged")), "sha": result.get("sha", "")}
 
-    async def close_pr(self, repo: str, number: int) -> dict[str, Any]:
-        """Close a pull request without merging it; its branch and diff stay
-        readable. Closing a closed PR answers the same state."""
-        pr = await self._github(
-            "PATCH",
-            f"/repos/{repo_slug(repo)}/pulls/{number}",
-            json={"state": "closed"},
-        )
+    async def close_pr(self, repo: str, number: int, comment: str) -> dict[str, Any]:
+        """Close a pull request without merging it, `comment` posted on it
+        first; its branch and diff stay readable. A pull request already
+        closed (or merged) gets neither and answers its state as it is."""
+        path = f"/repos/{repo_slug(repo)}/pulls/{number}"
+        pr = await self._github("GET", path)
+        if pr.get("state") == "closed":
+            return {"number": pr["number"], "state": pr["state"]}
+        await self.comment_issue(repo, number, comment)
+        pr = await self._github("PATCH", path, json={"state": "closed"})
         self._log.info("pr closed", extra={"repo": repo_slug(repo), "number": number})
         return {"number": pr["number"], "state": pr.get("state", "")}

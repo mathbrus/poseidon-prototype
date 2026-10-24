@@ -250,6 +250,9 @@ class Backends:
                 return httpx.Response(
                     200, json=issue(number=8, pull_request={"url": "x"})
                 )
+            # Number 9 is an issue somebody already closed.
+            if path.endswith("/9"):
+                return httpx.Response(200, json=issue(number=9, state="closed"))
             return httpx.Response(200, json=issue())
         if method == "GET" and "/contents/" in path:
             # The repository at base_ref: the strategy and the contract
@@ -277,12 +280,14 @@ class Backends:
                 ],
             )
         if method == "GET" and "/pulls/" in path:
+            # Number 6 is a pull request somebody already closed.
+            number = 6 if path.endswith("/6") else 5
             return httpx.Response(
                 200,
                 json={
-                    "number": 5,
+                    "number": number,
                     "title": "a pr",
-                    "state": "open",
+                    "state": "closed" if number == 6 else "open",
                     "body": "",
                     "html_url": PR_URL,
                     "merged": False,

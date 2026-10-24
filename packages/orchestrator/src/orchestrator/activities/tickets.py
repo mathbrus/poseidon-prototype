@@ -18,7 +18,7 @@ import asyncio
 import re
 
 from common.audit import RATIONALE_LIMIT
-from common.tasks import ISSUE_TASK_RE
+from common.tasks import CLOSE_COMPLETED, ISSUE_TASK_RE
 from common.telemetry import get_logger
 from orchestrator.clients import GatewayClient
 from registry import Runs
@@ -88,7 +88,9 @@ async def close_fulfilled_tickets(
     for number, issue in sorted(chain.items()):
         if issue.get("state") != "open":
             continue
-        await gateway.close_issue(run_id, repo_url, number, rationale[:RATIONALE_LIMIT])
+        await gateway.close_issue(
+            run_id, repo_url, number, CLOSE_COMPLETED, rationale[:RATIONALE_LIMIT]
+        )
         closed.append(number)
     _log.bind(run_id=run_id).info(
         "tickets closed", extra={"pr_number": pr_number, "closed": closed}

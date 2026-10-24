@@ -11,6 +11,7 @@ its task is a fixed label.
 """
 
 import re
+from typing import Literal, get_args
 
 ISSUE_TASK_RE = re.compile(r"^implement issue #(\d+)$")
 REVIEW_TASK_RE = re.compile(r"^review pull request #(\d+)$")
@@ -27,6 +28,13 @@ SCOPE_TASK = "scope the next slice"
 # implement workflow reads it — one grammar, here. The name grammar is
 # the blueprint's `_NAME`.
 TICKET_CREW_RE = re.compile(r"^Crew:\s*([a-z0-9][a-z0-9-]*)\s*$", re.MULTILINE)
+
+
+# Why the platform closes an issue, as the git host records it: the work
+# landed (`completed`), or the company will not work it (`not_planned`).
+# The gateway's `issues.close` takes one and the orchestrator chooses it.
+CloseReason = Literal["completed", "not_planned"]
+CLOSE_COMPLETED, CLOSE_NOT_PLANNED = get_args(CloseReason)
 
 
 def issue_run_task(number: int) -> str:

@@ -509,6 +509,7 @@ class FakeIssueGateway:
         self.issues = issues or {}
         self.created = []
         self.closed = []
+        self.close_reasons = []
         self.closed_prs = []
 
     def __call__(self, *a, **k):
@@ -526,8 +527,9 @@ class FakeIssueGateway:
     async def read_open_issues(self, run_id, repo):
         return [i for i in self.issues.values() if i.get("state") == "open"]
 
-    async def close_issue(self, run_id, repo, number, rationale):
+    async def close_issue(self, run_id, repo, number, reason, rationale):
         self.closed.append((number, rationale))
+        self.close_reasons.append(reason)
         self.issues[number] = {**self.issues[number], "state": "closed"}
         return self.issues[number]
 
@@ -788,6 +790,7 @@ def test_close_tickets_closes_the_consumed_ticket(settings, monkeypatch):
     closed = asyncio.run(activities.close_tickets(RUN_ID, 41, "abc123", "Add slugify"))
     assert closed == [7]
     assert gateway.closed == [(7, "merged pull request #41 (abc123): Add slugify")]
+    assert gateway.close_reasons == ["completed"]
 
 
 def test_a_merged_rework_closes_the_whole_chain(settings, monkeypatch):

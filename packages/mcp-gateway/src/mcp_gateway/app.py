@@ -27,6 +27,7 @@ from starlette.responses import JSONResponse, Response
 from blueprint.tools import ARCHITECTURE_REQUEST, GIT_CLOSE_PR, ISSUES_CLOSE
 from common.authn import Authenticator, AuthMiddleware, Reviewer, default_reviewer
 from common.identity import Identity
+from common.tasks import CloseReason
 from mcp_gateway.config import McpGatewaySettings
 from mcp_gateway.opa import OpaClient
 from mcp_gateway.service import GatewayService, PolicyDenied
@@ -358,15 +359,22 @@ def create_app(
 
     @mcp.tool(name=ISSUES_CLOSE)
     async def issues_close(
-        run_id: str, repo: str, number: int, rationale: str, ctx: Context
+        run_id: str,
+        repo: str,
+        number: int,
+        reason: CloseReason,
+        rationale: str,
+        ctx: Context,
     ) -> dict[str, Any]:
-        """Close an issue as completed. Compiled policy grants this to the
-        platform identity alone: the orchestrator closes the tickets a pull
-        request fulfilled the moment it learns the pull request merged, and
-        no blueprint can hand it to an agent role. The rationale names the
-        merge and is recorded with the call in the run's story."""
+        """Close an issue as `completed` or `not_planned`. Compiled policy
+        grants this to the platform identity alone: the orchestrator closes
+        the tickets a pull request fulfilled once it merged, and the tickets
+        the company will not work. No blueprint can hand it to an agent
+        role. The rationale is posted on the issue before it closes and
+        recorded with the call in the run's story; an issue already closed
+        is left as it is."""
         return await service.issues_close(
-            identity_of(ctx), run_id, repo, number, rationale
+            identity_of(ctx), run_id, repo, number, reason, rationale
         )
 
     @mcp.tool(name="git.read")
@@ -410,8 +418,9 @@ def create_app(
         """Close the pull request without merging it. Compiled policy grants
         this to the platform identity alone: the orchestrator closes a pull
         request whose failed review it filed as a rework ticket, and no
-        blueprint can hand it to an agent role. The rationale names the
-        ticket and is recorded with the call in the run's story."""
+        blueprint can hand it to an agent role. The rationale is posted on
+        the pull request before it closes and recorded with the call in the
+        run's story; a pull request already closed is left as it is."""
         return await service.git_close_pr(
             identity_of(ctx), run_id, repo, number, rationale
         )

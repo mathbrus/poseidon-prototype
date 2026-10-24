@@ -151,7 +151,8 @@ def _backlog_gateway(
 
     reads: list[tuple[str, int]] = []
 
-    async def close_issue(self, run_id, repo, number, rationale):
+    async def close_issue(self, run_id, repo, number, reason, rationale):
+        assert reason == "completed", reason
         (closed if closed is not None else []).append((run_id, number, rationale))
         return {"number": number, "state": "closed"}
 
@@ -684,7 +685,7 @@ def test_observe_reads_a_merged_pr_again_when_its_tickets_do_not_close(
         unlisted={3: {"number": 3, "title": "Add slugify", "state": "open"}},
     )
 
-    async def refuse(self, run_id, repo, number, rationale):
+    async def refuse(self, run_id, repo, number, reason, rationale):
         raise module.GatewayError("issues.close: backend down")
 
     monkeypatch.setattr(module.GatewayClient, "close_issue", refuse)

@@ -615,16 +615,29 @@ class GatewayService:
         )
 
     async def issues_close(
-        self, identity: Identity, run_id: str, repo: str, number: int, rationale: str
+        self,
+        identity: Identity,
+        run_id: str,
+        repo: str,
+        number: int,
+        reason: str,
+        rationale: str,
     ) -> Any:
         """Policy restricts this to the platform lifecycle — the
-        orchestrator closes the tickets a merged pull request fulfils."""
-        args = {"run_id": run_id, "repo": repo, "number": number, "rationale": rationale}
+        orchestrator closes the tickets a merged pull request fulfils and
+        the ones the company will not work."""
+        args = {
+            "run_id": run_id,
+            "repo": repo,
+            "number": number,
+            "reason": reason,
+            "rationale": rationale,
+        }
         return await self.call(
             identity,
             ISSUES_CLOSE,
             args,
-            lambda: self._git.close_issue(repo, number),
+            lambda: self._git.close_issue(repo, number, reason, rationale),
         )
 
     async def git_read(
@@ -681,7 +694,7 @@ class GatewayService:
             identity,
             GIT_CLOSE_PR,
             args,
-            lambda: self._git.close_pr(repo, number),
+            lambda: self._git.close_pr(repo, number, rationale),
         )
 
     # -- audit --------------------------------------------------------------

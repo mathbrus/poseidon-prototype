@@ -372,30 +372,36 @@ async def test_a_moved_head_merges_nothing(app, backends):
 
 
 @pytest.mark.parametrize(
-    ("tool", "number", "route", "body"),
+    ("tool", "number", "extra", "route", "body"),
     [
         (
             "issues.close",
             7,
+            {"reason": "not_planned"},
             "/issues/7",
-            {"state": "closed", "state_reason": "completed"},
+            {"state": "closed", "state_reason": "not_planned"},
         ),
-        ("git.close_pr", 5, "/pulls/5", {"state": "closed"}),
+        ("git.close_pr", 5, {}, "/pulls/5", {"state": "closed"}),
     ],
 )
 async def test_closing_is_platform_only_and_owes_a_rationale(
-    app, backends, audit, tool, number, route, body
+    app, backends, audit, tool, number, extra, route, body
 ):
-    """The platform closes with its reason on the audit row; a call
-    without one is malformed before policy; no company role reaches it."""
-    args = {"run_id": RUN_ID, "repo": REPO, "number": number}
+    """The platform closes with its reason on the audit row and on the
+    item itself, the comment before the close; a call without one is
+    malformed before policy; no company role reaches it."""
+    args = {"run_id": RUN_ID, "repo": REPO, "number": number, **extra}
     async with mcp_session(app, WORKER_TOKEN) as session:
         closed = payload(
             await session.call_tool(tool, {**args, "rationale": "merged #5 (abc)"})
         )
         assert closed["state"] == "closed"
-        path, sent, _ = backends.github_calls[-1]
-        assert path.endswith(route) and sent == body
+        (read, _, _), (commented, comment, _), (closing, sent, _) = backends.github_calls[
+            -3:
+        ]
+        assert read.endswith(route) and commented.endswith(f"/issues/{number}/comments")
+        assert comment == {"body": "merged #5 (abc)"}
+        assert closing.endswith(route) and sent == body
         refused = await session.call_tool(tool, args)
         assert refused.isError and "rationale" in refused.content[0].text
     (allowed,) = audit_events(audit)
@@ -407,3 +413,35 @@ async def test_closing_is_platform_only_and_owes_a_rationale(
             result = await session.call_tool(tool, {**args, "rationale": "r"})
         assert result.isError and "default_deny" in result.content[0].text
     assert [e["decision"] for e in audit_events(audit)] == ["allow", "deny", "deny"]
+
+
+@pytest.mark.parametrize(
+    ("tool", "number", "extra"),
+    [("issues.close", 9, {"reason": "completed"}), ("git.close_pr", 6, {})],
+)
+async def test_an_item_already_closed_is_left_as_it_is(
+    app, backends, tool, number, extra
+):
+    """A retried close adds nothing: no second comment, no second close."""
+    args = {"run_id": RUN_ID, "repo": REPO, "number": number, **extra}
+    async with mcp_session(app, WORKER_TOKEN) as session:
+        closed = payload(await session.call_tool(tool, {**args, "rationale": "again"}))
+    assert closed["state"] == "closed"
+    assert [path for path, _, _ in backends.github_calls] == [backends.github_calls[0][0]]
+
+
+async def test_a_close_names_a_reason_the_host_knows(app, backends):
+    """`completed` or `not_planned`, refused before policy otherwise."""
+    async with mcp_session(app, WORKER_TOKEN) as session:
+        result = await session.call_tool(
+            "issues.close",
+            {
+                "run_id": RUN_ID,
+                "repo": REPO,
+                "number": 7,
+                "reason": "wontfix",
+                "rationale": "r",
+            },
+        )
+    assert result.isError and "reason" in result.content[0].text
+    assert backends.github_calls == []
