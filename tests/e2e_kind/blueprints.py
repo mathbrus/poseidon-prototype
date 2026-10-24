@@ -35,6 +35,9 @@ _SCRATCH = tempfile.TemporaryDirectory(prefix="poseidon-bp-")
 # approve path has time to re-apply a blueprint before its park ends.
 E2E_GATE_MINUTES = 1
 E2E_DEADLINE_MINUTES = 2
+# A module that holds several reviews parked at once answers each in turn:
+# its merge gates wait long enough that none expires while it gets there.
+E2E_PATIENT_GATE_MINUTES = 30
 
 
 def derived_blueprint(base: Path, mutate: Callable[[dict], None], label: str) -> Path:
@@ -77,11 +80,11 @@ def single_attempt(path: Path) -> Path:
 
 def pristine_profile() -> Path:
     """The company the suite rests at and every module returns to:
-    `hello-saas.yaml` with review off the heartbeat's own initiative. A delivered PR then waits for the
-    world instead of being reviewed on the next wake — a review parked on
-    the human gate would hold the one concurrency slot and race the
-    fixture closing the PR. Modules whose arc reviews apply the example
-    as shipped."""
+    `hello-saas.yaml` with review off the heartbeat's own initiative. A
+    delivered PR then waits for the world instead of being reviewed on the
+    next wake — a review would race the fixture closing the PR, and a
+    review that parked on the human gate would refuse the delivery when it
+    expired. Modules whose arc reviews apply the example as shipped."""
     return may_start(HELLO_SAAS, "scope", "implement")
 
 
@@ -92,29 +95,30 @@ def harness_repo() -> str:
     return harness_repo_or_fail()
 
 
-def suite_document(path: Path) -> Path:
+def suite_document(path: Path, gate_minutes: int = E2E_GATE_MINUTES) -> Path:
     """The document at `path` as the suite applies it: the disposable
     repository in place of the example's, and the suite's gate waits in
-    place of the human-scale ones — every gate's `deadline_minutes` and the
-    budget `deadline_minutes`. Nothing else changes: the suite applies the
-    example's authority, on the suite's repository and clock."""
+    place of the human-scale ones — every gate's `deadline_minutes`
+    (`gate_minutes`) and the budget `deadline_minutes`. Nothing else
+    changes: the suite applies the example's authority, on the suite's
+    repository and clock."""
     document = yaml.safe_load(path.read_text())
     document["stack"]["repo"]["url"] = harness_repo()
     for node in (document.get("workflows") or {}).values():
         for gate in (node.get("gates") or {}).values():
-            gate["deadline_minutes"] = E2E_GATE_MINUTES
+            gate["deadline_minutes"] = gate_minutes
     document["budgets"]["per_run"]["deadline_minutes"] = E2E_DEADLINE_MINUTES
     out = Path(_SCRATCH.name) / f"{path.stem}-e2e.yaml"
     out.write_text(yaml.safe_dump(document, sort_keys=False))
     return out
 
 
-def apply_blueprint(path: Path) -> None:
+def apply_blueprint(path: Path, gate_minutes: int = E2E_GATE_MINUTES) -> None:
     """Apply the suite's version of `path` (see `suite_document`) through
     the console, as the human `owner` — the act a person performs: the
     console compiles it against the live registry, decides, submits the
     CRs; the reconciler converges them."""
-    result = console().apply(suite_document(path).read_text())
+    result = console().apply(suite_document(path, gate_minutes).read_text())
     assert result.company == COMPANY, result
 
 

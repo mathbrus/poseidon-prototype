@@ -501,7 +501,7 @@ def _exhaustion_gateway(
         acts.append((f"close_issue {reason}", number, rationale))
         return {"number": number, "state": "closed"}
 
-    async def close_pr(self, run_id, repo, number, rationale):
+    async def close_pr(self, run_id, repo, number, rationale, delete_branch):
         acts.append(("close_pr", number, rationale))
         return {"number": number, "state": "closed"}
 

@@ -380,6 +380,8 @@ class GitBackend:
             return None
         if conflict_ok and resp.status_code == 409:
             return None
+        if resp.status_code == 204:  # done, nothing to answer
+            return None
         if resp.status_code not in (200, 201):
             raise GitBackendError(
                 self._redact(
@@ -533,15 +535,36 @@ class GitBackend:
         self._log.info("pr merged", extra={"repo": repo_slug(repo), "number": number})
         return {"merged": bool(result.get("merged")), "sha": result.get("sha", "")}
 
-    async def close_pr(self, repo: str, number: int, comment: str) -> dict[str, Any]:
+    async def close_pr(
+        self, repo: str, number: int, comment: str, delete_branch: bool
+    ) -> dict[str, Any]:
         """Close a pull request without merging it, `comment` posted on it
-        first; its branch and diff stay readable. A pull request already
-        closed (or merged) gets neither and answers its state as it is."""
-        path = f"/repos/{repo_slug(repo)}/pulls/{number}"
+        first; its diff stays readable on the closed pull request. A pull
+        request already closed (or merged) gets neither. With
+        `delete_branch`, its head branch goes too, closed now or before —
+        so a later delivery may use the name — unless it is the base branch
+        or lives in another repository."""
+        slug = repo_slug(repo)
+        path = f"/repos/{slug}/pulls/{number}"
         pr = await self._github("GET", path)
-        if pr.get("state") == "closed":
-            return {"number": pr["number"], "state": pr["state"]}
-        await self.comment_issue(repo, number, comment)
-        pr = await self._github("PATCH", path, json={"state": "closed"})
-        self._log.info("pr closed", extra={"repo": repo_slug(repo), "number": number})
+        if pr.get("state") != "closed":
+            await self.comment_issue(repo, number, comment)
+            pr = await self._github("PATCH", path, json={"state": "closed"})
+            self._log.info("pr closed", extra={"repo": slug, "number": number})
+        head, base = pr.get("head") or {}, pr.get("base") or {}
+        own = (head.get("repo") or {}).get("full_name") == slug
+        if delete_branch and own and head.get("ref") and head["ref"] != base.get("ref"):
+            await self._delete_branch(slug, head["ref"])
         return {"number": pr["number"], "state": pr.get("state", "")}
+
+    async def _delete_branch(self, slug: str, branch: str) -> None:
+        """Delete a branch; one already gone (GitHub answers 404 or 422) is
+        not an error."""
+        try:
+            await self._github(
+                "DELETE", f"/repos/{slug}/git/refs/heads/{branch}", missing_ok=True
+            )
+        except GitBackendError as exc:
+            if " failed: 422 " not in str(exc):
+                raise
+        self._log.info("branch deleted", extra={"repo": slug, "branch": branch})

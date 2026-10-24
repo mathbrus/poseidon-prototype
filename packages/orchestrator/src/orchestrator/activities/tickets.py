@@ -219,11 +219,17 @@ async def refuse_delivery(
     ticket that run consumed why it is back. The refusal gives the ticket
     back as one spent attempt (`Runs.issue_attempts`), and the next
     attempt's brief carries the reason (`Runs.refusals`); a refusal that
-    spends the ticket's last attempt abandons it (`abandon_ticket`). Each
-    act is idempotent but the comment, which a retry can repeat. Returns
-    the ticket's number, or None when the delivery worked no open ticket."""
+    spends the ticket's last attempt abandons it (`abandon_ticket`). A
+    delivery the company made loses its branch with the refusal, so the
+    ticket's next delivery may use the name its ticket gives; the closed
+    pull request keeps the diff. Each act is idempotent but the comment,
+    which a retry can repeat. Returns the ticket's number, or None when the
+    delivery worked no open ticket."""
     reason = reason[:RATIONALE_LIMIT]
-    await gateway.close_pr(run_id, repo_url, pr_number, reason)
+    delivered = await asyncio.to_thread(runs.implement_run_for_pr, company, pr_number)
+    await gateway.close_pr(
+        run_id, repo_url, pr_number, reason, delete_branch=delivered is not None
+    )
     await asyncio.to_thread(runs.mark_pr_settled, company, pr_number, PR_REFUSED, reason)
     ticket = await asyncio.to_thread(consumed_ticket, runs, company, pr_number)
     if ticket is None:

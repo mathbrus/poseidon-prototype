@@ -31,7 +31,9 @@ the platform did:
 - an aborted run is not the company's last word: a review that dies
   without a verdict leaves its PR for one more try under the blueprint's
   `max_attempts`, the run that spends the last attempt records the
-  exhaustion and says so on the PR, and no third attempt is ever started.
+  exhaustion and refuses the PR, the ticket comes back for one more
+  delivery, and once its attempts are spent it closes as not planned — no
+  third attempt is ever started.
 
 The module arrives on the example with `may_start: [implement]` — a
 delivered PR waits for the world instead of being reviewed on the next
@@ -47,7 +49,7 @@ import pytest
 
 from common.audit import gate_event
 from common.policy import HEARTBEAT_START
-from common.tasks import review_run_task
+from common.tasks import issue_run_task, review_run_task
 from common.workflows import ATTEMPTS_GATE, TICK_IDLE, TICK_STARTED, tick_rule
 from mock_brain.brain import REVIEW_ABORT_MARKER
 
@@ -124,8 +126,8 @@ def unattended_run(heartbeat_profile, env: dict) -> dict:
 
     yield {**record, "issue_number": issue_number}
 
-    close_pr_url(env, (record.get("child") or {}).get("pr_url"))
     close_issue(env, issue_number)
+    close_pr_url(env, (record.get("child") or {}).get("pr_url"))
 
 
 # --- the decision: the poisoned title cannot escalate -------------------------
@@ -305,6 +307,27 @@ def test_a_pr_merged_by_a_human_closes_its_ticket(merged_by_hand: dict):
 # --- an aborted review is not the company's last word --------------------------
 
 
+def _terminal_runs(task: str, workflow: str, count: int) -> list[dict]:
+    """The first `count` runs on `task`, each to a terminal state — chained
+    by the platform's own nudges: every finished run wakes the next tick.
+    The periodic re-wake only covers a nudge whose backlog read landed too
+    early; its extra ticks are idle rows, never actions."""
+    deadline = time.monotonic() + 1200
+    next_wake = time.monotonic() + 60
+    runs: list[dict] = []
+    while time.monotonic() < deadline:
+        runs = runs_by_task(task, workflow=workflow)
+        if len(runs) >= count and all(
+            r["status"] in ("done", "failed") for r in runs[:count]
+        ):
+            return runs
+        if time.monotonic() >= next_wake:
+            wake_bare_heartbeat()
+            next_wake = time.monotonic() + 60
+        time.sleep(5)
+    raise AssertionError(f"the heartbeat never ran {task!r} {count} times: {runs}")
+
+
 @pytest.fixture(scope="module")
 def abandoned_review(merged_by_hand: dict, env: dict) -> dict:
     """The eval finding, replayed on the mock: an issue whose title carries
@@ -312,8 +335,10 @@ def abandoned_review(merged_by_hand: dict, env: dict) -> dict:
     the marker in the title, and every review of that PR posts findings
     but never reaches a verdict — the shape of a paid reviewer dying of a
     timed-out model call. Under the blueprint's `max_attempts: 2` the
-    heartbeat must try the review twice and then stop, with the
-    exhaustion on the record. Reviews are startable again here: the
+    heartbeat tries the review twice and stops, the exhaustion on the
+    record and the PR refused; the ticket comes back for a second
+    delivery, whose reviews die the same way, and the ticket, its attempts
+    spent, closes as not planned. Reviews are startable again here: the
     fixture re-applies the example as shipped — grant-by-diff, the same
     reviewable edit as any other — and the standing workflow reads the
     new section on its next tick. Requested after `merged_by_hand`,
@@ -338,24 +363,18 @@ def abandoned_review(merged_by_hand: dict, env: dict) -> dict:
     assert number is not None, f"not a PR url: {implement['pr_url']!r}"
     result["implement"] = implement
     result["pr_number"] = number
-    task = review_run_task(number)
-    # Two review attempts, each to a terminal state — chained by the
-    # platform's own nudges: every finished run wakes the next tick. The
-    # periodic re-wake only covers a nudge whose backlog read landed too
-    # early; its extra ticks are idle rows, never actions.
-    deadline = time.monotonic() + 1200
-    next_wake = time.monotonic() + 60
-    reviews: list[dict] = []
-    while time.monotonic() < deadline:
-        reviews = runs_by_task(task, workflow="review")
-        if len(reviews) >= 2 and all(r["status"] in ("done", "failed") for r in reviews):
-            break
-        if time.monotonic() >= next_wake:
-            wake_bare_heartbeat()
-            next_wake = time.monotonic() + 60
-        time.sleep(5)
-    assert len(reviews) >= 2, f"the heartbeat never retried: {reviews}"
-    # The second review's finishing nudge yields the first post-exhaustion
+    result["reviews"] = _terminal_runs(review_run_task(number), "review", 2)
+    # The PR is refused and its ticket comes back: a second delivery, and
+    # its two reviews, die the same way.
+    implements = _terminal_runs(issue_run_task(issue_number), "implement", 2)
+    second = implements[1]
+    assert second["status"] == "done", f"the second delivery: {second}"
+    second_number = pr_number(second["pr_url"])
+    assert second_number not in (None, number), second
+    result["implements"] = implements
+    result["second_pr_number"] = second_number
+    result["second_reviews"] = _terminal_runs(review_run_task(second_number), "review", 2)
+    # The last review's finishing nudge yields the first post-exhaustion
     # tick; wait for it, then compress two reconcile looks into now.
     deadline = time.monotonic() + 300
     while time.monotonic() < deadline:
@@ -366,13 +385,32 @@ def abandoned_review(merged_by_hand: dict, env: dict) -> dict:
         time.sleep(3)
     for _ in range(2):
         wake_and_await_ticks(1)
-    result["reviews"] = runs_by_task(task, workflow="review")
+    result["reviews"] = runs_by_task(review_run_task(number), workflow="review")
+    result["second_reviews"] = runs_by_task(
+        review_run_task(second_number), workflow="review"
+    )
+    result["implements"] = runs_by_task(
+        issue_run_task(issue_number), workflow="implement"
+    )
     result["ticks"] = heartbeat_ticks(heartbeat_id)
+    result["issue"] = github_api(
+        env, "GET", f"/repos/{target_slug(env)}/issues/{issue_number}"
+    ).json()
 
     yield result
 
-    close_pr_url(env, (result.get("implement") or {}).get("pr_url"))
     close_issue(env, issue_number)
+    for implement_run in result.get("implements") or [implement]:
+        close_pr_url(env, implement_run.get("pr_url"))
+
+
+def _comments(env: dict, number: int) -> list[str]:
+    return [
+        c.get("body") or ""
+        for c in github_api(
+            env, "GET", f"/repos/{target_slug(env)}/issues/{number}/comments"
+        ).json()
+    ]
 
 
 def test_an_aborted_review_is_offered_again(abandoned_review: dict):
@@ -399,13 +437,13 @@ def test_an_aborted_review_is_offered_again(abandoned_review: dict):
     ]
 
 
-def test_the_run_that_spent_the_last_attempt_recorded_it(
+def test_the_run_that_spent_the_last_attempt_recorded_it_and_refused_the_pr(
     abandoned_review: dict, env: dict
 ):
     """The second review died the same way and was the last the blueprint
     allows: its story carries `gate.heartbeat_attempts` / `gate_exhausted`
-    (the first's does not — it left an attempt), and the world was told on
-    the PR itself under the platform identity."""
+    (the first's does not — it left an attempt), and the PR is refused —
+    closed, the notice on it under the platform identity."""
     first, second = abandoned_review["reviews"][:2]
     assert second["status"] == "failed" and second["verdict"] is None, second
     exhausted = [
@@ -420,24 +458,55 @@ def test_the_run_that_spent_the_last_attempt_recorded_it(
     assert not any(
         e["tool"] == gate_event(ATTEMPTS_GATE) for e in audit_story(first["run_id"])
     )
-    comments = github_api(
-        env,
-        "GET",
-        f"/repos/{target_slug(env)}/issues/{abandoned_review['pr_number']}/comments",
-    ).json()
-    assert any("max_attempts" in (c.get("body") or "") for c in comments), (
+    number = abandoned_review["pr_number"]
+    assert any("max_attempts" in body for body in _comments(env, number)), (
         "no platform notice on the PR"
+    )
+    pull = github_api(env, "GET", f"/repos/{target_slug(env)}/pulls/{number}").json()
+    assert pull["state"] == "closed" and pull["merged"] is False
+
+
+def test_the_refused_pr_gave_its_ticket_back_for_one_more_delivery(
+    abandoned_review: dict, env: dict
+):
+    """The refusal spent one of the ticket's two attempts and gave it back:
+    the ticket says so, and the loop delivered it a second time on its
+    own."""
+    first, second = abandoned_review["implements"][:2]
+    assert first["pr_settled"] == "refused", first
+    assert second["run_id"] != first["run_id"] and second["pr_url"] != first["pr_url"]
+    assert any(
+        "back on the backlog: attempt 1 of 2" in body
+        for body in _comments(env, abandoned_review["issue_number"])
+    )
+
+
+def test_a_ticket_with_its_attempts_spent_closes_as_not_planned(
+    abandoned_review: dict, env: dict
+):
+    """The second delivery's reviews died too: that refusal spent the
+    ticket's last attempt, and the ticket closed as not planned, the
+    notice on it."""
+    issue = abandoned_review["issue"]
+    assert issue["state"] == "closed", issue
+    assert issue.get("state_reason") == "not_planned", issue
+    assert any(
+        "closed as not planned" in body
+        for body in _comments(env, abandoned_review["issue_number"])
     )
 
 
 def test_no_third_attempt_and_the_loop_goes_idle(abandoned_review: dict):
-    """`max_attempts: 2` is a bound, not a retry loop: exactly two review
-    runs exist, and the ticks after the second one finished are idle —
-    the PR is consumed by exhaustion, the issue by its delivery, and the
-    company has stopped trying without a human. With scoping startable the
-    idle is the PM's: asked whether to scope, it finds nothing in the
-    resting strategy."""
+    """`max_attempts: 2` is a bound, not a retry loop: two reviews of each
+    delivery, two deliveries of the ticket, and the ticks after the last
+    start are idle — the company has stopped trying without a human. With
+    scoping startable the idle is the PM's: asked whether to scope, it
+    finds nothing in the resting strategy."""
     assert len(abandoned_review["reviews"]) == 2, abandoned_review["reviews"]
+    assert len(abandoned_review["second_reviews"]) == 2, abandoned_review[
+        "second_reviews"
+    ]
+    assert len(abandoned_review["implements"]) == 2, abandoned_review["implements"]
     ticks = abandoned_review["ticks"]
     last_start = max(i for i, t in enumerate(ticks) if t["decision"] == "allow")
     after = [t["rule"] for t in ticks[last_start + 1 :]]

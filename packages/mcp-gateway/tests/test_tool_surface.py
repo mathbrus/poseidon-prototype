@@ -451,7 +451,7 @@ async def test_a_moved_head_merges_nothing(app, backends):
             "/issues/7",
             {"state": "closed", "state_reason": "not_planned"},
         ),
-        ("git.close_pr", 5, {}, "/pulls/5", {"state": "closed"}),
+        ("git.close_pr", 5, {"delete_branch": False}, "/pulls/5", {"state": "closed"}),
     ],
 )
 async def test_closing_is_platform_only_and_owes_a_rationale(
@@ -487,7 +487,10 @@ async def test_closing_is_platform_only_and_owes_a_rationale(
 
 @pytest.mark.parametrize(
     ("tool", "number", "extra"),
-    [("issues.close", 9, {"reason": "completed"}), ("git.close_pr", 6, {})],
+    [
+        ("issues.close", 9, {"reason": "completed"}),
+        ("git.close_pr", 6, {"delete_branch": False}),
+    ],
 )
 async def test_an_item_already_closed_is_left_as_it_is(
     app, backends, tool, number, extra
@@ -498,6 +501,26 @@ async def test_an_item_already_closed_is_left_as_it_is(
         closed = payload(await session.call_tool(tool, {**args, "rationale": "again"}))
     assert closed["state"] == "closed"
     assert [path for path, _, _ in backends.github_calls] == [backends.github_calls[0][0]]
+
+
+@pytest.mark.parametrize("number", [5, 6])
+async def test_a_refused_delivery_loses_its_branch_closed_now_or_before(
+    app, backends, number
+):
+    """`delete_branch` deletes the head branch of a pull request on the
+    company's own repository — whether this call closed it or someone did
+    before — so the ticket's next delivery may use the name."""
+    args = {
+        "run_id": RUN_ID,
+        "repo": REPO,
+        "number": number,
+        "rationale": "nobody answered within 60 minutes",
+        "delete_branch": True,
+    }
+    async with mcp_session(app, WORKER_TOKEN) as session:
+        payload(await session.call_tool("git.close_pr", args))
+    deleted = [p for p, _, _ in backends.github_calls if "/git/refs/heads/" in p]
+    assert [p.rsplit("/git/refs/heads/", 1)[1] for p in deleted] == ["feature/x"]
 
 
 async def test_a_close_names_a_reason_the_host_knows(app, backends):

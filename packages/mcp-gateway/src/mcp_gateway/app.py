@@ -437,16 +437,25 @@ def create_app(
 
     @mcp.tool(name=GIT_CLOSE_PR)
     async def git_close_pr(
-        run_id: str, repo: str, number: int, rationale: str, ctx: Context
+        run_id: str,
+        repo: str,
+        number: int,
+        rationale: str,
+        delete_branch: bool,
+        ctx: Context,
     ) -> dict[str, Any]:
         """Close the pull request without merging it. Compiled policy grants
         this to the platform identity alone: the orchestrator closes a pull
-        request whose failed review it filed as a rework ticket, and no
-        blueprint can hand it to an agent role. The rationale is posted on
-        the pull request before it closes and recorded with the call in the
-        run's story; a pull request already closed is left as it is."""
+        request whose failed review it filed as a rework ticket, and one
+        whose delivery it refuses; no blueprint can hand it to an agent
+        role. The rationale is posted on the pull request before it closes
+        and recorded with the call in the run's story; a pull request
+        already closed is left as it is. With `delete_branch`, the head
+        branch is deleted, closed now or before, so the ticket's next
+        delivery may use its name; the closed pull request keeps its
+        diff."""
         return await service.git_close_pr(
-            identity_of(ctx), run_id, repo, number, rationale
+            identity_of(ctx), run_id, repo, number, rationale, delete_branch
         )
 
     @mcp.custom_route("/admin/sandboxes", methods=["POST"])

@@ -15,8 +15,9 @@ any step. Then the single human verdict lands and the gateway merges.
 
 The concurrency cap does real sequencing work here: `max_concurrent_runs:
 1` is why the review waits for the implement run to finish rather than
-racing it, and why the parked review blocks any further starts — the
-company does one thing at a time because the blueprint said so.
+racing it — the company does one thing at a time because the blueprint
+said so. The parked review holds no place while it waits for the person,
+and the loop, with nothing else on its backlog, starts nothing.
 
 The conftest orders this module after `test_acceptance`: it is itself a
 capstone, and it adds runs the five-source assertion need not see. The
@@ -137,8 +138,8 @@ def overnight(stack: None, baseline_env: dict) -> dict:
         drive()
         yield result
     finally:
-        close_pr(env, result.get("pr_number") or 0)
         close_issue(env, result.get("issue_number"))
+        close_pr(env, result.get("pr_number") or 0)
         restore_strategy(env)
         restore_pristine()
 

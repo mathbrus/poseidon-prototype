@@ -113,6 +113,7 @@ from mock_brain.brain import (
 )
 
 from .blueprints import (
+    E2E_GATE_MINUTES,
     HELLO_SAAS,
     apply_blueprint,
     restore_pristine,
@@ -797,19 +798,19 @@ def pr_state(env: dict, pr_url: str | None) -> str:
     return str(pull.get("state") or "missing")
 
 
-def apply_profile(path: Path, env: dict) -> None:
+def apply_profile(path: Path, env: dict, gate_minutes: int = E2E_GATE_MINUTES) -> None:
     """Sweep, apply, converge, and wait for the standing heartbeat to be
     asleep — the way every module that applies its own profile must
     start. An empty campsite first: any open PR or issue an earlier module
     left becomes the loop's backlog the moment it reads the new section —
-    a review parked on the gate that holds the one concurrency slot. Then
+    a review the module never asked for, or a ticket it never filed. Then
     the wait: with the loop asleep over the swept backlog, the ticks a
     module counts from here are its own — its runs wake the heartbeat
     forward, and `cluster.wake_and_await_ticks` stands in for the outside
     world."""
     sweep_repo_debris(env)
     lift_pause(env)
-    apply_blueprint(path)
+    apply_blueprint(path, gate_minutes)
     wait_for_convergence()
     await_bare_heartbeat_asleep()
 
@@ -824,13 +825,16 @@ def lift_pause(env: dict) -> None:
 
 
 def sweep_repo_debris(env: dict) -> None:
-    """Close every open PR, delete every feature/* branch and close every
-    open issue — the stragglers per-fixture cleanup cannot see (PRs born
-    inside test bodies, fixtures that died before their teardown). Open
-    issues are backlog: a leftover would be the lowest-numbered ticket the
-    next session's heartbeat picks first."""
+    """Close every open issue, close every open PR and delete every
+    feature/* branch — the stragglers per-fixture cleanup cannot see (PRs
+    born inside test bodies, fixtures that died before their teardown).
+    Open issues are backlog: a leftover would be the lowest-numbered ticket
+    the next session's heartbeat picks first. Issues go first: a delivered
+    PR the platform finds closed is refused, and gives its ticket back to
+    the loop if the ticket is still open."""
     with contextlib.suppress(Exception):
         slug = target_slug(env)
+        _close_open_issues(env, slug)
         while prs := github_api(
             env, "GET", f"/repos/{slug}/pulls?state=open&per_page=100"
         ).json():
@@ -845,23 +849,28 @@ def sweep_repo_debris(env: dict) -> None:
                 break
             for name in stale:
                 github_api(env, "DELETE", f"/repos/{slug}/git/refs/heads/{name}")
-        while True:
-            issues = [
-                i
-                for i in github_api(
-                    env, "GET", f"/repos/{slug}/issues?state=open&per_page=100"
-                ).json()
-                if "pull_request" not in i
-            ]
-            if not issues:
-                break
-            for issue in issues:
-                github_api(
-                    env,
-                    "PATCH",
-                    f"/repos/{slug}/issues/{issue['number']}",
-                    json={"state": "closed"},
-                )
+        # Anything a refusal reopened to the loop meanwhile goes too.
+        _close_open_issues(env, slug)
+
+
+def _close_open_issues(env: dict, slug: str) -> None:
+    while True:
+        issues = [
+            i
+            for i in github_api(
+                env, "GET", f"/repos/{slug}/issues?state=open&per_page=100"
+            ).json()
+            if "pull_request" not in i
+        ]
+        if not issues:
+            break
+        for issue in issues:
+            github_api(
+                env,
+                "PATCH",
+                f"/repos/{slug}/issues/{issue['number']}",
+                json={"state": "closed"},
+            )
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -892,8 +901,9 @@ def implement_run(stack: None, env: dict[str, str]) -> dict:
     ticket are closed immediately: implement leaving the PR open is the
     product claim (it holds no merge or close authority), and a suite that
     parades open PRs across later modules hands the standing heartbeat
-    backlog — a review parked on the gate that starves whichever module
-    needed the concurrency slot."""
+    backlog — reviews that race whichever module comes next. The ticket
+    closes before the PR: a delivered PR found closed is refused, and an
+    open ticket would come back to the loop."""
     record = run_implement("happy", env, kill_after="sandbox")
     record["pr_state_at_birth"] = pr_state(env, record.get("pr_url"))
     # What the delivery carried, read before the branch goes.
@@ -904,8 +914,8 @@ def implement_run(stack: None, env: dict[str, str]) -> dict:
             f["filename"] for f in github_api(env, "GET", f"{pulls}/files").json()
         ]
         record["pr_commits"] = github_api(env, "GET", f"{pulls}/commits").json()
-    close_pr_url(env, record.get("pr_url"))
     close_issue(env, record["issue_number"])
+    close_pr_url(env, record.get("pr_url"))
     yield record
 
 
@@ -916,8 +926,8 @@ def injected_run(stack: None, env: dict[str, str]) -> dict:
     Openness verified at birth, then closed — see `implement_run`."""
     record = run_implement("injected", env)
     record["pr_state_at_birth"] = pr_state(env, record.get("pr_url"))
-    close_pr_url(env, record.get("pr_url"))
     close_issue(env, record["issue_number"])
+    close_pr_url(env, record.get("pr_url"))
     yield record
 
 

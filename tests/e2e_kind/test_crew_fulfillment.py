@@ -271,8 +271,8 @@ def test_worker_kill_leaks_no_crew(stack: None, env: dict) -> None:
     from orchestrator.identity import ephemeral_agent_id
 
     record = run_implement("happy", env, kill_after="crew")
-    close_pr_url(env, record.get("pr_url"))
     close_issue(env, record["issue_number"])
+    close_pr_url(env, record.get("pr_url"))
     run_id = record["run_id"]
     implementer_id = ephemeral_agent_id("feature-delivery", "implementer", run_id)
 

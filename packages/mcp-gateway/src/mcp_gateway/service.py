@@ -750,16 +750,29 @@ class GatewayService:
         )
 
     async def git_close_pr(
-        self, identity: Identity, run_id: str, repo: str, number: int, rationale: str
+        self,
+        identity: Identity,
+        run_id: str,
+        repo: str,
+        number: int,
+        rationale: str,
+        delete_branch: bool,
     ) -> Any:
         """Policy restricts this to the platform lifecycle — the
-        orchestrator closes a pull request its rework ticket supersedes."""
-        args = {"run_id": run_id, "repo": repo, "number": number, "rationale": rationale}
+        orchestrator closes a pull request its rework ticket supersedes, and
+        one whose delivery it refuses."""
+        args = {
+            "run_id": run_id,
+            "repo": repo,
+            "number": number,
+            "rationale": rationale,
+            "delete_branch": delete_branch,
+        }
         return await self.call(
             identity,
             GIT_CLOSE_PR,
             args,
-            lambda: self._git.close_pr(repo, number, rationale),
+            lambda: self._git.close_pr(repo, number, rationale, delete_branch),
         )
 
     # -- audit --------------------------------------------------------------

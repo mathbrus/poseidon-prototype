@@ -294,8 +294,8 @@ def requested(bootstrapped: dict) -> dict:
         result["masterplan"] = _document(env, "architecture")
         yield result
     finally:
-        close_pr_url(env, (revision.get("implement") or {}).get("pr_url"))
         close_issue(env, number)
+        close_pr_url(env, (revision.get("implement") or {}).get("pr_url"))
         for request_number in result.get("request_tickets") or []:
             close_issue(env, request_number)
 
@@ -389,8 +389,8 @@ def masterplan_edit(requested: dict) -> dict:
         result["masterplan"] = _document(env, "architecture")
         yield result
     finally:
-        close_pr_url(env, (result.get("run") or {}).get("pr_url"))
         close_issue(env, number)
+        close_pr_url(env, (result.get("run") or {}).get("pr_url"))
 
 
 def test_an_implementer_cannot_deliver_into_the_masterplan(masterplan_edit: dict):
@@ -441,8 +441,8 @@ def strategy_rewrite(masterplan_edit: dict) -> dict:
         result["strategy"] = _document(env, "strategy")
         yield result
     finally:
-        close_pr_url(env, (result.get("run") or {}).get("pr_url"))
         close_issue(env, number)
+        close_pr_url(env, (result.get("run") or {}).get("pr_url"))
         restore_strategy(env)
 
 

@@ -159,7 +159,7 @@ def rework_body(
     and the changed surface."""
     changed = "\n".join(f"- {p}" for p in paths) or "(none recorded)"
     return (
-        f"Pull request #{pr_number} ({pr_url}) failed its policy-gated"
+        f"Pull request #{pr_number} ({pr_url}) failed its automated"
         f" review: {reason}.\n\n"
         f"Reviewer findings: {findings}\n\n"
         f"Changed paths under review:\n{changed}\n\n"
@@ -653,6 +653,7 @@ class ReviewActivities:
                 (await self._repo())["url"],
                 pr_number,
                 f"superseded by rework ticket #{ticket_number}",
+                delete_branch=False,
             )
         await asyncio.to_thread(
             self._runs.mark_pr_settled, self._company(), pr_number, PR_SUPERSEDED

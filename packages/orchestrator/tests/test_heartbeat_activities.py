@@ -157,7 +157,7 @@ def _backlog_gateway(
         (closed if closed is not None else []).append((run_id, number, rationale))
         return {"number": number, "state": "closed"}
 
-    async def close_pr(self, run_id, repo, number, rationale):
+    async def close_pr(self, run_id, repo, number, rationale, delete_branch):
         (told if told is not None else []).append(("close_pr", number, rationale))
         return {"number": number, "state": "closed"}
 

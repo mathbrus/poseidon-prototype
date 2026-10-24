@@ -197,7 +197,7 @@ class GatewayClient:
         self, run_id: str, repo: str, title: str, body: str, rationale: str
     ) -> dict[str, Any]:
         """File a ticket under the platform identity — the rework loop's
-        write (a failed policy-gated review puts its findings back into the
+        write (a failed automated review puts its findings back into the
         same backlog the conductor already consumes) and the bootstrap's.
         The rationale is the platform's reason, recorded with the call."""
         return await self._tool(
@@ -274,13 +274,25 @@ class GatewayClient:
         )
 
     async def close_pr(
-        self, run_id: str, repo: str, number: int, rationale: str
+        self,
+        run_id: str,
+        repo: str,
+        number: int,
+        rationale: str,
+        delete_branch: bool,
     ) -> dict[str, Any]:
         """Close a pull request unmerged under the platform identity. The
-        rationale is posted on the pull request: why it will not merge."""
+        rationale is posted on the pull request: why it will not merge.
+        With `delete_branch` its head branch goes too."""
         return await self._tool(
             "git.close_pr",
-            {"run_id": run_id, "repo": repo, "number": number, "rationale": rationale},
+            {
+                "run_id": run_id,
+                "repo": repo,
+                "number": number,
+                "rationale": rationale,
+                "delete_branch": delete_branch,
+            },
         )
 
     async def register_sandbox(

@@ -45,8 +45,30 @@ from common.tasks import issue_run_task, review_run_task
 from common.workflows import MERGE_GATE
 from mock_brain.brain import NEXT_SLICE_MARKER
 
-from .blueprints import E2E_GATE_MINUTES, HELLO_SAAS, may_start, restore_pristine
-from .cluster import HUMAN, audit_story, await_run, console, console_env, run_by_task
+from .blueprints import (
+    E2E_GATE_MINUTES,
+    E2E_PATIENT_GATE_MINUTES,
+    HELLO_SAAS,
+    apply_blueprint,
+    may_start,
+    restore_pristine,
+    wait_for_convergence,
+)
+from .cluster import (
+    COMPANY_NS,
+    HUMAN,
+    audit_story,
+    await_run,
+    console,
+    console_env,
+    db_now,
+    kubectl,
+    participants,
+    run_by_task,
+    run_record,
+    runs_by_task,
+    sandbox_pods,
+)
 from .conftest import (
     REPO_ROOT,
     apply_profile,
@@ -54,13 +76,17 @@ from .conftest import (
     await_gate,
     close_issue,
     close_pr,
+    file_ticket,
     github_api,
+    issue_state,
     open_slice_strategy,
     open_world_pr,
+    pr_number,
     put_branch_file,
     restore_strategy,
     scope_via_heartbeat,
     target_slug,
+    ticket_body,
     wake_until_run_started,
 )
 
@@ -173,9 +199,9 @@ def review_chain(stack: None, baseline_env: dict) -> dict:
     finally:
         # The merged PR's branch goes too; the merge itself is what the
         # assertions read, and it survives the branch.
+        close_issue(env, chain.get("issue_number"))
         if chain.get("pr_number"):
             close_pr(env, chain["pr_number"])
-        close_issue(env, chain.get("issue_number"))
         restore_strategy(env)
         restore_pristine()
 
@@ -425,3 +451,234 @@ def test_an_approval_of_a_moved_head_merges_nothing(moved_head: dict) -> None:
     assert not any(e["tool"] == "issues.close" for e in story)
     closes = [e for e in story if e["tool"] == "git.close_pr"]
     assert closes and "head moved after review" in (closes[-1]["rationale"] or "")
+
+
+# -- how a merge gate ends ---------------------------------------------------
+#
+# One arc on a one-place company whose gates wait for the person: a parked
+# review holds nothing, so the loop takes on the next ticket while it
+# waits; a rejection refuses the delivery and its ticket comes back for
+# another try; and approvals that land after another merge are verified
+# on the moved base — a clean one merges, a conflicting one is refused and
+# its ticket comes back.
+
+REJECTION = "e2e: the slug must keep its unicode letters"
+
+
+def _file(env: dict, nonce: str) -> int:
+    return file_ticket(env, f"happy ({nonce})", ticket_body("happy", nonce))
+
+
+def _delivered(number: int, since: str | None = None) -> int:
+    """The loop's implement run on ticket `number` (born after `since`),
+    to its end; the PR it delivered."""
+    task = issue_run_task(number)
+    wake_until_run_started(task, "implement", since=since)
+    record = await_run(task, terminal=True, workflow="implement", since=since)
+    assert record["status"] == "done" and record["pr_url"], record
+    pr = pr_number(record["pr_url"])
+    assert pr is not None, record
+    return pr
+
+
+def _parked(number: int) -> str:
+    """The loop's review of PR `number`, parked on the person."""
+    task = review_run_task(number)
+    wake_until_run_started(task, "review")
+    run_id = run_by_task(task, workflow="review")["run_id"]
+    await_gate(run_id, "parked-merge_gate")
+    return run_id
+
+
+def _decided(number: int, run_id: str, approved: bool, why: str) -> dict:
+    """The person's verdict on the parked review, and the run to its end."""
+    console().resolve(run_id, "merge", approved, why)
+    return await_run(review_run_task(number), terminal=True, workflow="review")
+
+
+def _crew_pods(run_id: str) -> str:
+    return kubectl(
+        "-n",
+        COMPANY_NS,
+        "get",
+        "pods",
+        "-l",
+        f"poseidon.dev/kind=ephemeral-agent,poseidon.dev/run-id={run_id}",
+        "-o",
+        "jsonpath={.items[*].metadata.name}",
+        timeout=30,
+    )
+
+
+@pytest.fixture(scope="module")
+def gate_endings(stack: None, baseline_env: dict) -> dict:
+    env = baseline_env
+    apply_profile(
+        may_start(HELLO_SAAS, "implement", "review"),
+        env,
+        gate_minutes=E2E_PATIENT_GATE_MINUTES,
+    )
+    nonce = secrets.token_hex(3)
+    result: dict = {"env": env, "tickets": [], "prs": []}
+    try:
+        # A first delivery parks on the person, and gives back what it held.
+        first = _file(env, f"{nonce}-a")
+        result["tickets"].append(first)
+        a1 = _delivered(first)
+        result["prs"].append(a1)
+        a1_review = _parked(a1)
+        result["a1_review"] = a1_review
+        result["parked"] = {
+            "pods": _crew_pods(a1_review),
+            "sandboxes": sandbox_pods(a1_review),
+            "crew": [agent.status for agent in participants(a1_review)],
+            "row": run_record(a1_review),
+        }
+        # The place it gave back: the loop takes on the next ticket.
+        second = _file(env, f"{nonce}-b")
+        result["tickets"].append(second)
+        b1 = _delivered(second)
+        result["prs"].append(b1)
+        result["a1_state_while_b1_delivered"] = console().run(a1_review).execution.state
+        b1_review = _parked(b1)
+
+        # The person rejects the first: refused, and its ticket comes back
+        # for another try the loop makes on its own.
+        mark = db_now()
+        result["a1_record"] = _decided(a1, a1_review, False, REJECTION)
+        a2 = _delivered(first, since=mark)
+        result["prs"].append(a2)
+        result["a1"], result["a2"], result["b1"] = a1, a2, b1
+        a2_review = _parked(a2)
+
+        # The world opens a pull request that merges cleanly anywhere; a
+        # person starts its review. Then the loop may implement no more, so
+        # a ticket that comes back stays on the backlog to be read.
+        w = open_world_pr(
+            env,
+            f"feature/notes-{nonce}",
+            {f"docs/notes-{nonce}.md": "# Notes\n"},
+            f"Add notes ({nonce})",
+        )
+        result["prs"].append(w)
+        result["w"] = w
+        w_review = console().start_run("review", w).run_id
+        await_run(review_run_task(w), terminal=False, workflow="review")
+        await_gate(w_review, "parked-merge_gate")
+        apply_blueprint(may_start(HELLO_SAAS, "review"), E2E_PATIENT_GATE_MINUTES)
+        wait_for_convergence()
+
+        # Three approvals in turn: the first merges as reviewed; each later
+        # one finds the base moved and is verified on it first.
+        result["a2_record"] = _decided(a2, a2_review, True, "e2e: approve")
+        result["w_record"] = _decided(w, w_review, True, "e2e: approve")
+        result["w_story"] = audit_story(w_review)
+        result["b1_record"] = _decided(b1, b1_review, True, "e2e: approve")
+        yield result
+    finally:
+        for number in result["tickets"]:
+            close_issue(env, number)
+        for number in result["prs"]:
+            close_pr(env, number)
+        restore_pristine()
+
+
+def _comments(env: dict, number: int) -> list[str]:
+    return [
+        c["body"]
+        for c in github_api(
+            env, "GET", f"/repos/{target_slug(env)}/issues/{number}/comments"
+        ).json()
+    ]
+
+
+def _pull(env: dict, number: int) -> dict:
+    return github_api(env, "GET", f"/repos/{target_slug(env)}/pulls/{number}").json()
+
+
+def test_a_parked_review_holds_nothing(gate_endings: dict) -> None:
+    """While the review waits on the person, its reviewer pod and sandbox
+    are gone, its identities are revoked, and it holds no place under
+    `max_concurrent_runs` — it is still running."""
+    parked = gate_endings["parked"]
+    assert parked["pods"] == "", parked["pods"]
+    assert parked["sandboxes"] == [], parked["sandboxes"]
+    assert parked["crew"] and all(s != "active" for s in parked["crew"]), parked["crew"]
+    assert parked["row"]["status"] == "running" and parked["row"]["occupies"] is False
+
+
+def test_a_one_place_company_works_while_a_review_waits(gate_endings: dict) -> None:
+    """The second ticket was implemented while the first review was still
+    parked: the place it gave back was taken."""
+    assert gate_endings["a1_state_while_b1_delivered"] == "parked-merge_gate"
+
+
+def test_a_rejection_refuses_the_delivery_and_its_ticket_comes_back(
+    gate_endings: dict,
+) -> None:
+    """The person's rejection closes the pull request with their words on
+    it; the ticket is told it is back with one attempt spent, and the loop
+    implements it again on its own."""
+    env, a1 = gate_endings["env"], gate_endings["a1"]
+    record = gate_endings["a1_record"]
+    assert record["status"] == "failed" and "merge gate rejected" in record["error"]
+    pull = _pull(env, a1)
+    assert pull["state"] == "closed" and pull["merged"] is False
+    assert any(REJECTION in body for body in _comments(env, a1))
+    first = gate_endings["tickets"][0]
+    assert any(
+        f"Pull request #{a1} was not merged" in body
+        and "back on the backlog: attempt 1 of 2" in body
+        for body in _comments(env, first)
+    )
+    attempts = runs_by_task(issue_run_task(first), workflow="implement")
+    assert len(attempts) == 2, attempts
+    assert attempts[0]["pr_settled"] == "refused"
+    assert REJECTION in (attempts[0]["pr_settled_reason"] or "")
+
+
+def test_the_first_approval_merges_as_reviewed(gate_endings: dict) -> None:
+    """Nothing merged since its review: the redelivery merges with no
+    verify on a moved base, and closes its ticket."""
+    env = gate_endings["env"]
+    assert gate_endings["a2_record"]["merged"] is True, gate_endings["a2_record"]
+    assert _pull(env, gate_endings["a2"])["merged"] is True
+    assert issue_state(env, gate_endings["tickets"][0]) == "closed"
+
+
+def test_a_clean_merge_onto_a_moved_base_is_verified_then_merged(
+    gate_endings: dict,
+) -> None:
+    """The base moved under the world's pull request: the platform built
+    the head merged onto it — a second archive — ran the suite there, and
+    merged on green."""
+    assert gate_endings["w_record"]["merged"] is True, gate_endings["w_record"]
+    story = gate_endings["w_story"]
+    archives = [
+        e for e in story if e["tool"] == "repo.archive" and e["decision"] == "allow"
+    ]
+    assert len(archives) == 2, archives
+    approved = next(i for i, e in enumerate(story) if e["rule"] == "gate_approved")
+    verifies = [
+        e
+        for e in story[approved:]
+        if e["tool"] == "sandbox.run_tests" and e["lifecycle"] == "platform"
+    ]
+    assert verifies, "no verify of the merge onto the moved base"
+
+
+def test_a_conflicting_merge_onto_a_moved_base_is_refused(gate_endings: dict) -> None:
+    """The second delivery edits the same lines the first merged: it does
+    not merge onto the moved base, the delivery is refused by name, and its
+    ticket comes back — the loop may not implement here, so it waits."""
+    env, b1 = gate_endings["env"], gate_endings["b1"]
+    record = gate_endings["b1_record"]
+    assert record["status"] == "failed" and "merge conflict" in record["error"], record
+    pull = _pull(env, b1)
+    assert pull["state"] == "closed" and pull["merged"] is False
+    second = gate_endings["tickets"][1]
+    assert issue_state(env, second) == "open"
+    assert any(
+        f"Pull request #{b1} was not merged: merge conflict" in body
+        for body in _comments(env, second)
+    )

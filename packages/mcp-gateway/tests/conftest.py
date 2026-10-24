@@ -313,12 +313,26 @@ class Backends:
                     "body": "",
                     "html_url": PR_URL,
                     "merged": False,
-                    "head": {"ref": "feature/x", "sha": HEAD_SHA},
-                    "base": {"ref": "main"},
+                    "head": {
+                        "ref": "feature/x",
+                        "sha": HEAD_SHA,
+                        "repo": {"full_name": "example/target"},
+                    },
+                    "base": {"ref": "main", "repo": {"full_name": "example/target"}},
                 },
             )
         if method == "PATCH" and "/pulls/" in path:
-            return httpx.Response(200, json={"number": 5, **payload})
+            return httpx.Response(
+                200,
+                json={
+                    "number": 5,
+                    "head": {"ref": "feature/x", "repo": {"full_name": "example/target"}},
+                    "base": {"ref": "main"},
+                    **payload,
+                },
+            )
+        if method == "DELETE" and "/git/refs/heads/" in path:
+            return httpx.Response(204)
         if method == "PUT" and path.endswith("/merge"):
             # GitHub refuses a merge whose expected head is not the PR's.
             if payload.get("sha") != HEAD_SHA:

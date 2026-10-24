@@ -521,6 +521,8 @@ class FakeIssueGateway:
         self.closed = []
         self.close_reasons = []
         self.closed_prs = []
+        # The PRs whose branch went with the close.
+        self.deleted_branches = []
         self.comments = []
 
     def __call__(self, *a, **k):
@@ -544,8 +546,10 @@ class FakeIssueGateway:
         self.issues[number] = {**self.issues[number], "state": "closed"}
         return self.issues[number]
 
-    async def close_pr(self, run_id, repo, number, rationale):
+    async def close_pr(self, run_id, repo, number, rationale, delete_branch):
         self.closed_prs.append((number, rationale))
+        if delete_branch:
+            self.deleted_branches.append(number)
         return {"number": number, "state": "closed"}
 
     async def comment_issue(self, run_id, repo, number, body):
@@ -937,6 +941,7 @@ def test_close_superseded_pr_names_the_rework_ticket(settings, monkeypatch):
     activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]), runs=runs)
     asyncio.run(activities.close_superseded_pr(RUN_ID, 41, 91))
     assert gateway.closed_prs == [(41, "superseded by rework ticket #91")]
+    assert gateway.deleted_branches == []
     assert runs.get("run-impl").pr_settled == "superseded"
     assert runs.issue_attempts("hello-saas")[7].concluded is True
     assert gateway.comments == []
@@ -956,6 +961,8 @@ def test_a_refused_delivery_gives_its_ticket_back_told_why(settings, monkeypatch
     reason = "owner rejected the merge: breaks the CLI"
     asyncio.run(activities.refuse_delivery(RUN_ID, 41, reason))
     assert gateway.closed_prs == [(41, reason)]
+    # The company's delivery loses its branch: the next one may use it.
+    assert gateway.deleted_branches == [41]
     assert runs.get("run-impl").pr_settled == "refused"
     assert runs.get("run-impl").pr_settled_reason == reason
     assert gateway.comments == [
@@ -1006,7 +1013,9 @@ def test_a_refused_delivery_with_no_open_ticket_only_closes(settings, monkeypatc
     _delivered(runs, "run-free", "the task file text", 40)
     _delivered(runs, "run-impl", "implement issue #7", 41)
     activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]), runs=runs)
-    for number in (40, 41):
+    for number in (39, 40, 41):
         asyncio.run(activities.refuse_delivery(RUN_ID, number, "expired"))
-    assert [n for n, _ in gateway.closed_prs] == [40, 41]
+    assert [n for n, _ in gateway.closed_prs] == [39, 40, 41]
     assert gateway.comments == []
+    # A PR the company never delivered keeps its branch: it is not ours.
+    assert gateway.deleted_branches == [40, 41]
