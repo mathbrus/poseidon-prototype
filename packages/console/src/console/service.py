@@ -77,7 +77,6 @@ from common.workflows import (
     GATE_PARKED,
     GATES_OF,
     HEARTBEAT_PAUSED,
-    HEARTBEAT_WORKFLOW,
     HUMAN_STARTABLE,
     RUN_STATUS_RUNNING,
     gate_rule,
@@ -450,8 +449,10 @@ class ConsoleService:
         5. the Company CR deleted and the reconciler's teardown waited for:
            the tombstone served, the namespace gone, every registry row of
            the company swept, this act's own rows with them;
-        6. the company's workflow histories deleted from Temporal, the
-           heartbeat's whole continue-as-new chain included.
+        6. every workflow history deleted from Temporal, the heartbeat's
+           whole continue-as-new chain included: once the company's row is
+           gone the worker no longer keeps its heartbeat running, and
+           Temporal ends whatever still runs.
 
         The whole delete waits at most `TEARDOWN_TIMEOUT_S`. A step that
         cannot finish — a purge the git host refuses included — fails the
@@ -471,16 +472,16 @@ class ConsoleService:
         await self._hold_for_delete(identity, company, deadline)
         cancelled = await self._end_runs(identity, company, rationale, deadline)
         if purge_remote:
-            repo = (await self._spec(company) or {})["repo"]
-            await self._gateway.purge(repo["url"], repo["base_ref"])
-        histories = await self._workflow_ids(company)
+            _, spec = await self._converged_spec()
+            await self._gateway.purge(spec["repo"]["url"], spec["repo"]["base_ref"])
         try:
             await asyncio.to_thread(
                 self._delete, company, max(0.0, deadline - time.monotonic())
             )
         except TimeoutError as exc:
             raise Unfinished(str(exc)) from exc
-        await self._erase_histories(company, histories)
+        # Its heartbeat's latest run by name: the listing may lag it.
+        await self._workflows.delete_executions([workflow_id("heartbeat", company)])
         return CompanyDeleted(
             company=company,
             runs_cancelled=cancelled,
@@ -500,7 +501,7 @@ class ConsoleService:
             await asyncio.to_thread(self._companies.pause, company, identity.agent_id)
         await self._nudge(company)
         await self._until(
-            workflow_id(HEARTBEAT_WORKFLOW, company),
+            workflow_id("heartbeat", company),
             lambda execution: (
                 execution.status != EXECUTION_RUNNING
                 or execution.state == HEARTBEAT_PAUSED
@@ -546,27 +547,6 @@ class ConsoleService:
                     " stands: delete the company again to finish it"
                 )
             await asyncio.sleep(DELETE_POLL_S)
-
-    async def _workflow_ids(self, company: str) -> list[str]:
-        """Every workflow the company ran: its heartbeat and each run's,
-        read before the sweep erases the rows that name them."""
-        records = await asyncio.to_thread(self._runs.since, company, None)
-        ids = [workflow_id(HEARTBEAT_WORKFLOW, company)]
-        ids += [views.run_workflow_id(record) for record in records]
-        return list(dict.fromkeys(ids))
-
-    async def _erase_histories(self, company: str, ids: list[str]) -> None:
-        """End the heartbeat if it still runs (the worker no longer
-        restarts it once the company's row is gone), then delete every
-        execution under the company's workflow ids."""
-        try:
-            await self._workflows.terminate(
-                workflow_id(HEARTBEAT_WORKFLOW, company), "company deleted"
-            )
-        except WorkflowNotFound:
-            pass  # already ended
-        for wf_id in ids:
-            await self._workflows.delete(wf_id)
 
     # -- runs -----------------------------------------------------------------
 
@@ -914,10 +894,8 @@ class ConsoleService:
         loop = heartbeat_run_id(company)
         plans = [
             (BLUEPRINT_APPLY, acts.apply_args(company), "", None),
-            *(
-                (COMPANY_DELETE, acts.delete_args(purge_remote), "", None)
-                for purge_remote in (False, True)
-            ),
+            (COMPANY_DELETE, acts.delete_args(False), "", None),
+            (COMPANY_DELETE, acts.delete_args(True), "", None),
             (HEARTBEAT_WAKE, acts.NO_ARGS, loop, acts.wake_refusal(company, heartbeat)),
             (HEARTBEAT_PAUSE, acts.NO_ARGS, loop, acts.pause_refusal(company, paused)),
             (HEARTBEAT_RESUME, acts.NO_ARGS, loop, acts.resume_refusal(company, paused)),

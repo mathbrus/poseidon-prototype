@@ -79,6 +79,12 @@ def verdict_rule(gate: str, approved: bool) -> str:
     return f"gate_resolve_{rego_slug(gate)}_{'approve' if approved else 'reject'}"
 
 
+def delete_rule(purge_remote: bool) -> str:
+    """The rule a delete is allowed and recorded under: whether it purges
+    the repository is named in the rule, like a verdict's answer."""
+    return "company_delete_purge_remote" if purge_remote else "company_delete"
+
+
 def rego_slug(value: str) -> str:
     """A name as a Rego identifier segment: dots, hyphens and slashes become
     underscores."""
@@ -320,13 +326,13 @@ RULES: tuple[PolicyRule, ...] = (
         "blueprint_apply", "allow", "A person `company.humans` names applies a blueprint."
     ),
     PolicyRule(
-        "company_delete",
+        delete_rule(False),
         "allow",
         "A person `company.humans` names deletes the company, its repository left"
         " as it is.",
     ),
     PolicyRule(
-        "company_delete_purge_remote",
+        delete_rule(True),
         "allow",
         "A person `company.humans` names deletes the company and purges its repository.",
     ),

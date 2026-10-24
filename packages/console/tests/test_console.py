@@ -77,19 +77,6 @@ pytestmark = pytest.mark.anyio
 HELLO_SAAS = fakes.HELLO_SAAS.read_text()
 PLATFORM_NS = PLATFORM_NAMESPACE
 RUN_ID = "run-01CONSOLE"
-SPEND = {
-    "company": COMPANY,
-    "run_id": RUN_ID,
-    "agent_id": "reviewer",
-    "parent_agent_id": "",
-    "role": "reviewer",
-    "model": "mock-brain",
-    "prompt_tokens": 10,
-    "completion_tokens": 5,
-    "cached_tokens": 0,
-    "reasoning_tokens": 0,
-    "usd": 0.25,
-}
 
 
 def model(cls, response: httpx.Response):
@@ -455,15 +442,11 @@ async def test_deleting_the_company_is_decided_audited_and_ends_its_runs_first(
     the person's name; the heartbeat held and woken until it says so; the
     running runs cancelled through the path a cancel takes and waited for
     until closed; then the Company CR deleted and its teardown waited for;
-    then the company's workflow histories deleted. Nothing of the company
-    is left, the act's own rows included: the answer is the receipt."""
+    then every workflow history deleted, the heartbeat's latest run named
+    in case the listing lags it."""
     heartbeat = f"heartbeat-{COMPANY}"
     world.workflows.running[heartbeat] = "sleeping"
     a_review_run(world)
-    world.runs.start("run-done", "implement issue #3", "implement", None, COMPANY)
-    world.runs.finish("run-done", "done")
-    world.ledger.record(**SPEND)
-    world.tickets.record("github.com/example/hello-saas", 3, heartbeat)
 
     response = await client.request(
         "DELETE", "/company", json={"rationale": "wrong vision"}, headers=as_owner()
@@ -471,33 +454,22 @@ async def test_deleting_the_company_is_decided_audited_and_ends_its_runs_first(
     deleted = model(CompanyDeleted, response)
     assert deleted.company == COMPANY
     assert deleted.runs_cancelled == [RUN_ID]
-    assert deleted.rule == "company_delete"
-    assert world.workflows.calls == [
+    assert (deleted.rule, deleted.purged_remote) == ("company_delete", False)
+    assert world.calls == [
         ("signal", (heartbeat, "wake", [])),
         ("cancel", f"review-{RUN_ID}"),
-        ("terminate", heartbeat),
-        ("delete", heartbeat),
-        ("delete", f"review-{RUN_ID}"),
-        ("delete", "implement-run-done"),
+        ("delete_company", COMPANY),
+        ("delete_executions", [heartbeat]),
     ]
-    # When the CR went: the act recorded first and the cancel after it
-    # under the same name, the loop held under it, the run closed and the
-    # loop still running, waiting to be ended.
-    assert [(e.tool, e.decision, e.agent_id) for e in world.erased] == [
-        (COMPANY_DELETE, "allow", "owner"),
-        (RUN_CANCEL, "allow", "owner"),
+    # The act recorded first, the cancel after it under the same name, and
+    # the loop held under it.
+    assert [
+        (e.tool, e.decision, e.agent_id, e.rationale) for e in world.audit.events
+    ] == [
+        (COMPANY_DELETE, "allow", "owner", "wrong vision"),
+        (RUN_CANCEL, "allow", "owner", "company deleted: wrong vision"),
     ]
-    assert [e.rationale for e in world.erased] == [
-        "wrong vision",
-        "company deleted: wrong vision",
-    ]
-    assert world.paused_at_delete["by"] == "owner"
-    assert world.running_at_delete == {heartbeat: "paused"}
-    assert world.deleted == [COMPANY]
-    # The sweep took every row of the company with it.
-    assert world.audit.events == [] and world.runs.rows == {}
-    assert world.ledger.entries == [] and world.tickets.rows == {}
-    assert world.workflows.running == {} and world.workflows.closed == {}
+    assert world.companies.pauses[COMPANY]["by"] == "owner"
     # Nothing is left to act on.
     assert (await client.get("/heartbeat", headers=as_owner())).status_code == 404
     again = await client.request(
@@ -511,8 +483,6 @@ async def test_a_delete_may_purge_the_repository_once_the_runs_have_ended(client
     reset through the gateway after the runs closed and before the Company
     CR goes — while the company's policy still allows the console that one
     call."""
-    heartbeat = f"heartbeat-{COMPANY}"
-    world.workflows.running[heartbeat] = "sleeping"
     a_review_run(world)
     response = await client.request(
         "DELETE",
@@ -521,12 +491,15 @@ async def test_a_delete_may_purge_the_repository_once_the_runs_have_ended(client
         headers=as_owner(),
     )
     deleted = model(CompanyDeleted, response)
-    assert deleted.purged_remote is True
-    assert deleted.rule == "company_delete_purge_remote"
+    assert (deleted.rule, deleted.purged_remote) == ("company_delete_purge_remote", True)
     repo = applied_spec()["repo"]
-    assert world.gateway.purges == [(repo["url"], repo["base_ref"])]
-    assert world.running_at_purge == {heartbeat: "paused"}
-    assert world.purged_at_delete == world.gateway.purges
+    assert [call[0] for call in world.calls] == [
+        "cancel",
+        "purge",
+        "delete_company",
+        "delete_executions",
+    ]
+    assert ("purge", (repo["url"], repo["base_ref"])) in world.calls
 
 
 async def test_a_refused_purge_fails_the_delete_before_the_company_goes(client, world):
@@ -543,9 +516,8 @@ async def test_a_refused_purge_fails_the_delete_before_the_company_goes(client, 
     )
     assert response.status_code == 503
     assert "Cannot force-push" in Problem.model_validate(response.json()).detail
-    assert world.deleted == [] and world.companies.applied() == COMPANY
+    assert world.calls == [("cancel", f"review-{RUN_ID}")]
     assert world.companies.paused(COMPANY)["by"] == "owner"
-    assert world.workflows.closed == {f"review-{RUN_ID}": "CANCELED"}
 
     world.gateway.purge_refusal = None
     again = await client.request(
@@ -555,7 +527,7 @@ async def test_a_refused_purge_fails_the_delete_before_the_company_goes(client, 
         headers=as_owner(),
     )
     assert model(CompanyDeleted, again).purged_remote is True
-    assert world.deleted == [COMPANY]
+    assert ("delete_company", COMPANY) in world.calls
 
 
 async def test_a_delete_that_cannot_finish_leaves_the_company_held_and_a_second_finishes(
@@ -567,14 +539,15 @@ async def test_a_delete_that_cannot_finish_leaves_the_company_held_and_a_second_
     monkeypatch.setattr(service_module, "TEARDOWN_TIMEOUT_S", 0)
     heartbeat = f"heartbeat-{COMPANY}"
     world.workflows.running[heartbeat] = "ticking"
-    world.workflows.signal = _silent_signal(world.workflows)
+    world.workflows.on_signal = lambda wf_id, name: None  # still mid-tick
 
     response = await client.request(
         "DELETE", "/company", json={"rationale": "first"}, headers=as_owner()
     )
     assert response.status_code == 503
     assert "the heartbeat has not held" in Problem.model_validate(response.json()).detail
-    assert world.deleted == [] and world.companies.paused(COMPANY)["by"] == "owner"
+    assert world.calls == [("signal", (heartbeat, "wake", []))]
+    assert world.companies.paused(COMPANY)["by"] == "owner"
 
     world.workflows.running[heartbeat] = "paused"  # the tick ended, held
     deleted = model(
@@ -583,17 +556,8 @@ async def test_a_delete_that_cannot_finish_leaves_the_company_held_and_a_second_
             "DELETE", "/company", json={"rationale": "again"}, headers=as_owner()
         ),
     )
-    assert deleted.company == COMPANY and world.deleted == [COMPANY]
+    assert deleted.company == COMPANY and ("delete_company", COMPANY) in world.calls
     assert world.companies.applied() is None
-
-
-def _silent_signal(workflows):
-    """A loop that hears the wake but is still mid-tick: its state stays."""
-
-    async def signal(wf_id, name, args):
-        workflows.calls.append(("signal", (wf_id, name, args)))
-
-    return signal
 
 
 async def test_the_company_read_is_the_crs_phase(client, world):
@@ -623,7 +587,7 @@ async def test_a_stranger_cannot_delete_the_company(client, world):
     )
     assert response.status_code == 403
     assert PolicyRefusal.model_validate(response.json()).rule == "human_not_recognized"
-    assert world.deleted == [] and world.workflows.calls == []
+    assert world.calls == []
     assert world.events == [(COMPANY_DELETE, "deny", "human_not_recognized")]
 
 

@@ -62,6 +62,7 @@ from common.policy import (
     RUN_CANCEL,
     RUN_START,
     company_package,
+    delete_rule,
     rego_slug,
     verdict_rule,
 )
@@ -462,11 +463,13 @@ def _console_file(
     body += act("heartbeat_pause", HEARTBEAT_PAUSE)
     body += act("heartbeat_resume", HEARTBEAT_RESUME)
     body += act("blueprint_apply", BLUEPRINT_APPLY)
-    body += act("company_delete", COMPANY_DELETE, "input.args.purge_remote == false")
-    body += act(
-        "company_delete_purge_remote",
-        COMPANY_DELETE,
-        "input.args.purge_remote == true",
+    body += "".join(
+        act(
+            delete_rule(purge),
+            COMPANY_DELETE,
+            f"input.args.purge_remote == {json.dumps(purge)}",
+        )
+        for purge in (False, True)
     )
     body += (
         '\ndeny_rules contains "human_not_recognized" if {\n'
@@ -474,24 +477,28 @@ def _console_file(
         f"\tnot input.agent_id in {names}\n"
         "}\n"
     )
-    body += (
-        f'\nallow_rules contains "{CONSOLE_READ_DOCUMENT}" if {{\n'
-        f"\tinput.lifecycle == {json.dumps(LIFECYCLE_CONSOLE)}\n"
-        f"\tinput.company == {json.dumps(company)}\n"
-        '\tinput.tool == "repo.read_file"\n'
-        f"\tinput.args.repo == {json.dumps(repo_url)}\n"
-        f"\tinput.args.ref == {json.dumps(base_ref)}\n"
-        f"\tinput.args.path in {json.dumps(sorted(documents.values()))}\n"
-        "}\n"
+
+    def console_call(rule: str, tool: str, *facts: str) -> str:
+        return (
+            f'\nallow_rules contains "{rule}" if {{\n'
+            f"\tinput.lifecycle == {json.dumps(LIFECYCLE_CONSOLE)}\n"
+            f"\tinput.company == {json.dumps(company)}\n"
+            f'\tinput.tool == "{tool}"\n'
+            f"\tinput.args.repo == {json.dumps(repo_url)}\n"
+            + "".join(f"\t{fact}\n" for fact in facts)
+            + "}\n"
+        )
+
+    body += console_call(
+        CONSOLE_READ_DOCUMENT,
+        "repo.read_file",
+        f"input.args.ref == {json.dumps(base_ref)}",
+        f"input.args.path in {json.dumps(sorted(documents.values()))}",
     )
-    body += (
-        f'\nallow_rules contains "{CONSOLE_REPO_PURGE}" if {{\n'
-        f"\tinput.lifecycle == {json.dumps(LIFECYCLE_CONSOLE)}\n"
-        f"\tinput.company == {json.dumps(company)}\n"
-        f'\tinput.tool == "{REPO_PURGE}"\n'
-        f"\tinput.args.repo == {json.dumps(repo_url)}\n"
-        f"\tinput.args.base_ref == {json.dumps(base_ref)}\n"
-        "}\n"
+    body += console_call(
+        CONSOLE_REPO_PURGE,
+        REPO_PURGE,
+        f"input.args.base_ref == {json.dumps(base_ref)}",
     )
     return _rego_file(company, body)
 

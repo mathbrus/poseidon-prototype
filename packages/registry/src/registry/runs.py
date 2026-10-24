@@ -173,27 +173,32 @@ class Runs:
         iterations: int = 0,
         error: str | None = None,
     ) -> RunRecord:
-        """Write the honest terminal record and return it. Recreates the row
-        if it is missing (a fresh database mid-run) rather than failing the
-        compensation path."""
-        self._db.execute(
+        """Write the honest terminal record on the run's row and return it.
+        A run refused at birth has no row and gets none: its record is
+        returned, not written, since a row without its company would
+        outlive the company's teardown sweep."""
+        rows = self._db.query(
             """
-            INSERT INTO registry.runs
-                (run_id, status, pr_url, iterations, error, finished_at)
-            VALUES (%s, %s, %s, %s, %s, now())
-            ON CONFLICT (run_id) DO UPDATE SET
-                status = EXCLUDED.status,
-                pr_url = COALESCE(EXCLUDED.pr_url, registry.runs.pr_url),
-                iterations = EXCLUDED.iterations,
-                error = EXCLUDED.error,
-                finished_at = EXCLUDED.finished_at
+            UPDATE registry.runs
+               SET status = %s,
+                   pr_url = COALESCE(%s, pr_url),
+                   iterations = %s,
+                   error = %s,
+                   finished_at = now()
+             WHERE run_id = %s
+            RETURNING *
             """,
-            (run_id, status, pr_url, iterations, error),
+            (status, pr_url, iterations, error, run_id),
         )
-        record = self.get(run_id)
-        if record is None:  # just written — only a vanished database gets here
-            raise RuntimeError(f"run {run_id} missing immediately after finish()")
-        return record
+        if rows:
+            return RunRecord.from_row(rows[0])
+        return RunRecord(
+            run_id=run_id,
+            status=status,
+            pr_url=pr_url,
+            iterations=iterations,
+            error=error,
+        )
 
     def get(self, run_id: str) -> RunRecord | None:
         rows = self._db.query("SELECT * FROM registry.runs WHERE run_id = %s", (run_id,))

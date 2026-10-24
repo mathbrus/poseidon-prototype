@@ -183,12 +183,9 @@ def create_app(
     async def unavailable(_: Request, exc: Unavailable) -> JSONResponse:
         return _problem(503, f"temporal unreachable: {exc}")
 
-    @app.exception_handler(Unfinished)
-    async def unfinished(_: Request, exc: Unfinished) -> JSONResponse:
-        return _problem(503, str(exc))
-
     @app.exception_handler(GatewayUnavailable)
-    async def no_gateway(_: Request, exc: GatewayUnavailable) -> JSONResponse:
+    @app.exception_handler(Unfinished)
+    async def unfinished(_: Request, exc: Exception) -> JSONResponse:
         return _problem(503, str(exc))
 
     def identity_of(request: Request):

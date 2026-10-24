@@ -10,14 +10,12 @@ import httpx
 import pytest
 from conftest import (
     CONSOLE_TOKEN,
-    GIT_TOKEN,
     PM_TOKEN,
     REPO,
     audit_events,
     mcp_session,
 )
 
-from common.topology import PLATFORM_NAMESPACE
 from mcp_gateway.config import McpGatewaySettings
 from mcp_gateway.git_backend import EMPTY_TREE, GitBackend, GitBackendError
 
@@ -92,23 +90,18 @@ class FakeGitHub:
         return items[(page - 1) * size : page * size]
 
 
-def backend(github: FakeGitHub) -> GitBackend:
+def backend(settings: McpGatewaySettings, github: FakeGitHub) -> GitBackend:
     return GitBackend(
-        McpGatewaySettings(
-            platform_namespace=PLATFORM_NAMESPACE,
-            opa_url="http://opa.test:8181",
-            git_token=GIT_TOKEN,
-        ),
-        httpx.AsyncClient(transport=httpx.MockTransport(github.handler)),
+        settings, httpx.AsyncClient(transport=httpx.MockTransport(github.handler))
     )
 
 
-async def test_a_purge_resets_the_repository_across_every_page():
+async def test_a_purge_resets_the_repository_across_every_page(settings):
     """More of everything than one page holds: every open pull request and
     issue closed, every branch deleted but the base and default ones, and
     both forced onto one root commit on the empty tree."""
     github = FakeGitHub(pulls=130, issues=210, branches=105, default="trunk")
-    result = await backend(github).purge(REPO, "main")
+    result = await backend(settings, github).purge(REPO, "main")
 
     assert result["reset"] == ["main", "trunk"]
     assert github.commits == [
@@ -124,43 +117,50 @@ async def test_a_purge_resets_the_repository_across_every_page():
     assert len(result["branches_deleted"]) == 105
 
 
-async def test_a_protected_base_refuses_the_purge_before_anything_changes():
+async def test_a_protected_base_refuses_the_purge_before_anything_changes(settings):
     """The host refuses a forced update of a protected branch: the purge
     fails, naming why, with every pull request, issue and branch as it
     was."""
     github = FakeGitHub(pulls=2, issues=2, branches=2, default="main")
     github.protected = {"main"}
     with pytest.raises(GitBackendError, match="Cannot force-push"):
-        await backend(github).purge(REPO, "main")
+        await backend(settings, github).purge(REPO, "main")
     assert set(github.pulls.values()) == {"open"}
     assert set(github.issues.values()) == {"open"}
     assert len(github.branches) == 3
 
 
-async def test_a_purge_repeated_finds_nothing_left_to_close():
+async def test_a_purge_repeated_finds_nothing_left_to_close(settings):
     github = FakeGitHub(pulls=1, issues=1, branches=1, default="main")
-    await backend(github).purge(REPO, "main")
-    again = await backend(github).purge(REPO, "main")
+    await backend(settings, github).purge(REPO, "main")
+    again = await backend(settings, github).purge(REPO, "main")
     assert again["pull_requests_closed"] == again["issues_closed"] == []
     assert again["branches_deleted"] == []
 
 
-async def test_only_the_console_may_purge(app, backends, audit):
+async def test_only_the_console_may_purge(app, backends, audit, monkeypatch):
     """Through the pipeline: the console's call is allowed on the declared
     repository and audited under its own lifecycle; a standing agent's is
     refused before the git host hears of it."""
+    purged: list[tuple[str, str]] = []
+
+    async def purge(self, repo: str, base_ref: str) -> dict:
+        purged.append((repo, base_ref))
+        return {"reset": [base_ref]}
+
+    monkeypatch.setattr(GitBackend, "purge", purge)
     async with mcp_session(app, PM_TOKEN) as session:
         refused = await session.call_tool(
             "repo.purge", {"run_id": "", "repo": REPO, "base_ref": "main"}
         )
-    assert refused.isError
-    assert backends.github_calls == []
+    assert refused.isError and purged == []
     async with mcp_session(app, CONSOLE_TOKEN) as session:
-        purged = await session.call_tool(
+        answered = await session.call_tool(
             "repo.purge", {"run_id": "", "repo": REPO, "base_ref": "main"}
         )
-    assert not purged.isError, purged.content
-    assert json.loads(purged.content[0].text)["reset"] == ["main"]
+    assert not answered.isError, answered.content
+    assert json.loads(answered.content[0].text)["reset"] == ["main"]
+    assert purged == [(REPO, "main")]
     rows = [(e["lifecycle"], e["decision"], e["rule"]) for e in audit_events(audit)]
     assert rows == [
         ("standing", "deny", "default_deny"),

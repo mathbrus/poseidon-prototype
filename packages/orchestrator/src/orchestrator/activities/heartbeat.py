@@ -89,9 +89,11 @@ async def emit_heartbeat_event(
     rationale: str | None = None,
     latency_ms: int = 0,
     workflow: str = WORKFLOW,
+    while_applied: bool = False,
 ) -> None:
     """One row of the heartbeat's story: what the loop decided, filed,
-    authorized or did on a tick, under the company's heartbeat run id."""
+    authorized or did on a tick, under the company's heartbeat run id;
+    with `while_applied`, only while the company is applied."""
     await record_event(
         audit,
         run_id=run_id,
@@ -103,6 +105,7 @@ async def emit_heartbeat_event(
         company=company,
         workflow=workflow,
         latency_ms=latency_ms,
+        while_applied=while_applied,
     )
 
 
@@ -343,14 +346,14 @@ class HeartbeatActivities:
         row is written only while `company` is applied: a tick in flight
         while the company is deleted leaves nothing behind the teardown
         sweep."""
-        await record_event(
+        await emit_heartbeat_event(
             self._audit,
+            company,
             run_id=heartbeat_run_id(company),
             tool=HEARTBEAT_TICK,
             digest=args_digest({"outcome": outcome, "rule": rule}),
             decision="allow" if outcome == TICK_STARTED else "deny",
             rule=tick_rule(outcome, rule),
-            company=company,
             workflow=workflow_id,
             while_applied=True,
         )

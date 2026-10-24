@@ -32,7 +32,6 @@ from registry.memory import (
     InMemoryAuditStore,
     InMemoryBudgetLedger,
     InMemoryCompanies,
-    InMemoryCompanySweep,
     InMemoryFiledTickets,
     InMemoryRuns,
 )
@@ -259,14 +258,14 @@ def test_config_carries_the_pause(activities, companies):
 def test_config_is_none_without_an_applied_company(activities, companies):
     """The fail-closed half of teardown: a deleted company stops the loop
     at its next tick."""
-    InMemoryCompanySweep(companies=companies).sweep(COMPANY)
+    del companies.rows[COMPANY]
     assert asyncio.run(activities.heartbeat_config(COMPANY)) is None
 
 
 def test_config_is_none_for_a_heartbeat_of_another_company(activities, companies):
     """A heartbeat that outlived its company must not tick on the next
     company's blueprint: the config read answers for its own name only."""
-    InMemoryCompanySweep(companies=companies).sweep(COMPANY)
+    del companies.rows[COMPANY]
     companies.upsert("other-co", {"heartbeat": HEARTBEAT_SPEC})
     assert asyncio.run(activities.heartbeat_config(COMPANY)) is None
 
@@ -831,7 +830,7 @@ def test_every_tick_leaves_a_correlated_row(activities, audit):
 def test_a_tick_of_a_deleted_company_leaves_no_row(activities, audit, companies):
     """A tick in flight while the company is deleted: its row would
     outlive the teardown sweep, so it is not written."""
-    InMemoryCompanySweep(companies=companies).sweep(COMPANY)
+    del companies.rows[COMPANY]
     asyncio.run(activities.record_tick(COMPANY, "paused", "owner", "heartbeat-x"))
     assert audit.events == []
 

@@ -42,6 +42,7 @@ from common.console import (
     RunView,
     TickView,
 )
+from common.repos import repo_slug
 from common.topology import (
     CONSOLE_TOKEN_AUDIENCE,
     PLATFORM_NAMESPACE,
@@ -417,6 +418,14 @@ def company_show(as_json: bool = JSON_OPTION) -> None:
     )
 
 
+# What `--purge-remote` does to the repository, as the help and the
+# warning before the question both say it.
+PURGE_EFFECT = (
+    "every open pull request and issue closed, every branch but the base and"
+    " default ones deleted, and those forced to one empty root commit"
+)
+
+
 @company_app.command(
     "delete",
     epilog=examples(
@@ -430,9 +439,7 @@ def company_delete(
     purge_remote: bool = typer.Option(
         False,
         "--purge-remote",
-        help="Also reset the company's repository in place: close every open pull"
-        " request and issue, delete every branch but the base and default ones,"
-        " and force those to one empty root commit.",
+        help=f"Also reset the company's repository in place: {PURGE_EFFECT}.",
     ),
     yes: bool = typer.Option(False, "--yes", "-y", help="Delete without asking."),
 ) -> None:
@@ -463,13 +470,13 @@ def company_delete(
     if purge_remote:
         repo = _call(client.company).repo or ""
         render.act(
-            f"--purge-remote resets {repo} in place: every open pull request and"
-            " issue closed, every branch but its base and default ones deleted,"
-            " those forced to one empty root commit. Closed issues and pull"
-            " requests stay visible on the git host.",
+            f"--purge-remote resets {repo} in place: {PURGE_EFFECT}. Closed"
+            " issues and pull requests stay visible on the git host.",
             render.ERR,
         )
-        if not yes and typer.prompt(f"type {_slug(repo)} to purge it") != _slug(repo):
+        if not yes and typer.prompt(f"type {repo_slug(repo)} to purge it") != repo_slug(
+            repo
+        ):
             render.error("that is not the repository's name; nothing was deleted")
             raise typer.Exit(1)
     elif not yes:
@@ -483,12 +490,6 @@ def company_delete(
         + ("; its repository purged" if result.purged_remote else "")
         + (f"; cancelled {', '.join(cancelled)}" if cancelled else "")
     )
-
-
-def _slug(repo: str) -> str:
-    """A repository URL's `owner/name`: what a purge asks to be typed."""
-    path = repo.split("://", 1)[-1].rstrip("/").removesuffix(".git")
-    return "/".join(path.split("/")[-2:])
 
 
 # -- the heartbeat -------------------------------------------------------------

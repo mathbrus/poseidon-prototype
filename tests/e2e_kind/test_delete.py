@@ -21,20 +21,20 @@ import json
 import secrets
 import tarfile
 import time
-from typing import Any
 
 import httpx
 import pytest
 from temporalio.client import Client
 
 from common.policy import COMPANY_BUNDLE, company_decision_path, company_package
-from common.workflows import heartbeat_run_id, workflow_id
+from common.workflows import TASK_QUEUE, heartbeat_run_id
 from mcp_gateway.git_backend import EMPTY_TREE
 
 from .blueprints import restore_pristine
 from .cluster import (
     COMPANY,
     COMPANY_NS,
+    bare_heartbeat_id,
     console,
     db_now,
     gateway_url,
@@ -48,8 +48,6 @@ from .cluster import (
 )
 from .conftest import github_api, open_world_pr, seed_baseline, target_slug
 
-HEARTBEAT = workflow_id("heartbeat", COMPANY)
-
 
 @pytest.fixture(scope="module", autouse=True)
 def company_back(stack: None, baseline_env: dict):
@@ -60,20 +58,15 @@ def company_back(stack: None, baseline_env: dict):
     restore_pristine()
 
 
-def company_history() -> dict[str, Any]:
-    """What the registry knows of the company before it goes: its run
-    ids, the heartbeat's included, and its workflow ids."""
+def company_run_ids() -> list[str]:
+    """The company's run ids, its heartbeat's included, as the registry
+    knows them before the company goes."""
     rows = psql_json(
-        "SELECT COALESCE(json_agg(json_build_object("
-        "'run_id', run_id, 'workflow_id', workflow_id, 'workflow', workflow)),"
-        " '[]'::json) FROM registry.runs WHERE company = :'company'",
+        "SELECT COALESCE(json_agg(run_id), '[]'::json) FROM registry.runs"
+        " WHERE company = :'company'",
         company=COMPANY,
     )
-    run_ids = {heartbeat_run_id(COMPANY)} | {row["run_id"] for row in rows}
-    workflow_ids = {HEARTBEAT} | {
-        row["workflow_id"] or workflow_id(row["workflow"], row["run_id"]) for row in rows
-    }
-    return {"run_ids": sorted(run_ids), "workflow_ids": sorted(workflow_ids)}
+    return sorted({heartbeat_run_id(COMPANY), *rows})
 
 
 def rows_left(run_ids: list[str]) -> dict[str, int]:
@@ -102,29 +95,27 @@ def rows_left(run_ids: list[str]) -> dict[str, int]:
         runs=",".join(run_ids),
         company=COMPANY,
         repo=harness_repo_or_fail(),
-        heartbeat=HEARTBEAT,
+        heartbeat=bare_heartbeat_id(),
     )
     return json.loads(counts)
 
 
-def executions_left(workflow_ids: list[str], deadline_s: int = 120) -> list[str]:
-    """The workflow ids Temporal still lists an execution of, once its
-    asynchronous deletes have had `deadline_s` to land."""
-
-    async def listed(client: Client) -> list[str]:
-        found = []
-        for wf_id in workflow_ids:
-            async for _ in client.list_workflows(f"WorkflowId = '{wf_id}'", limit=1):
-                found.append(wf_id)
-        return found
+def executions_left(deadline_s: int = 120) -> list[str]:
+    """The workflow ids Temporal still lists on the worker's task queue,
+    once its asynchronous deletes have had `deadline_s` to land."""
 
     async def poll() -> list[str]:
         with temporal_port_forward() as address:
             client = await Client.connect(address)
             deadline = time.monotonic() + deadline_s
-            while (left := await listed(client)) and time.monotonic() < deadline:
+            while True:
+                left = [
+                    e.id
+                    async for e in client.list_workflows(f"TaskQueue = '{TASK_QUEUE}'")
+                ]
+                if not left or time.monotonic() >= deadline:
+                    return left
                 await asyncio.sleep(5)
-            return left
 
     return asyncio.run(poll())
 
@@ -139,7 +130,7 @@ def test_a_delete_revokes_and_erases_the_company(stack: None, env: dict):
         mcp, headers={"Authorization": f"Bearer {agent_token}"}, timeout=10
     )
     assert before.status_code != 401, "the pre-teardown credential must work"
-    history = company_history()
+    run_ids = company_run_ids()
 
     # The stop is a console act, and the console answers once the company
     # is gone: its rows swept, its workflow histories deleted.
@@ -151,7 +142,7 @@ def test_a_delete_revokes_and_erases_the_company(stack: None, env: dict):
 
     # Nothing of the company is left in the registry — the delete's own
     # audit row included; the console's answer was the receipt.
-    assert rows_left(history["run_ids"]) == dict.fromkeys(
+    assert rows_left(run_ids) == dict.fromkeys(
         (
             "companies",
             "agent_instances",
@@ -164,7 +155,7 @@ def test_a_delete_revokes_and_erases_the_company(stack: None, env: dict):
         ),
         0,
     )
-    assert executions_left(history["workflow_ids"]) == []
+    assert executions_left() == []
 
     # Revocation at the delivery layer: the served bundle is a tombstone —
     # the company's roots and no rules under them. The reconciler held the

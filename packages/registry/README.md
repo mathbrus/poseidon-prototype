@@ -24,7 +24,7 @@ imports it and connects with its own `REGISTRY_DSN`.
 | `ledger.py` | `BudgetLedger`: spend rows and their sums. |
 | `audit.py` | `AuditStore`: `append`, `story(run_id)`, `after` for followers, `count_allowed`, `latest_human_verdict`. |
 | `sweep.py` | `CompanySweep`: the teardown's one write, every row of a deleted company in one transaction. |
-| `memory.py` | In-memory doubles of every accessor except `PolicyBundles`, and of the sweep, for other packages' unit tests. They fail the way the real accessors do. No running service imports it. |
+| `memory.py` | In-memory doubles of every accessor except `PolicyBundles` and `CompanySweep`, for other packages' unit tests. They fail the way the real accessors do. No running service imports it. |
 
 ### The nine tables
 
@@ -98,8 +98,9 @@ each write is safe to repeat:
   `ParticipantRevoked`.
 - `SandboxRegistrations.register` updates on conflict, since a provision
   retry brings a new address.
-- `Runs.finish` recreates a missing row, so compensation never fails on
-  it.
+- `Runs.finish` updates the row in place. A run refused at birth has no
+  row: `finish` returns its record and writes none, since a row without
+  its company would outlive the teardown sweep.
 
 ## Invariants
 
@@ -112,8 +113,8 @@ each write is safe to repeat:
 - One live run per issue and per pull request:
   `test_one_live_implement_run_per_issue`,
   `test_one_live_review_run_per_pr`.
-- `finish` recreates a missing row:
-  `test_finish_recreates_a_missing_row`.
+- A run refused at birth gets a record and no row:
+  `test_a_run_refused_at_birth_gets_a_record_and_no_row`.
 - An unattributable event is still recorded:
   `test_unattributable_attempts_are_still_recorded`.
 - One query returns a run's story across every source:

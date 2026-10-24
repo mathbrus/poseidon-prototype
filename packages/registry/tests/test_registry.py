@@ -90,9 +90,18 @@ def test_start_is_retry_safe(registry: Registry):
     assert len(runs.recent("hello-saas")) == 1
 
 
-def test_finish_recreates_a_missing_row(registry: Registry):
-    record = Runs(registry).finish(RUN_ID, "failed", error="row vanished")
-    assert record.run_id == RUN_ID and record.status == "failed"
+def test_a_run_refused_at_birth_gets_a_record_and_no_row(registry: Registry):
+    """A run whose birth was refused has no row; its teardown's terminal
+    record is returned, never written: a row without its company would
+    outlive the company's sweep."""
+    runs = Runs(registry)
+    record = runs.finish(RUN_ID, "failed", error="refused at birth")
+    assert (record.run_id, record.status, record.error) == (
+        RUN_ID,
+        "failed",
+        "refused at birth",
+    )
+    assert runs.get(RUN_ID) is None
 
 
 def test_record_artifacts_accumulates(registry: Registry):

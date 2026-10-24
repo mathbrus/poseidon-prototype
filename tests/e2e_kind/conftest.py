@@ -102,6 +102,7 @@ import pytest
 import yaml
 
 from common.audit import gate_event
+from common.repos import repo_slug
 from common.tasks import SCOPE_TASK, issue_run_task, review_run_task
 from common.workflows import MERGE_GATE
 from mock_brain.brain import (
@@ -541,7 +542,7 @@ def github_api(env: dict, method: str, path: str, **kwargs) -> httpx.Response:
 
 
 def target_slug(env: dict) -> str:
-    return "/".join(env["TARGET_REPO"].split("/")[-2:])
+    return repo_slug(env["TARGET_REPO"])
 
 
 def read_repo_file(env: dict, path: str) -> dict | None:

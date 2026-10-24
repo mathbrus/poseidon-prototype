@@ -15,7 +15,7 @@ calls under the heartbeat's run id, the bootstrap tickets it filed. The
 runs are the company's runs plus the heartbeat's own run id.
 """
 
-from common.workflows import HEARTBEAT_WORKFLOW, heartbeat_run_id, workflow_id
+from common.workflows import heartbeat_run_id
 from registry.db import Registry
 
 
@@ -25,7 +25,9 @@ class CompanySweep:
 
     def sweep(self, company: str) -> None:
         """Delete every row of `company`. Repeating it finds nothing."""
-        heartbeat = workflow_id(HEARTBEAT_WORKFLOW, company)
+        # The heartbeat's run id, which is also its workflow id: the run
+        # id every heartbeat row carries, and the workflow its ticks name.
+        heartbeat = heartbeat_run_id(company)
         with self._db.transaction() as conn:
             # Locked first: a writer that may only write while the company
             # is applied (`AuditStore.append_while_applied`) either commits
@@ -36,7 +38,7 @@ class CompanySweep:
                 (company,),
             ).fetchone()
             repo = applied["repo"] if applied else None
-            run_ids = [heartbeat_run_id(company)] + [
+            run_ids = [heartbeat] + [
                 row["run_id"]
                 for row in conn.execute(
                     "SELECT run_id FROM registry.runs WHERE company = %s", (company,)

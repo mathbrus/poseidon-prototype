@@ -15,7 +15,7 @@ The acts, the decision each must win, and the routes are on the [console referen
 | `app.py` | The FastAPI app: the routes of `common.console.ROUTES`, the shared auth middleware and the error answers. |
 | `service.py` | `ConsoleService`: every act as decide, record, do, and the reads beside them. The bootstrap rule for a first apply. |
 | `views.py` | The one translation layer: registry rows, run records, Temporal's answers and the Company CR mapped onto the console interface's models. Nothing else knows both sides. |
-| `temporal.py` | The Temporal client: start, signal, cancel and inspect, addressed by `common.workflows`; terminate and delete for a deleted company's histories. Unreachable Temporal raises `Unavailable`. |
+| `temporal.py` | The Temporal client: start, signal, cancel and inspect, addressed by `common.workflows`; `delete_executions` erases every execution on the worker's task queue when the company is deleted. Unreachable Temporal raises `Unavailable`. |
 | `gateway.py` | The console's two calls at the MCP gateway, as the `console` identity: `repo.read_file` of the company's two documents at the base ref, and `repo.purge` of its repository for a delete with `--purge-remote`. The company's bundle allows those two and nothing else. |
 | `crs.py` | The only cluster touch: submit the Company and AgentInstance CRs (the Company carrying the blueprint's text as applied), read the Company back, delete the Company. |
 | `config.py` | `ConsoleSettings`: the shared authn fields, `opa_url`, `temporal_address` and `console_humans`. |
@@ -64,7 +64,7 @@ A delete with `purge_remote` calls `repo.purge` the same way, allowed by `consol
 3. Each running run is cancelled through `cancel_run`, its own audited act, and the delete waits until its workflow has closed.
 4. With `purge_remote`, `repo.purge` resets the repository while the company's bundle still allows it.
 5. The Company CR is deleted, and the delete waits for the reconciler's teardown: the tombstone served, the namespace gone, every registry row of the company swept, this act's rows with them.
-6. The heartbeat is terminated if it still runs, and every execution under the company's workflow ids is deleted from Temporal, each run of the heartbeat's continue-as-new chain included.
+6. Every execution on the worker's task queue is deleted from Temporal, each run of the heartbeat's continue-as-new chain included: a cluster hosts one company, so every one is the company's. The heartbeat's latest run is also named, since the listing may lag it. Temporal ends whatever still runs, and once the company's row is gone the worker no longer restarts the heartbeat.
 
 A step that cannot finish, a purge the git host refuses included, answers 503. What was done stands: the company is still applied, held, and its runs are ended. Every step is safe to repeat, so a second delete finishes it.
 
@@ -83,7 +83,7 @@ All in `tests/test_console.py` unless noted.
 - A delete holds the loop, ends the runs, then tears down and erases: `test_deleting_the_company_is_decided_audited_and_ends_its_runs_first`.
 - A delete that cannot finish leaves the company held, and a second finishes it: `test_a_delete_that_cannot_finish_leaves_the_company_held_and_a_second_finishes`, `test_a_refused_purge_fails_the_delete_before_the_company_goes`.
 - A purge runs after the runs ended and before the company goes: `test_a_delete_may_purge_the_repository_once_the_runs_have_ended`.
-- Terminate and delete reach every run of a continue-as-new chain: `test_temporal.py::test_a_deleted_loop_leaves_no_execution`.
+- The delete reaches every execution, each run of a running continue-as-new chain included: `test_temporal.py::test_a_deleted_company_leaves_no_execution`.
 - One company per cluster: `test_another_companys_blueprint_is_refused_while_one_is_applied`.
 - Reads touch nothing: `test_the_reads_need_a_human_and_touch_nothing`.
 - The app serves exactly the interface's route table, each route with its request and response models, and the service builds no response dicts: `test_views.py`.

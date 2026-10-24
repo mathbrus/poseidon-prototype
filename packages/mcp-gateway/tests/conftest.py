@@ -249,18 +249,6 @@ class Backends:
                 **overrides,
             }
 
-        # The purge's calls: the repository, a root commit, forced refs,
-        # and the listings it closes and deletes from.
-        if method == "GET" and path.endswith("/repos/example/target"):
-            return httpx.Response(200, json={"default_branch": "main"})
-        if method == "POST" and path.endswith("/git/commits"):
-            return httpx.Response(201, json={"sha": "r00t5ha"})
-        if method == "PATCH" and "/git/refs/heads/" in path:
-            return httpx.Response(200, json={"object": {"sha": payload.get("sha")}})
-        if method == "GET" and path.endswith("/pulls"):
-            return httpx.Response(200, json=[])
-        if method == "GET" and path.endswith("/branches"):
-            return httpx.Response(200, json=[{"name": "main"}, {"name": "feature/x"}])
         if method == "POST" and path.endswith("/pulls"):
             return httpx.Response(201, json={"html_url": PR_URL})
         if method == "POST" and path.endswith("/comments"):

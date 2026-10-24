@@ -16,7 +16,6 @@ from typing import Any
 from kubernetes import client as k8s
 from kubernetes import config as k8s_config
 
-from common.topology import TEARDOWN_TIMEOUT_S
 from compiler import DeploymentPlan
 
 GROUP = "poseidon.dev"
@@ -164,9 +163,7 @@ def read_company(api: k8s.CustomObjectsApi | None = None) -> dict[str, Any] | No
 
 
 def delete_company(
-    name: str,
-    timeout_s: float = TEARDOWN_TIMEOUT_S,
-    api: k8s.CustomObjectsApi | None = None,
+    name: str, timeout_s: float, api: k8s.CustomObjectsApi | None = None
 ) -> None:
     """Delete the Company CR and wait for the reconciler's teardown to
     finish: the CR is gone once the tombstone is served, the namespace

@@ -178,7 +178,7 @@ async def test_a_preview_records_nothing_and_does_nothing(monkeypatch):
     await previews(world, OWNER_TOKEN)
     await previews(world, AUDITOR_TOKEN)
     assert world.audit.events == []
-    assert world.workflows.calls == [] and world.submitted == [] and world.deleted == []
+    assert world.calls == [] and world.submitted == []
     assert world.companies.paused(COMPANY) is None
 
 

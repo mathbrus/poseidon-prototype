@@ -22,8 +22,8 @@ from conftest import (
     mcp_session,
 )
 
+from common.repos import repo_slug
 from common.topology import PLATFORM_NAMESPACE
-from mcp_gateway.git_backend import repo_slug
 
 pytestmark = pytest.mark.anyio
 

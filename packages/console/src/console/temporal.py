@@ -1,6 +1,6 @@
 """The console's Temporal client: start, signal, cancel and inspect the
-workflows the orchestrator's worker hosts, and terminate and delete a
-deleted company's.
+workflows the orchestrator's worker hosts, and delete them all when the
+company is deleted.
 
 Connects lazily and once; a request that finds Temporal unreachable
 fails with `Unavailable`, which the app answers 503 — never a silent
@@ -9,6 +9,7 @@ success. The workflow ids, the task queue and the namespace are
 address a workflow the worker does not host.
 """
 
+import asyncio
 from typing import Any, Protocol
 
 from temporalio.api.common.v1 import WorkflowExecution
@@ -18,6 +19,10 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.service import RPCError, RPCStatusCode
 
 from common.workflows import TASK_QUEUE, TEMPORAL_NAMESPACE, workflow_id
+
+# How many deletes run at once: a company's histories are hundreds of
+# executions, and Temporal's frontend paces far more than this.
+DELETE_CONCURRENCY = 16
 
 
 class Unavailable(Exception):
@@ -47,8 +52,7 @@ class Workflows(Protocol):
     async def signal(self, wf_id: str, name: str, args: list[Any]) -> None: ...
     async def cancel(self, wf_id: str) -> None: ...
     async def inspect(self, wf_id: str) -> dict[str, Any]: ...
-    async def terminate(self, wf_id: str, reason: str) -> None: ...
-    async def delete(self, wf_id: str) -> None: ...
+    async def delete_executions(self, latest: list[str]) -> None: ...
 
 
 class TemporalWorkflows:
@@ -95,37 +99,42 @@ class TemporalWorkflows:
         except RPCError as exc:
             raise _refusal(exc, wf_id) from exc
 
-    async def terminate(self, wf_id: str, reason: str) -> None:
-        """End a running workflow at once, without its own cleanup."""
+    async def delete_executions(self, latest: list[str]) -> None:
+        """Delete every execution the worker's task queue ever ran, each
+        run of a continue-as-new chain included: a cluster hosts one
+        company, so every one is the company's. The latest run under each
+        id in `latest` is deleted too, since the listing may not show a run
+        that started a moment ago. Temporal terminates an execution still
+        running, and deletes asynchronously; deleting what is gone is
+        nothing."""
         client = await self._connect()
         try:
-            await client.get_workflow_handle(wf_id).terminate(reason=reason)
-        except RPCError as exc:
-            raise _refusal(exc, wf_id) from exc
-
-    async def delete(self, wf_id: str) -> None:
-        """Delete every execution under `wf_id` from Temporal's history and
-        visibility: each run of a continue-as-new chain, the current one
-        first, since the listing may not show it yet. Temporal terminates
-        one still running. Deleting what is already gone is nothing."""
-        client = await self._connect()
-        try:
-            run_ids = [""] + [
-                execution.run_id
-                async for execution in client.list_workflows(f"WorkflowId = '{wf_id}'")
+            listed = [
+                (execution.id, execution.run_id)
+                async for execution in client.list_workflows(
+                    f"TaskQueue = '{TASK_QUEUE}'"
+                )
             ]
         except RPCError as exc:
             raise Unavailable(str(exc)) from exc
-        for run_id in run_ids:
+        bound = asyncio.Semaphore(DELETE_CONCURRENCY)
+
+        async def delete(wf_id: str, run_id: str) -> None:
             request = DeleteWorkflowExecutionRequest(
                 namespace=TEMPORAL_NAMESPACE,
                 workflow_execution=WorkflowExecution(workflow_id=wf_id, run_id=run_id),
             )
-            try:
-                await client.workflow_service.delete_workflow_execution(request)
-            except RPCError as exc:
-                if exc.status != RPCStatusCode.NOT_FOUND:
-                    raise Unavailable(str(exc)) from exc
+            async with bound:
+                try:
+                    await client.workflow_service.delete_workflow_execution(request)
+                except RPCError as exc:
+                    if exc.status != RPCStatusCode.NOT_FOUND:
+                        raise Unavailable(str(exc)) from exc
+
+        await asyncio.gather(
+            *(delete(wf_id, "") for wf_id in latest),
+            *(delete(wf_id, run_id) for wf_id, run_id in listed),
+        )
 
     async def inspect(self, wf_id: str) -> dict[str, Any]:
         """The workflow's execution status and, while it runs, its

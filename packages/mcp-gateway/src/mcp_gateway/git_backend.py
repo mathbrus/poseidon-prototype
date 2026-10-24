@@ -30,6 +30,7 @@ from urllib.parse import quote
 import httpx
 
 from common.identity import COMMIT_EMAIL_DOMAIN, ORCHESTRATOR_ID
+from common.repos import repo_slug
 from common.telemetry import get_logger
 from common.workflows import MERGE_CONFLICT
 from mcp_gateway.config import McpGatewaySettings
@@ -43,12 +44,6 @@ INCOMING_REF = "refs/poseidon/incoming"
 
 class GitBackendError(Exception):
     pass
-
-
-def repo_slug(repo: str) -> str:
-    """`owner/name` slug for the GitHub API, from a repo URL or host path."""
-    path = repo.split("://", 1)[-1].rstrip("/").removesuffix(".git")
-    return "/".join(path.split("/")[-2:])
 
 
 def _require_safe_argument(what: str, value: str) -> str:
