@@ -28,7 +28,7 @@ from common.tasks import CLOSE_COMPLETED, CLOSE_NOT_PLANNED, ISSUE_TASK_RE
 from common.telemetry import get_logger
 from common.workflows import PR_MERGED, PR_REFUSED
 from orchestrator.clients import GatewayClient
-from registry import Runs
+from registry import RunRecord, Runs
 
 # The canonical rework-ticket title. The chain depth and the root PR ride
 # the title so the platform can read the bound back without trusting any
@@ -88,15 +88,18 @@ def refused_comment(
     )
 
 
+def delivered_ticket(implement: RunRecord | None) -> int | None:
+    """The ticket an implement run consumed, read off its task, or None for
+    no run or one that worked a free-form task."""
+    match = ISSUE_TASK_RE.match((implement.task if implement else "") or "")
+    return int(match.group(1)) if match else None
+
+
 def consumed_ticket(runs: Runs, company: str, pr_number: int) -> int | None:
     """The ticket the implement run that delivered `pr_number` consumed,
     or None for a PR no implement run delivered or one delivered from a
     free-form task."""
-    implement = runs.implement_run_for_pr(company, pr_number)
-    if implement is None:
-        return None
-    match = ISSUE_TASK_RE.match(implement.task or "")
-    return int(match.group(1)) if match else None
+    return delivered_ticket(runs.implement_run_for_pr(company, pr_number))
 
 
 async def close_fulfilled_tickets(
@@ -231,7 +234,7 @@ async def refuse_delivery(
         run_id, repo_url, pr_number, reason, delete_branch=delivered is not None
     )
     await asyncio.to_thread(runs.mark_pr_settled, company, pr_number, PR_REFUSED, reason)
-    ticket = await asyncio.to_thread(consumed_ticket, runs, company, pr_number)
+    ticket = delivered_ticket(delivered)
     if ticket is None:
         return None
     issue = await gateway.read_issue(run_id, repo_url, ticket)
