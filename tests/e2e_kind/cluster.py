@@ -47,7 +47,7 @@ PLATFORM_NS = PLATFORM_NAMESPACE  # the chart release namespace kind-up installs
 REPO_ROOT = Path(__file__).resolve().parents[2]
 EXAMPLES = REPO_ROOT / "examples"
 HELLO_SAAS = EXAMPLES / "hello-saas.yaml"
-DELEGATED = EXAMPLES / "hello-saas-delegated.yaml"
+AUTOMATED = EXAMPLES / "hello-saas-automated.yaml"
 COMPANY: str = yaml.safe_load(HELLO_SAAS.read_text())["company"]["name"]
 COMPANY_NS = COMPANY_NAMESPACE
 

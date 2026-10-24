@@ -70,7 +70,7 @@ To let policy merge in chosen paths, see
 [Delegate merges](../how-to/delegate-merges.md):
 
 ```yaml
---8<-- "examples/hello-saas-delegated.yaml:review-delegated"
+--8<-- "examples/hello-saas-automated.yaml:review-automated"
 ```
 
 <!-- gen: blueprint-fields:workflows -->
@@ -85,7 +85,7 @@ it denies the delivery.
 ([how they work](../explanation/merge-gate.md#tests-the-implementer-cant-rewrite)):
 
 ```yaml
---8<-- "examples/hello-saas-delegated.yaml:contract_tests"
+--8<-- "examples/hello-saas-automated.yaml:contract_tests"
 ```
 
 <!-- gen: blueprint-fields:policies -->

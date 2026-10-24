@@ -100,7 +100,7 @@ def test_ephemeral_agents_are_specs_not_instances(blueprint):
 def test_gate_config_comes_from_the_blueprint(blueprint):
     plan = compile_blueprint(blueprint)
     review = next(w for w in plan.workflows if w.name == "review")
-    assert review.gates["merge"] == {"resolved_by": "human", "deadline_minutes": 1440}
+    assert review.gates["merge"] == {"deadline_minutes": 1440}
 
 
 def test_test_command_rides_the_sandbox_constraints(blueprint):
@@ -165,7 +165,7 @@ def test_workflow_nodes_carry_no_conductor(blueprint):
     assert not any(hasattr(w, "conductor") for w in plan.workflows)
 
 
-@pytest.mark.parametrize("example", ["hello-saas.yaml", "hello-saas-delegated.yaml"])
+@pytest.mark.parametrize("example", ["hello-saas.yaml", "hello-saas-automated.yaml"])
 def test_the_company_carries_its_policies_section(example):
     """The policies section rides the Company CR as written, lists sorted
     — what the bundle enforces and what the platform reads to say the

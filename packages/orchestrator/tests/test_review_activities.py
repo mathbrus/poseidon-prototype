@@ -40,7 +40,7 @@ REVIEW_SPEC = {
         {
             "name": "review",
             "crew": "feature-review",
-            "gates": {"merge": {"resolved_by": "human"}},
+            "gates": {"merge": {"deadline_minutes": 1440}},
         },
     ],
 }

@@ -31,7 +31,7 @@ So this capstone pins the one thing only a full unattended cluster run can
 show: passing in-class work reaches `main` with no human anywhere.
 
 The conftest orders this module after the other capstones, so its runs
-are added last. Applies `examples/hello-saas-delegated.yaml` (delegated
+are added last. Applies `examples/hello-saas-automated.yaml` (delegated
 merge) for the module and restores the pristine profile after.
 """
 
@@ -51,7 +51,7 @@ from mock_brain.brain import (
     TAMPERING_REVIEW_MARKER,
 )
 
-from .blueprints import DELEGATED, may_start, restore_pristine
+from .blueprints import AUTOMATED, may_start, restore_pristine
 from .cluster import (
     audit_story,
     await_run,
@@ -119,7 +119,7 @@ def delegated_overnight(stack: None, baseline_env: dict) -> dict:
     base ref — without it the composed verify is red and the arc reworks
     instead of merging."""
     env = baseline_env
-    apply_profile(DELEGATED, env)
+    apply_profile(AUTOMATED, env)
     nonce = secrets.token_hex(3)
     result: dict = {"env": env, "heartbeat_id": bare_heartbeat_id()}
     try:
@@ -179,8 +179,8 @@ def test_the_merged_work_fell_in_the_delegated_class(delegated_overnight: dict):
     """The implementer put the slice where the bounds said a merge is
     delegated: every file of the merged PR is under one of the blueprint's
     `delegate.paths` — the class the bounds named, not a guess."""
-    gate = yaml.safe_load(DELEGATED.read_text())["workflows"]["review"]["gates"]["merge"]
-    delegated = gate["delegate"]["paths"]
+    gate = yaml.safe_load(AUTOMATED.read_text())["workflows"]["review"]["gates"]["merge"]
+    delegated = gate["automate"]["paths"]
     files = delegated_overnight["merged_files"]
     assert files, "the merged PR changed no files"
     outside = [f for f in files if not any(f.startswith(p) for p in delegated)]
@@ -255,7 +255,7 @@ def contract_first(stack: None, baseline_env: dict) -> dict:
     merge, and then the implementation auto-merges on a green base-ref
     contract — no other command."""
     env = baseline_env
-    apply_profile(DELEGATED, env)
+    apply_profile(AUTOMATED, env)
     # The declared deviation from the session baseline: the tree is declared
     # by the blueprint but deleted from `main`, so an implementation cannot
     # merge until the spec lands — which is the whole point of sequencing
@@ -409,7 +409,7 @@ def tampered_review(stack: None, baseline_env: dict) -> dict:
     reviews the PR on its own nor implements the rework ticket the
     platform files; the module closes both."""
     env = baseline_env
-    apply_profile(may_start(DELEGATED, "scope"), env)
+    apply_profile(may_start(AUTOMATED, "scope"), env)
     nonce = secrets.token_hex(3)
     result: dict = {"env": env}
     try:

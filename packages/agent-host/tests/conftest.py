@@ -49,7 +49,7 @@ BOUNDS = render_bounds(
         "workflows": [
             {
                 "name": "review",
-                "gates": {"merge": {"resolved_by": "human", "deadline_minutes": 60}},
+                "gates": {"merge": {"deadline_minutes": 60}},
             }
         ],
     }

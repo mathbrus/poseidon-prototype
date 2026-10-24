@@ -1,10 +1,10 @@
-# hello-saas-delegated — the company that finishes its own work: in-class
-# passing work (`slugify.py`, the unit-test tree) merges under compiled
-# policy with no human command. A person answers everything the
-# delegation does not cover — carve-outs, out-of-class paths, a declined
-# policy merge, and the acceptance-contract tree the delegation is graded
-# by, which only the contract author may write. Removing the `delegate`
-# block reverts to human-only merge.
+# hello-saas-automated — the company that finishes its own work: passing
+# work on the automated paths (`slugify.py`, the unit-test tree) merges
+# under compiled policy with no human command. A person answers everything
+# the automation does not cover — carve-outs, other paths, a merge
+# automation declined, and the acceptance-contract tree automated merges
+# are graded by, which only the contract author may write. Removing the
+# `automate` block reverts to human-only merge.
 
 apiVersion: poseidon.dev/v1
 
@@ -55,22 +55,21 @@ workflows:
   implement:
     crew: feature-delivery
     max_verify_retries: 2
-  # --8<-- [start:review-delegated]
+  # --8<-- [start:review-automated]
   review:
     crew: feature-review
     gates:
       merge:
-        resolved_by: policy
-        # The wait when policy declines and the merge parks on a human.
+        # The wait when automation declines and the merge parks on a human.
         deadline_minutes: 1440
-        delegate:
+        automate:
           # The unit-test tree, never the whole of tests/: the contract
-          # tree below is the oracle these merges are graded by. The
-          # company's documents merge under policy too: the reviewer's
-          # verdict is the only oracle a document has.
+          # tree below grades these merges. The company's documents are
+          # automated too: the reviewer's verdict is the only grade a
+          # document has.
           paths: [slugify.py, tests/unit/, docs/]
           max_reworks: 1
-          # --8<-- [end:review-delegated]
+          # --8<-- [end:review-automated]
 
 policies:
   branch_protection:
@@ -78,7 +77,7 @@ policies:
     allowed_pattern: ^feature/[a-z0-9-]+$
   deny_paths:
     - .github/workflows/
-  # The split oracle: the acceptance spec delegated merges are graded by
+  # The split oracle: the acceptance spec automated merges are graded by
   # comes from different hands than the code it certifies, so the
   # implementer cannot rewrite the test that grades its own work.
   # --8<-- [start:contract_tests]

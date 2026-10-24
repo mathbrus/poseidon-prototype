@@ -51,8 +51,8 @@ def _paths(description: str) -> dict[str, Any]:
 
 
 # Humans are required because every company has at least one gate only a
-# person can answer: the budget park, and a policy-resolved merge falls
-# back to one. The vision's cap keeps it a statement of purpose, not a
+# person can answer: the budget park, and an automated merge falls back
+# to one. The vision's cap keeps it a statement of purpose, not a
 # specification.
 _COMPANY = {
     "type": "object",
@@ -225,48 +225,20 @@ _TOOLS = {
 }
 
 
-# One gate shape: a gate names its resolver and how long it waits for a
-# human, and differs only in which resolvers it allows and what a resolver
-# reads. A gate nobody declares is a gate nobody passes.
-def _gate(
-    description: str, resolvers: list[str], extra: dict[str, Any] | None = None
-) -> dict[str, Any]:
-    return {
-        "type": "object",
-        "additionalProperties": False,
-        "required": ["resolved_by", "deadline_minutes"],
-        "description": description,
-        "properties": {
-            "resolved_by": {
-                "type": "string",
-                "enum": resolvers,
-                "description": "Who resolves the gate: `human`, through"
-                " `poseidon verdict`, or `policy`, within `delegate`.",
-            },
-            "deadline_minutes": {
-                "type": "integer",
-                "minimum": 1,
-                "description": "How long the gate waits for a person. It"
-                " escalates at half and expires at the end.",
-            },
-            **(extra or {}),
-        },
-    }
-
-
-# The protected surfaces that can never be delegated live in
-# `blueprint.gates` and are refused at validate time.
-_MERGE_DELEGATION = {
+# What policy may merge without a person's verdict. The protected surfaces
+# that can never be automated live in `blueprint.gates` and are refused at
+# validate time.
+_MERGE_AUTOMATION = {
     "type": "object",
     "additionalProperties": False,
     "required": ["paths", "max_reworks"],
-    "description": "What policy may merge on its own. Required when"
-    " `resolved_by` is `policy`.",
+    "description": "What policy may merge without a person's verdict. Without"
+    " it, every merge waits for one.",
     "properties": {
         "paths": _paths(
-            "The paths a pull request may change and still merge under policy."
-            " May not overlap `.github/`, `policies.deny_paths` or the contract"
-            " tree."
+            "The paths a pull request may change and still merge without a"
+            " person. May not overlap `.github/`, `policies.deny_paths` or the"
+            " contract tree."
         ),
         "max_reworks": {
             "type": "integer",
@@ -277,11 +249,23 @@ _MERGE_DELEGATION = {
     },
 }
 
-_MERGE_GATE = _gate(
-    "Whether a reviewed pull request merges. Without it, a review ends without merging.",
-    ["human", "policy"],
-    {"delegate": _MERGE_DELEGATION},
-)
+# A gate nobody declares is a gate nobody passes.
+_MERGE_GATE = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["deadline_minutes"],
+    "description": "Whether a reviewed pull request merges. Without it, a"
+    " review ends without merging.",
+    "properties": {
+        "deadline_minutes": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "How long the gate waits for a person. It"
+            " escalates at half and expires at the end.",
+        },
+        "automate": _MERGE_AUTOMATION,
+    },
+}
 
 
 def _workflow(
@@ -378,7 +362,7 @@ _POLICIES = {
             "additionalProperties": False,
             "required": ["paths", "roles"],
             "description": "Acceptance tests the implementer can't rewrite."
-            " Delegated merges are graded against this tree as it stands on"
+            " Automated merges are graded against this tree as it stands on"
             " `base_ref`, and changes to it always need a person.",
             "properties": {
                 "paths": _paths("The contract tree, for example `tests/contract/`."),

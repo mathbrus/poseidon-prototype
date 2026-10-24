@@ -300,7 +300,7 @@ class ReviewWorkflow(RunWorkflow):
             start_to_close_timeout=timedelta(seconds=self._profile.step_s),
             retry_policy=STEP_RETRY,
         )
-        limit = int((gate.get("delegate") or {}).get("max_reworks") or 0)
+        limit = int((gate.get("automate") or {}).get("max_reworks") or 0)
         if depth["depth"] >= limit:
             await self.record_gate(input.run_id, MERGE_GATE, GATE_REWORK_EXHAUSTED)
             return {}
@@ -460,14 +460,14 @@ class ReviewWorkflow(RunWorkflow):
                 retry_policy=STEP_RETRY,
             )
             gate = config["gates"].get(MERGE_GATE) or {}
-            delegated = gate.get("resolved_by") == "policy"
-            # Under a delegated gate the platform verifies the head first,
+            automated = "automate" in gate
+            # Under an automated gate the platform verifies the head first,
             # in the sandbox as provisioned: the reviewer holds a shell
             # there, so a verify run after it could read whatever the
             # reviewer left. A contract-tree PR is the human's whatever the
             # suite says, so nothing is spent on it.
             verify: dict[str, Any] | None = None
-            if delegated and not self._touches_contract(pr, config):
+            if automated and not self._touches_contract(pr, config):
                 verify = await self._verify(input)
                 if not verify.get("passed"):
                     rework = await self._rework(
@@ -488,7 +488,7 @@ class ReviewWorkflow(RunWorkflow):
                     # The rework chain is spent: the reviewer still runs, so
                     # the human park carries its findings, and the policy
                     # layers are skipped — the PR goes to the human.
-                    delegated = False
+                    automated = False
             # The review crew is fulfilled under the conductor's authority
             # — the compiled crew.request decision, evaluated as the
             # conductor — and reads the company's documents as they stand
@@ -538,11 +538,11 @@ class ReviewWorkflow(RunWorkflow):
             # runs its layers first: a failed layer files a bounded rework
             # and ends the run (its `error`); an allow releases the merge; a
             # decline or spent rework chain leaves `{}`, which falls through
-            # to the human gate — the same gate a `resolved_by: human`
-            # review uses, so the human signal resolves every gate and the
-            # override survives delegation.
+            # to the human gate — the same gate a review without `automate`
+            # uses, so the human signal resolves every gate and the
+            # override survives automation.
             outcome: dict[str, Any] = {}
-            if delegated:
+            if automated:
                 outcome = await self._policy_merge(input, pr, result, config, verify)
                 if outcome.get("error"):
                     error = outcome["error"]

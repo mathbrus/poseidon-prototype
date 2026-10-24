@@ -46,7 +46,7 @@ standing:
 tools: {}
 
 # How a task is carried out and reviewed: which crew does each, how
-# many test retries, and who answers a merge.
+# many test retries, and what may merge without a person.
 workflows:
   implement:
     crew: feature-delivery
@@ -55,9 +55,8 @@ workflows:
     crew: feature-review
     gates:
       merge:
-        resolved_by: policy
         deadline_minutes: 1440
-        delegate:
+        automate:
           paths:
           - src/
           - tests/unit/

@@ -76,7 +76,7 @@ class WorkflowConfig:
 
     name: str
     crew: str
-    # Gate objects as the blueprint wrote them: `{resolved_by, delegate?}`.
+    # Gate objects as the blueprint wrote them: `{deadline_minutes, automate?}`.
     # A gate nobody declares is absent, and absent means the workflow does
     # not stop there.
     gates: dict[str, Any]

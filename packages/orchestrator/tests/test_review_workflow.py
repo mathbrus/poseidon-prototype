@@ -53,11 +53,10 @@ PR = 41
 HEAD_SHA = "f00d5ha"
 
 POLICY_GATE = {
-    "resolved_by": "policy",
     "deadline_minutes": 1,
-    "delegate": {"paths": ["src/", "tests/"], "max_reworks": 2},
+    "automate": {"paths": ["src/", "tests/"], "max_reworks": 2},
 }
-HUMAN_GATE = {"resolved_by": "human", "deadline_minutes": 1}
+HUMAN_GATE = {"deadline_minutes": 1}
 
 
 def dispatch_result(**overrides: Any) -> dict[str, Any]:

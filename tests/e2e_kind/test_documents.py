@@ -47,7 +47,7 @@ from mock_brain.brain import (
 from orchestrator.activities.documents import BOOTSTRAP_TITLES, bootstrap_body
 from orchestrator.workflows.implement import architecture_wait
 
-from .blueprints import DELEGATED, restore_pristine, single_attempt
+from .blueprints import AUTOMATED, restore_pristine, single_attempt
 from .cluster import (
     audit_story,
     bare_heartbeat_id,
@@ -104,7 +104,7 @@ def _open_issue_numbers(env: dict, title: str) -> list[int]:
 
 @pytest.fixture(scope="module")
 def one_shot_delegated(stack: None, baseline_env: dict):
-    apply_profile(single_attempt(DELEGATED), baseline_env)
+    apply_profile(single_attempt(AUTOMATED), baseline_env)
     yield baseline_env
     restore_strategy(baseline_env)
     put_repo_file(

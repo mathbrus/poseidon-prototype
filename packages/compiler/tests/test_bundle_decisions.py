@@ -671,9 +671,8 @@ def test_heartbeat_grants_no_new_path_to_merge(decide_heartbeat):
 
 
 DELEGATED_MERGE = {
-    "resolved_by": "policy",
     "deadline_minutes": 1440,
-    "delegate": {"paths": ["src/", "tests/"], "max_reworks": 2},
+    "automate": {"paths": ["src/", "tests/"], "max_reworks": 2},
 }
 
 
@@ -951,9 +950,8 @@ def _split(blueprint: dict) -> None:
 def _contract_crew(blueprint: dict) -> None:
     blueprint["standing"]["pm"]["may_spawn"]["crew"].append("contract-authoring")
     blueprint["workflows"]["review"]["gates"]["merge"] = {
-        "resolved_by": "policy",
         "deadline_minutes": 1440,
-        "delegate": {"paths": ["src/", "tests/unit/"], "max_reworks": 2},
+        "automate": {"paths": ["src/", "tests/unit/"], "max_reworks": 2},
     }
 
 

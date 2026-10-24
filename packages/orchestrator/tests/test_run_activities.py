@@ -56,7 +56,7 @@ APPLIED_SPEC = {
         {
             "name": "review",
             "crew": "feature-review",
-            "gates": {"merge": {"resolved_by": "human", "deadline_minutes": 1440}},
+            "gates": {"merge": {"deadline_minutes": 1440}},
         },
     ],
 }
@@ -217,9 +217,7 @@ def test_workflow_config_is_the_blueprint_block_plus_the_conductor(activities):
     }
     review = asyncio.run(activities.workflow_config("review"))
     assert review["crew"] == "feature-review"
-    assert review["gates"] == {
-        "merge": {"resolved_by": "human", "deadline_minutes": 1440}
-    }
+    assert review["gates"] == {"merge": {"deadline_minutes": 1440}}
     assert review["max_verify_retries"] is None
 
 

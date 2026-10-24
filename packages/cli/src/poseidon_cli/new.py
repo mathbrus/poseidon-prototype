@@ -10,8 +10,8 @@ wherever a default is honest (the vision and the repository have none:
 they are the two answers only the person can give), and writes the
 second without asking. What it writes is coherent by construction (the
 crews a workflow needs are spawnable, the stewardship crew is always
-among them, a contract tree brings its author's crew, delegation only
-under policy) and then compiled, the way the console would compile it,
+among them, a contract tree comes only with automation and brings its
+author's crew) and then compiled, the way the console would compile it,
 before a byte lands on disk.
 
 The prompts are one small protocol, so the questionnaire runs against a
@@ -111,8 +111,8 @@ class Answers:
     base_ref: str = "main"
     test_command: str = "pytest -q"
     egress: list[str] = field(default_factory=lambda: list(EGRESS_PRESETS["python"]))
-    resolver: str = "human"
-    delegate_paths: list[str] = field(
+    automate: bool = False
+    automate_paths: list[str] = field(
         default_factory=lambda: ["src/", "tests/unit/", "docs/"]
     )
     max_reworks: int = 1
@@ -274,20 +274,17 @@ def ask(prompter: Prompter, defaults: Answers | None = None) -> Answers:
         a.egress = list(EGRESS_PRESETS[preset])
 
     prompter.say(SECTIONS[2])
-    a.resolver = prompter.select(
-        "Who decides whether a pull request merges?",
-        [
-            ("human", "A person approves every merge"),
-            ("policy", "Routine changes merge on their own; a person approves the rest"),
-        ],
-        default=a.resolver,
-        help="you can change this later by editing the file",
+    a.automate = prompter.confirm(
+        "May routine changes merge without a person?",
+        default=a.automate,
+        help="otherwise a person approves every merge; you can change this later "
+        "by editing the file",
     )
-    if a.resolver == "policy":
-        a.delegate_paths = _split(
+    if a.automate:
+        a.automate_paths = _split(
             prompter.text(
                 "Folders where a change may merge without a person",
-                default=", ".join(a.delegate_paths),
+                default=", ".join(a.automate_paths),
                 help="anything touching other files waits for a person's verdict",
                 validate=valid_paths,
             )
@@ -426,8 +423,8 @@ def instruction(help: str, multiline: bool = False) -> str | None:
 def build(a: Answers) -> dict[str, Any]:
     """The blueprint the answers describe. Coherent by construction: the
     crews the workflows need are spawnable and the stewardship crew is
-    always among them; a contract tree brings its author's crew; the
-    delegation exists only under policy; the base branch is protected."""
+    always among them; a contract tree brings its author's crew and exists
+    only under automation; the base branch is protected."""
     crews = {IMPLEMENT_CREW, REVIEW_CREW, STEWARDSHIP_CREW}
     policies: dict[str, Any] = {
         "branch_protection": {
@@ -436,13 +433,10 @@ def build(a: Answers) -> dict[str, Any]:
         },
         "deny_paths": list(a.deny_paths),
     }
-    merge: dict[str, Any] = {
-        "resolved_by": a.resolver,
-        "deadline_minutes": a.merge_deadline_minutes,
-    }
-    if a.resolver == "policy":
-        merge["delegate"] = {
-            "paths": list(a.delegate_paths),
+    merge: dict[str, Any] = {"deadline_minutes": a.merge_deadline_minutes}
+    if a.automate:
+        merge["automate"] = {
+            "paths": list(a.automate_paths),
             "max_reworks": a.max_reworks,
         }
         if a.contract_tree:
@@ -527,7 +521,7 @@ SECTION_NOTES = {
     ),
     "workflows": (
         "How a task is carried out and reviewed: which crew does each, how\n"
-        "many test retries, and who answers a merge."
+        "many test retries, and what may merge without a person."
     ),
     "policies": "What the company may never do, whoever asks.",
     "budgets": "Spending limits: a task stops here and waits for a person.",

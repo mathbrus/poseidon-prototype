@@ -10,9 +10,9 @@ from pathlib import Path
 import yaml
 
 from .cluster import (
+    AUTOMATED,
     COMPANY,
     COMPANY_NS,
-    DELEGATED,
     EXAMPLES,
     HELLO_SAAS,
     REPO_ROOT,
@@ -23,7 +23,7 @@ from .cluster import (
     kubectl,
 )
 
-__all__ = ["DELEGATED", "EXAMPLES", "HELLO_SAAS", "REPO_ROOT"]
+__all__ = ["AUTOMATED", "EXAMPLES", "HELLO_SAAS", "REPO_ROOT"]
 
 # The suite's derived blueprints, written here and removed with the process.
 _SCRATCH = tempfile.TemporaryDirectory(prefix="poseidon-bp-")

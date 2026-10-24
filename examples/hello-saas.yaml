@@ -64,7 +64,6 @@ workflows:
     crew: feature-review
     gates:
       merge:
-        resolved_by: human
         # A working day for the person who answers; escalation at half.
         deadline_minutes: 1440
         # --8<-- [end:workflows]

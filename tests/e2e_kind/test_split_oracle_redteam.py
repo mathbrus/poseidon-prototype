@@ -49,7 +49,7 @@ shape and never re-seeds it. How the spec legitimately *gets* to `main` —
 the PM's ordered pair, the contract crew, the human's one approval — is the
 capstone's arc (`test_delegated`), not this module's.
 
-Applies `examples/hello-saas-delegated.yaml` (split-declared) for the
+Applies `examples/hello-saas-automated.yaml` (split-declared) for the
 module with `max_reworks: 0` — the rework loop is proven exactly at the
 workflow layer, and a rework ticket here would be backlog the standing
 heartbeat starts on its own, a cascade no scenario owns — and restores the
@@ -77,7 +77,7 @@ from mock_brain.brain import (
     STEERED_REVIEW_MARKER,
 )
 
-from .blueprints import DELEGATED, derived_blueprint, restore_pristine
+from .blueprints import AUTOMATED, derived_blueprint, restore_pristine
 from .cluster import audit_story, participants, run_spend
 from .conftest import (
     apply_profile,
@@ -136,9 +136,9 @@ def _pr_number_of(record: dict) -> int:
 
 def _no_reworks():
     def none(document: dict) -> None:
-        document["workflows"]["review"]["gates"]["merge"]["delegate"]["max_reworks"] = 0
+        document["workflows"]["review"]["gates"]["merge"]["automate"]["max_reworks"] = 0
 
-    return derived_blueprint(DELEGATED, none, "no-reworks")
+    return derived_blueprint(AUTOMATED, none, "no-reworks")
 
 
 @pytest.fixture(scope="module")

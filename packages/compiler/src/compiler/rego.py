@@ -33,7 +33,7 @@ import json
 from typing import Any
 
 from blueprint.catalog import STEWARD_ROLE
-from blueprint.gates import UNDELEGATABLE_PATHS
+from blueprint.gates import NEVER_AUTOMATED_PATHS
 from blueprint.tools import ARCHITECTURE_REQUEST, RUN_SCOPED
 from common.identity import LIFECYCLE_CONSOLE
 from common.policy import (
@@ -490,9 +490,9 @@ def _merge_gate_file(
         f"{names}\n"
         "}\n"
     )
-    delegation = gate.get("delegate") if gate.get("resolved_by") == "policy" else None
-    if delegation is not None:
-        body += _delegated_rules(company, delegation, policies)
+    automate = gate.get("automate")
+    if automate is not None:
+        body += _delegated_rules(company, automate, policies)
     return _rego_file(company, body)
 
 
@@ -504,7 +504,7 @@ def _delegated_rules(
     delegated class."""
     paths = json.dumps(sorted(delegation.get("paths") or []))
     carved = json.dumps(
-        sorted({*UNDELEGATABLE_PATHS, *(policies.get("deny_paths") or [])})
+        sorted({*NEVER_AUTOMATED_PATHS, *(policies.get("deny_paths") or [])})
     )
     contract_paths = sorted((policies.get("contract_tests") or {}).get("paths") or [])
     policy_path = (

@@ -166,8 +166,7 @@
       "crew": "feature-review",
       "gates": {
         "merge": {
-          "deadline_minutes": 1440,
-          "resolved_by": "human"
+          "deadline_minutes": 1440
         }
       },
       "max_verify_retries": null,

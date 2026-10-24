@@ -78,7 +78,7 @@ Then let the PM start the crew that writes those tests:
 A delegated path can't overlap the contract tree, `.github/` or
 `policies.deny_paths`. The compiler refuses the blueprint if it does.
 
-`examples/hello-saas-delegated.yaml` is the shipped example with both
+`examples/hello-saas-automated.yaml` is the shipped example with both
 changes made.
 
 ### 3. Preview and apply

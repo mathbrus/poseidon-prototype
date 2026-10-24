@@ -63,8 +63,8 @@ def workflow_config(
     `crew` is the ephemeral crew the workflow executes through, or None
     for a `crewless` workflow — one that dispatches the conductor directly
     and declares it has no node.
-    `gates` is the block as the blueprint wrote it (`{merge: {resolved_by,
-    deadline_minutes, delegate?}}`, ...), `max_verify_retries` bounds
+    `gates` is the block as the blueprint wrote it (`{merge:
+    {deadline_minutes, automate?}}`, ...), `max_verify_retries` bounds
     implement's verify loop, `budget_deadline_minutes` is how long a run
     stopped at the budget cap waits for a human, and `contract_paths` is
     the declared contract tree ([] when the company declares none) that
