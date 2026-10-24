@@ -56,12 +56,23 @@ class ImplementInput:
     issue_number: int
 
 
-def issue_task(number: int, title: str, body: str, url: str) -> str:
+def issue_task(
+    number: int,
+    title: str,
+    body: str,
+    url: str,
+    refusals: list[dict[str, str]] | None = None,
+) -> str:
     """The dispatch text of a run, composed by workflow code from the
-    ticket the platform read — deterministic on replay. The body is
-    untrusted input (bodies can run to 65k chars; truncation is future
+    ticket the platform read — deterministic on replay — and, when earlier
+    deliveries of the ticket were refused, why. The body and the reasons
+    are untrusted input (bodies can run to 65k chars; truncation is future
     work, never done silently)."""
-    return f"Implement issue #{number} ({url}): {title}\n\n{body}"
+    text = f"Implement issue #{number} ({url}): {title}\n\n{body}"
+    if refusals:
+        earlier = "\n".join(f"- {r['pr_url']}: {r['reason']}" for r in refusals)
+        text += f"\n\nEarlier deliveries of this ticket were not merged:\n{earlier}"
+    return text
 
 
 def delivery_feedback(task: str, refusal: str) -> str:
@@ -139,7 +150,11 @@ class ImplementWorkflow(RunWorkflow):
                 retry_policy=STEP_RETRY,
             )
             task_source = issue_task(
-                issue["number"], issue["title"], issue["body"], issue["url"]
+                issue["number"],
+                issue["title"],
+                issue["body"],
+                issue["url"],
+                issue.get("refusals"),
             )
             workspace_tar = await workflow.execute_activity(
                 "fetch_workspace",

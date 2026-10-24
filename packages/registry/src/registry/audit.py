@@ -67,12 +67,12 @@ class AuditStore:
 
     def latest_human_verdict(self, run_id: str, gate: str) -> dict[str, Any] | None:
         """The console's most recent verdict on this run's gate —
-        `{principal, approved, ts}` — or None when no human ever answered
-        through the console. Latest wins: an approving verdict followed
-        by a rejecting one reads as rejected."""
+        `{principal, approved, rationale, ts}` — or None when no human ever
+        answered through the console. Latest wins: an approving verdict
+        followed by a rejecting one reads as rejected."""
         rows = self._db.query(
             """
-            SELECT ts, agent_id, rule FROM registry.audit_events
+            SELECT ts, agent_id, rule, rationale FROM registry.audit_events
              WHERE run_id = %s AND source = 'console' AND tool = %s
                AND decision = 'allow' AND rule IN (%s, %s)
              ORDER BY ts DESC, id DESC
@@ -86,6 +86,7 @@ class AuditStore:
         return {
             "principal": row["agent_id"],
             "approved": row["rule"] == verdict_rule(gate, True),
+            "rationale": row["rationale"] or "",
             "ts": row["ts"],
         }
 

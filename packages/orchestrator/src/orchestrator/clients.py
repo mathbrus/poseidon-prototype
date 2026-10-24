@@ -15,6 +15,8 @@ from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 from temporalio import activity
 
+from common.workflows import PR_MERGED, PR_REFUSED
+
 # How often a dispatch polls the agent for its terminal status.
 POLL_INTERVAL_S = 2.0
 
@@ -313,14 +315,14 @@ class GatewayClient:
 
 def pr_settled(pr: dict[str, Any]) -> str | None:
     """Why a pull request is no longer reviewable, from the metadata
-    `read_pr` returns: `"merged"`, `"closed"` (closed without merging), or
-    None while it is open. The git host is the authority on this — the
-    registry only knows which PRs the company delivered and which reviews
-    it ran, never what a human or another harness did to them since."""
+    `read_pr` returns: merged, refused (closed without merging), or None
+    while it is open. The git host is the authority on this — the registry
+    only knows which PRs the company delivered and which reviews it ran,
+    never what a human or another harness did to them since."""
     if pr.get("merged"):
-        return "merged"
+        return PR_MERGED
     if str(pr.get("state") or "") != "open":
-        return "closed"
+        return PR_REFUSED
     return None
 
 

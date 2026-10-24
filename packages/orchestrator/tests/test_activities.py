@@ -133,10 +133,20 @@ def test_read_issue_returns_the_view_and_links_the_ticket(
             "url": "https://github.test/i/42",
         },
     )
+    runs.start("run-before", issue_run_task(42), "implement", company="hello-saas")
+    runs.finish("run-before", "done", pr_url="https://github.test/pull/5")
+    runs.mark_pr_settled("hello-saas", 5, "refused", "nobody answered within 60 minutes")
     runs.start(RUN_ID, issue_run_task(42), "implement", company="hello-saas")
     issue = asyncio.run(activities.read_issue(RUN_ID, 42))
     assert issue["title"] == "Add slugify" and issue["body"] == "spec"
     assert runs.get(RUN_ID).ticket_urls == ["https://github.test/i/42"]
+    # The attempt before was refused: this one reads why.
+    assert issue["refusals"] == [
+        {
+            "pr_url": "https://github.test/pull/5",
+            "reason": "nobody answered within 60 minutes",
+        }
+    ]
 
 
 def test_read_issue_refuses_a_closed_issue(activities, monkeypatch, fake_gateway):

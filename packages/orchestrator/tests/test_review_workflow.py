@@ -57,6 +57,13 @@ AUTOMATED_GATE = {
     "automate": {"paths": ["src/", "tests/"], "max_reworks": 2},
 }
 HUMAN_GATE = {"deadline_minutes": 1}
+# A person's recorded rejection, as the console wrote it.
+REJECTED = {
+    "principal": "owner",
+    "approved": False,
+    "rationale": "guts the spec",
+    "ts": "t1",
+}
 
 
 def dispatch_result(**overrides: Any) -> dict[str, Any]:
@@ -124,8 +131,11 @@ class Harness:
     # The head commit each merge named.
     merge_heads: list[str] = field(default_factory=list)
     # The world-changing platform acts in order: the merge, the closing of
-    # the tickets it fulfilled, a rework ticket and the PR it supersedes.
+    # the tickets it fulfilled, a rework ticket and the PR it supersedes,
+    # a refused delivery.
     effects: list[str] = field(default_factory=list)
+    # The reasons each refused delivery was refused with, in order.
+    refusals: list[str] = field(default_factory=list)
     # A ticket close the gateway keeps refusing.
     close_fails: bool = False
     torn_down: list[tuple[dict[str, Any] | None, str | None]] = field(
@@ -323,14 +333,20 @@ class Harness:
         async def merge_pr(run_id: str, pr_number: int, head_sha: str) -> dict[str, Any]:
             harness.merge_heads.append(head_sha)
             if harness.head_moved:
-                raise ApplicationError(
-                    f"head moved after review: pull request #{pr_number} is no"
-                    f" longer at {head_sha}",
-                    non_retryable=True,
-                )
+                return {
+                    "merged": False,
+                    "sha": "",
+                    "refused": f"head moved after review: pull request #{pr_number}"
+                    f" is no longer at {head_sha}",
+                }
             harness.merges.append(pr_number)
             harness.effects.append("merge")
             return {"merged": True, "sha": "abc123"}
+
+        @activity.defn(name="refuse_delivery")
+        async def refuse_delivery(run_id: str, pr_number: int, reason: str) -> None:
+            harness.effects.append(f"refuse #{pr_number}")
+            harness.refusals.append(reason)
 
         @activity.defn(name="close_tickets")
         async def close_tickets(
@@ -390,6 +406,7 @@ class Harness:
             rework_depth,
             file_rework,
             close_superseded_pr,
+            refuse_delivery,
             record_gate_outcome,
             merge_pr,
             close_tickets,
@@ -779,8 +796,9 @@ async def test_a_contract_tree_pr_parks_before_any_layer_is_spent(env):
 
 async def test_a_rejected_contract_pr_fails_honestly(env):
     """The other half of the human's authority over the spec: a rejection
-    merges nothing and the run finalizes failed — a gutted contract never
-    slips through by timeout or default."""
+    merges nothing, refuses the delivery with the person's words, and the
+    run finalizes failed — a gutted contract never slips through by
+    timeout or default."""
     harness = Harness(
         merge_gate=AUTOMATED_GATE,
         contract_paths=["tests/contract/"],
@@ -791,6 +809,7 @@ async def test_a_rejected_contract_pr_fails_honestly(env):
             "removed_asserts": 4,
             "added_asserts": 1,
         },
+        human_verdict=REJECTED,
     )
     worker, handle = await start_review(env.client, harness)
     try:
@@ -802,7 +821,8 @@ async def test_a_rejected_contract_pr_fails_honestly(env):
 
     assert harness.merges == []
     assert harness.reworks == []
-    assert harness.effects == []
+    assert harness.effects == [f"refuse #{PR}"]
+    assert harness.refusals == ["owner rejected the merge: guts the spec"]
     assert harness.gate_events == ["automation_declined", "parked", "rejected"]
     assert record["status"] == "failed"
     assert "merge gate rejected" in record["error"]
@@ -840,7 +860,8 @@ async def test_revocation_mid_flight_flips_the_gate_to_human_only(env):
     """Config read at run start grants nothing by itself: once the live
     bundle no longer carries the automation (the blueprint diff), the
     resolve denies and the run is human-only — unanswered, it escalates
-    and expires like any human gate, and nothing merges."""
+    and expires like any human gate, nothing merges, and the delivery is
+    refused with the deadline nobody met."""
     harness = Harness(
         merge_gate=AUTOMATED_GATE,
         resolve={"allow": False, "rule": "default_deny"},
@@ -854,6 +875,8 @@ async def test_revocation_mid_flight_flips_the_gate_to_human_only(env):
         "escalated",
         "expired",
     ]
+    assert harness.effects == [f"refuse #{PR}"]
+    assert harness.refusals == ["nobody answered within 1 minutes"]
     assert record["status"] == "failed"
     assert "merge gate expired" in record["error"]
 
@@ -864,11 +887,13 @@ async def test_revocation_mid_flight_flips_the_gate_to_human_only(env):
 async def test_an_exhausted_rework_chain_escalates_to_the_human(env):
     """At max_reworks the chain stops feeding the backlog: no new ticket,
     a rework_exhausted process-gate event, and the human decides — here,
-    a rejection, which fails the run honestly with nothing merged."""
+    a rejection, which refuses the delivery and fails the run honestly
+    with nothing merged."""
     harness = Harness(
         merge_gate=AUTOMATED_GATE,
         dispatch=dispatch_result(verdict="fail", verdict_rationale="Still blocking."),
         depth={"depth": 2, "root_pr": 38},
+        human_verdict=REJECTED,
     )
     worker, handle = await start_review(env.client, harness)
     try:
@@ -881,8 +906,8 @@ async def test_an_exhausted_rework_chain_escalates_to_the_human(env):
         await worker.__aexit__(None, None, None)
 
     assert harness.merges == []
-    # No ticket filed, so the PR is not superseded; no merge, no close.
-    assert harness.effects == []
+    # No ticket filed, so the PR is not superseded: it is refused.
+    assert harness.effects == [f"refuse #{PR}"]
     assert harness.gate_events == ["rework_exhausted", "parked", "rejected"]
     assert record["status"] == "failed"
     assert "merge gate rejected" in record["error"]
@@ -931,8 +956,8 @@ async def test_a_close_that_keeps_failing_ends_the_run_with_the_merge_recorded(e
 async def test_a_head_that_moved_after_review_merges_nothing(env, gate):
     """A push to the PR branch after the run read its head: both resolvers
     merge through the same pinned call, the host refuses it, and the run
-    fails with the refusal — no merge, no ticket closed, the PR left open
-    for another review."""
+    fails with the refusal — no merge, no ticket closed, and the delivery
+    refused with the host's words, so its ticket comes back."""
     harness = Harness(merge_gate=gate, head_moved=True)
     worker, handle = await start_review(env.client, harness)
     try:
@@ -945,7 +970,8 @@ async def test_a_head_that_moved_after_review_merges_nothing(env, gate):
 
     assert harness.merge_heads == [HEAD_SHA]
     assert harness.merges == []
-    assert harness.effects == []
+    assert harness.effects == [f"refuse #{PR}"]
+    assert harness.refusals[0].startswith("head moved after review")
     assert record["status"] == "failed"
     assert "head moved after review" in record["error"]
 
@@ -956,8 +982,8 @@ async def test_a_head_that_moved_after_review_merges_nothing(env, gate):
 async def test_a_signal_without_a_recorded_verdict_merges_nothing(env):
     """A `merge` signal that reached the workflow by any road but the
     console — network reach to the engine — finds no recorded verdict:
-    the resolve denies by name, the gate records it, nothing merges, and
-    the run ends failed."""
+    the resolve denies by name, the gate records it, nothing merges, the
+    delivery is refused, and the run ends failed."""
     harness = Harness(
         merge_gate=HUMAN_GATE,
         human_verdict=None,
@@ -974,6 +1000,9 @@ async def test_a_signal_without_a_recorded_verdict_merges_nothing(env):
     assert harness.resolve_args == [["human", {}]]
     assert harness.merges == []
     assert harness.gate_events == ["parked", "approved", "verdict_unverified"]
+    assert harness.refusals == [
+        "no verified human verdict (merge_resolve_no_human_verdict)"
+    ]
     assert record["status"] == "failed"
     assert "no verified human verdict (merge_resolve_no_human_verdict)" in record["error"]
 

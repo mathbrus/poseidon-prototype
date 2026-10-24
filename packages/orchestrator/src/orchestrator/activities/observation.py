@@ -3,9 +3,10 @@ run reads — composed once, rendered once.
 
 Retry safety: `heartbeat_observe` and `scope_observation` read the
 registry, the open backlog and the delivered PRs' live state under the
-platform identity, remember a PR the world settled on its run row
-(idempotent), and close the tickets of one a human merged by hand (each
-read first, skipped when already closed); safe to retry. Only numbers, titles, URLs and attempt counts
+platform identity, and settle a PR the world settled by hand
+(`settle_delivery`: the tickets of a merged one close, a closed one is
+refused and its ticket told why; each act is idempotent but that
+comment); safe to retry. Only numbers, titles, URLs and attempt counts
 leave here: issue bodies are untrusted input the implement run reads
 itself.
 
@@ -41,10 +42,7 @@ from orchestrator.activities.documents import (
     read_documents,
     sections,
 )
-from orchestrator.activities.tickets import (
-    close_fulfilled_tickets,
-    merged_outside_rationale,
-)
+from orchestrator.activities.tickets import settle_delivery
 from orchestrator.clients import GatewayClient, GatewayError, pr_settled
 from orchestrator.config import WorkerSettings
 from registry import Attempts, BudgetLedger, Companies, FiledTickets, Runs
@@ -257,35 +255,28 @@ class ObservationActivities:
                     )
                     continue
                 settled = pr_settled(pr)
-                if settled == "merged":
-                    # Merged outside the platform: the tickets it fulfils
-                    # close before the settle is remembered, so a close that
-                    # fails leaves the PR to be read — and closed — again.
+                if settled:
+                    # Settled by hand: a merge closes the tickets it fulfils,
+                    # a close refuses the delivery and gives its ticket
+                    # back. Observed once, remembered on the run row; a
+                    # failure leaves the PR to be read — and settled — again.
                     try:
-                        await close_fulfilled_tickets(
+                        await settle_delivery(
                             gateway,
                             self._runs,
                             self._company(),
                             run_id,
                             repo["url"],
                             candidate["number"],
-                            merged_outside_rationale(candidate["number"]),
+                            settled,
+                            max_attempts,
                         )
                     except GatewayError as exc:
                         self._log.info(
-                            "merged pr tickets not closed, read again next time",
+                            "settled pr not recorded, read again next time",
                             extra={"number": candidate["number"], "error": str(exc)},
                         )
                         continue
-                if settled:
-                    # Observed once, remembered: the run row keeps what the
-                    # world did, and no later tick reads this PR again.
-                    await asyncio.to_thread(
-                        self._runs.mark_pr_settled,
-                        self._company(),
-                        candidate["number"],
-                        settled,
-                    )
                     self._log.info(
                         "delivered pr no longer reviewable",
                         extra={"number": candidate["number"], "state": settled},

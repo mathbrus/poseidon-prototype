@@ -327,19 +327,29 @@ def test_merge_pr_raises_when_the_merge_does_not_land(
     assert named == ["f00d5ha", "f00d5ha"]
 
 
-def test_a_moved_head_fails_the_merge_for_good(settings, monkeypatch, fake_gateway):
+def test_a_moved_head_answers_the_hosts_refusal(settings, monkeypatch, fake_gateway):
     """The host refused the pinned merge because the head moved: the
-    refusal is the run's error, and no retry can bring the head back."""
+    activity answers the refusal for the workflow to refuse the delivery
+    with — no retry can bring the head back — while a merge that simply
+    did not land is an error worth retrying."""
     import orchestrator.activities.review as module
 
+    answers = iter(
+        [
+            {"merged": False, "sha": "", "refused": "head moved after review"},
+            {"merged": False, "sha": ""},
+        ]
+    )
+
     async def merge_pr(self, run_id, repo, number, sha, method="merge"):
-        return {"merged": False, "sha": "", "refused": "head moved after review"}
+        return next(answers)
 
     monkeypatch.setattr(module, "GatewayClient", fake_gateway(merge_pr=merge_pr))
     activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]))
-    with pytest.raises(ApplicationError, match="head moved after review") as caught:
+    refused = asyncio.run(activities.merge_pr(RUN_ID, 41, "0ld5ha"))
+    assert refused["refused"] == "head moved after review"
+    with pytest.raises(RuntimeError, match="did not land"):
         asyncio.run(activities.merge_pr(RUN_ID, 41, "0ld5ha"))
-    assert caught.value.non_retryable
 
 
 # -- reviewer independence --------------------------------------------------
@@ -501,9 +511,9 @@ def test_rework_title_round_trips():
 
 
 class FakeIssueGateway:
-    """A gateway double for the rework and closing activities: serves
-    issues by number and the open ones as the backlog, records created and
-    closed issues and closed PRs."""
+    """A gateway double for the rework, closing and refusing activities:
+    serves issues by number and the open ones as the backlog, records
+    created and closed issues, closed PRs and comments on issues."""
 
     def __init__(self, issues=None):
         self.issues = issues or {}
@@ -511,6 +521,7 @@ class FakeIssueGateway:
         self.closed = []
         self.close_reasons = []
         self.closed_prs = []
+        self.comments = []
 
     def __call__(self, *a, **k):
         return self
@@ -536,6 +547,10 @@ class FakeIssueGateway:
     async def close_pr(self, run_id, repo, number, rationale):
         self.closed_prs.append((number, rationale))
         return {"number": number, "state": "closed"}
+
+    async def comment_issue(self, run_id, repo, number, body):
+        self.comments.append((number, body))
+        return {"url": f"https://git.test/r/issues/{number}#c"}
 
     async def create_issue(self, run_id, repo, title, body, rationale):
         self.created.append({"repo": repo, "title": title, "body": body})
@@ -685,9 +700,12 @@ def test_a_forged_higher_depth_only_escalates_sooner(settings, monkeypatch):
 # -- the recorded human verdict ---------------------------------------------
 
 
-def _console_verdict(run_id: str, approved: bool, principal: str, ts: str) -> AuditEvent:
+def _console_verdict(
+    run_id: str, approved: bool, principal: str, ts: str, rationale: str | None = None
+) -> AuditEvent:
     return AuditEvent(
         ts=ts,
+        rationale=rationale,
         run_id=run_id,
         agent_id=principal,
         role="human",
@@ -737,11 +755,18 @@ def test_read_human_verdict_reads_the_latest_console_row(settings, audit):
     assert approved == {
         "principal": "owner",
         "approved": True,
+        "rationale": "",
         "ts": "2026-01-01T00:00:01+00:00",
     }
-    audit.append(_console_verdict(RUN_ID, False, "owner", "2026-01-01T00:00:02+00:00"))
+    audit.append(
+        _console_verdict(
+            RUN_ID, False, "owner", "2026-01-01T00:00:02+00:00", "breaks the CLI"
+        )
+    )
     rejected = asyncio.run(activities.read_human_verdict(RUN_ID))
     assert rejected["approved"] is False
+    # The person's words ride with the verdict: a refusal says them.
+    assert rejected["rationale"] == "breaks the CLI"
 
 
 def test_resolve_merge_on_the_human_path_carries_only_the_verdict(
@@ -836,12 +861,11 @@ def test_close_tickets_skips_closed_tickets_and_unattributed_prs(settings, monke
 
 
 @pytest.mark.parametrize(("merged", "closes"), [(True, [7]), (False, [])])
-def test_read_pr_closes_the_tickets_of_a_pr_merged_by_hand(
-    settings, monkeypatch, merged, closes
-):
-    """A review asked for a PR a human already merged learns of the merge
-    first: the tickets close once, on that transition, and the settle is
-    remembered. A PR closed unmerged leaves its ticket to the human."""
+def test_read_pr_settles_a_pr_settled_by_hand(settings, monkeypatch, merged, closes):
+    """A review asked for a PR someone already settled learns of it first,
+    once: merged by hand, its tickets close; closed by hand, the delivery
+    is refused and its ticket told it is back. The settle is remembered,
+    so the second read changes nothing."""
     import orchestrator.activities.review as module
 
     gateway = FakeIssueGateway(issues={7: _issue(7, "Add slugify")})
@@ -861,14 +885,86 @@ def test_read_pr_closes_the_tickets_of_a_pr_merged_by_hand(
     assert all(
         r == "pull request #41 merged outside the platform" for _, r in gateway.closed
     )
-    assert runs.get("run-impl").pr_settled == ("merged" if merged else "closed")
+    assert runs.get("run-impl").pr_settled == ("merged" if merged else "refused")
+    if not merged:
+        assert gateway.closed_prs == [(41, "closed outside the platform")]
+        assert gateway.comments == [
+            (
+                7,
+                "Pull request #41 was not merged: closed outside the platform\n\n"
+                "The ticket is back on the backlog: attempt 1 of 2.",
+            )
+        ]
+        assert runs.issue_attempts("hello-saas")[7].concluded is False
 
 
 def test_close_superseded_pr_names_the_rework_ticket(settings, monkeypatch):
+    """Superseded, not refused: the rework ticket carries the work on, so
+    the ticket the PR delivered stays concluded."""
     import orchestrator.activities.review as module
 
     gateway = FakeIssueGateway()
     monkeypatch.setattr(module, "GatewayClient", gateway)
-    activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]))
+    runs = InMemoryRuns()
+    _delivered(runs, "run-impl", "implement issue #7", 41)
+    activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]), runs=runs)
     asyncio.run(activities.close_superseded_pr(RUN_ID, 41, 91))
     assert gateway.closed_prs == [(41, "superseded by rework ticket #91")]
+    assert runs.get("run-impl").pr_settled == "superseded"
+    assert runs.issue_attempts("hello-saas")[7].concluded is True
+    assert gateway.comments == []
+
+
+@pytest.mark.parametrize(
+    ("attempts", "tail"),
+    [
+        (1, "The ticket is back on the backlog: attempt 1 of 2."),
+        (
+            2,
+            "That was attempt 2 of 2, the last the blueprint's"
+            " `heartbeat.max_attempts` allows.",
+        ),
+    ],
+)
+def test_a_refused_delivery_gives_its_ticket_back_told_why(
+    settings, monkeypatch, attempts, tail
+):
+    """The PR closes with the reason on it, the refusal is remembered on
+    the delivering run, and the ticket says why it is back and which
+    attempt that was."""
+    import orchestrator.activities.review as module
+
+    gateway = FakeIssueGateway(issues={7: _issue(7, "Add slugify")})
+    monkeypatch.setattr(module, "GatewayClient", gateway)
+    runs = InMemoryRuns()
+    for attempt in range(1, attempts):
+        _delivered(runs, f"run-before-{attempt}", "implement issue #7", 30 + attempt)
+        runs.mark_pr_settled("hello-saas", 30 + attempt, "refused", "earlier")
+    _delivered(runs, "run-impl", "implement issue #7", 41)
+    activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]), runs=runs)
+    reason = "owner rejected the merge: breaks the CLI"
+    asyncio.run(activities.refuse_delivery(RUN_ID, 41, reason))
+    assert gateway.closed_prs == [(41, reason)]
+    assert runs.get("run-impl").pr_settled == "refused"
+    assert runs.get("run-impl").pr_settled_reason == reason
+    assert gateway.comments == [
+        (7, f"Pull request #41 was not merged: {reason}\n\n{tail}")
+    ]
+    assert runs.issue_attempts("hello-saas")[7].concluded is False
+
+
+def test_a_refused_delivery_with_no_open_ticket_only_closes(settings, monkeypatch):
+    """A delivery from a free-form task, or one whose ticket is already
+    closed, has no ticket to give back: the PR still closes, refused."""
+    import orchestrator.activities.review as module
+
+    gateway = FakeIssueGateway(issues={7: _issue(7, "Add slugify", state="closed")})
+    monkeypatch.setattr(module, "GatewayClient", gateway)
+    runs = InMemoryRuns()
+    _delivered(runs, "run-free", "the task file text", 40)
+    _delivered(runs, "run-impl", "implement issue #7", 41)
+    activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]), runs=runs)
+    for number in (40, 41):
+        asyncio.run(activities.refuse_delivery(RUN_ID, number, "expired"))
+    assert [n for n, _ in gateway.closed_prs] == [40, 41]
+    assert gateway.comments == []

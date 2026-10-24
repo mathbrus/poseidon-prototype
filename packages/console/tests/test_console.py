@@ -167,6 +167,7 @@ async def test_a_verdict_is_recorded_under_the_humans_name_then_delivered(client
     assert world.audit.latest_human_verdict(RUN_ID, "merge") == {
         "principal": "owner",
         "approved": True,
+        "rationale": "reviewed: findings are clean",
         "ts": event.ts,
     }
 

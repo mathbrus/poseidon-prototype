@@ -20,7 +20,8 @@ which is what makes `poseidon start implement <number>` a repro rather than a ra
 The merge names the head the review read. A second arc proves it on the
 git host: a pull request the world opened is reviewed by a person's start
 and parks; someone pushes to its branch; the person approves; GitHub
-refuses the pinned merge and the run fails with the PR still open.
+refuses the pinned merge, the run fails, and the delivery is refused: the
+PR closes with the host's refusal on it.
 """
 
 import json
@@ -403,12 +404,13 @@ def moved_head(stack: None, baseline_env: dict) -> dict:
 def test_an_approval_of_a_moved_head_merges_nothing(moved_head: dict) -> None:
     """The verdict was recorded and released, the merge named the head the
     run reviewed, and the git host refused it: the run failed by name and
-    the PR is still open, at the commit nobody reviewed."""
+    the PR is refused — closed unmerged, at the commit nobody reviewed,
+    with the host's refusal on it."""
     record = moved_head["review"]
     assert record["status"] == "failed", record
     assert "head moved after review" in (record["error"] or ""), record["error"]
     pr = moved_head["pr"]
-    assert pr["merged"] is False and pr["state"] == "open"
+    assert pr["merged"] is False and pr["state"] == "closed"
     assert pr["head"]["sha"] == moved_head["pushed"]
     story = moved_head["story"]
     gates = [e["rule"] for e in story if e["source"] == "process-gate"]
@@ -418,5 +420,8 @@ def test_an_approval_of_a_moved_head_merges_nothing(moved_head: dict) -> None:
     # attempt was the platform's, and none landed.
     merges = [e for e in story if e["tool"] == "git.merge_pr"]
     assert merges and all(e["decision"] == "allow" for e in merges), merges
-    # Nothing merged, so nothing the PR would fulfil was closed.
+    # Nothing merged, so nothing the PR would fulfil was closed; the PR
+    # itself was, with the refusal as its reason.
     assert not any(e["tool"] == "issues.close" for e in story)
+    closes = [e for e in story if e["tool"] == "git.close_pr"]
+    assert closes and "head moved after review" in (closes[-1]["rationale"] or "")

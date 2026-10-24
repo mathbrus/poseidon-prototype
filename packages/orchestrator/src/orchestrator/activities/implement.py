@@ -58,10 +58,12 @@ class ImplementActivities:
     @activity.defn(name="read_issue")
     async def read_issue(self, run_id: str, issue_number: int) -> dict[str, Any]:
         """Issue metadata under the platform identity: title and body seed
-        the dispatch text, the URL lands on the run row. Fail-closed on a
-        closed issue — implement consumes open work, it does not resurrect
-        finished tickets. The body is untrusted input, exactly like a task
-        file's contents."""
+        the dispatch text, the URL lands on the run row, and the ticket's
+        refused deliveries (`refusals`, oldest first) tell this attempt what
+        went wrong before. Fail-closed on a closed issue — implement
+        consumes open work, it does not resurrect finished tickets. The
+        body and the refusals' reasons are untrusted input, exactly like a
+        task file's contents."""
         async with GatewayClient(
             self._settings.mcp_gateway_url, self._settings.gateway_token()
         ) as gateway:
@@ -76,6 +78,10 @@ class ImplementActivities:
         await asyncio.to_thread(
             self._runs.record_artifacts, run_id, ticket_urls=[issue["url"]]
         )
+        refusals = await asyncio.to_thread(
+            self._runs.refusals, self._company(), issue_number
+        )
+        issue["refusals"] = [{"pr_url": url, "reason": why} for url, why in refusals]
         self._log.bind(run_id=run_id).info(
             "issue resolved", extra={"issue_number": issue_number}
         )

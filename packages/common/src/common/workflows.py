@@ -89,6 +89,17 @@ RUN_STATUS_DONE = "done"
 RUN_STATUS_FAILED = "failed"
 RUN_STATUSES = (RUN_STATUS_RUNNING, RUN_STATUS_DONE, RUN_STATUS_FAILED)
 
+# What became of a delivered pull request, on its implement run's row once
+# the platform learned it: merged; refused (closed without merging — a
+# person rejected it, its gate expired, its head moved, its review was
+# abandoned, or someone closed it on the git host), which returns its
+# ticket to the backlog; or superseded by a rework ticket that carries
+# its work on, which does not.
+PR_MERGED = "merged"
+PR_REFUSED = "refused"
+PR_SUPERSEDED = "superseded"
+PR_SETTLED = (PR_MERGED, PR_REFUSED, PR_SUPERSEDED)
+
 # What happened at a gate: one outcome per kind, written on the gate's
 # process-gate audit row as `gate_<kind>` by the orchestrator and read
 # back by the console. A run began waiting on it (parked — the row a
