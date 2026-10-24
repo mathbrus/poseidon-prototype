@@ -159,15 +159,14 @@ def gate_rule(kind: str) -> str:
 # What a heartbeat tick records about itself: one outcome and a detail,
 # written on the tick's audit row as `tick_<outcome>:<detail>` by the
 # orchestrator and read back by the CLI. A tick started work, was idle
-# (and the detail says why), was refused (by policy or a failed step),
-# stopped because the company is gone, or found the company paused (the
-# detail names who paused it).
+# (and the detail says why), was refused (by policy or a failed step), or
+# found the company paused (the detail names who paused it). A loop whose
+# company was deleted ends without a row.
 TICK_STARTED = "started"
 TICK_IDLE = "idle"
 TICK_REFUSED = "refused"
-TICK_STOPPED = "stopped"
 TICK_PAUSED = "paused"
-TICK_OUTCOMES = (TICK_STARTED, TICK_IDLE, TICK_REFUSED, TICK_STOPPED, TICK_PAUSED)
+TICK_OUTCOMES = (TICK_STARTED, TICK_IDLE, TICK_REFUSED, TICK_PAUSED)
 _TICK_PREFIX = "tick_"
 
 

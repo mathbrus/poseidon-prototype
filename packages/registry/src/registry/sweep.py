@@ -27,9 +27,12 @@ class CompanySweep:
         """Delete every row of `company`. Repeating it finds nothing."""
         heartbeat = workflow_id(HEARTBEAT_WORKFLOW, company)
         with self._db.transaction() as conn:
+            # Locked first: a writer that may only write while the company
+            # is applied (`AuditStore.append_while_applied`) either commits
+            # before this sweep reads anything, or finds the row gone.
             applied = conn.execute(
                 "SELECT compiled_spec->'repo'->>'url' AS repo"
-                " FROM registry.companies WHERE name = %s",
+                " FROM registry.companies WHERE name = %s FOR UPDATE",
                 (company,),
             ).fetchone()
             repo = applied["repo"] if applied else None

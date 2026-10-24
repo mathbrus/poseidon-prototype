@@ -34,11 +34,23 @@ from registry.runs import Attempts, RunRecord
 
 
 class InMemoryAuditStore:
-    def __init__(self) -> None:
+    """`companies` is what `append_while_applied` checks the event's
+    company against, as the real store checks the companies table."""
+
+    def __init__(self, companies: "InMemoryCompanies | None" = None) -> None:
         self.events: list[AuditEvent] = []
+        self._companies = companies
 
     def append(self, event: AuditEvent) -> None:
         self.events.append(event)
+
+    def append_while_applied(self, event: AuditEvent) -> bool:
+        if self._companies is None:
+            raise RuntimeError("this audit double was built without its companies")
+        if self._companies.get(event.company) is None:
+            return False
+        self.events.append(event)
+        return True
 
     def count_allowed(self, run_id: str, tool: str) -> int:
         return sum(

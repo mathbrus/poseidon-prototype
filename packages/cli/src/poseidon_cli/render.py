@@ -46,7 +46,6 @@ from common.workflows import (
     TICK_PAUSED,
     TICK_REFUSED,
     TICK_STARTED,
-    TICK_STOPPED,
     workflow_id,
 )
 
@@ -83,7 +82,6 @@ STATUS_STYLE = {
     ExecutionStatus.TERMINATED: "red",
     ExecutionStatus.TIMED_OUT: "red",
     TICK_REFUSED: "red",
-    TICK_STOPPED: "red",
     EXECUTION_NOT_FOUND: "dim",
     TICK_IDLE: "dim",
     HEARTBEAT_SLEEPING: "dim",

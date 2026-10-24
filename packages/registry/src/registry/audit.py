@@ -17,40 +17,58 @@ from common.audit import AuditEvent
 from common.policy import GATE_RESOLVE, verdict_rule
 from registry.db import Registry
 
+_INSERT = """
+    INSERT INTO registry.audit_events
+        (ts, run_id, agent_id, role, tool, args_digest,
+         decision, rule, rationale, latency_ms, backend_status,
+         source, company, lifecycle, parent_agent_id, workflow)
+    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+            %s, %s, %s, %s, %s)
+"""
+
+
+def _values(event: AuditEvent) -> tuple[Any, ...]:
+    return (
+        event.ts,
+        event.run_id,
+        event.agent_id,
+        event.role,
+        event.tool,
+        event.args_digest,
+        event.decision,
+        event.rule,
+        event.rationale,
+        event.latency_ms,
+        event.backend_status,
+        event.source,
+        event.company,
+        event.lifecycle,
+        event.parent_agent_id,
+        event.workflow,
+    )
+
 
 class AuditStore:
     def __init__(self, registry: Registry) -> None:
         self._db = registry
 
     def append(self, event: AuditEvent) -> None:
-        self._db.execute(
-            """
-            INSERT INTO registry.audit_events
-                (ts, run_id, agent_id, role, tool, args_digest,
-                 decision, rule, rationale, latency_ms, backend_status,
-                 source, company, lifecycle, parent_agent_id, workflow)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                    %s, %s, %s, %s, %s)
-            """,
-            (
-                event.ts,
-                event.run_id,
-                event.agent_id,
-                event.role,
-                event.tool,
-                event.args_digest,
-                event.decision,
-                event.rule,
-                event.rationale,
-                event.latency_ms,
-                event.backend_status,
-                event.source,
-                event.company,
-                event.lifecycle,
-                event.parent_agent_id,
-                event.workflow,
-            ),
-        )
+        self._db.execute(_INSERT, _values(event))
+
+    def append_while_applied(self, event: AuditEvent) -> bool:
+        """Append the event only while its company is applied; whether it
+        landed. The company's row is locked for the insert, and the
+        teardown sweep locks it before it deletes anything, so an event
+        racing the sweep is either swept with the rest or never written."""
+        with self._db.transaction() as conn:
+            applied = conn.execute(
+                "SELECT 1 FROM registry.companies WHERE name = %s FOR SHARE",
+                (event.company,),
+            ).fetchone()
+            if applied is None:
+                return False
+            conn.execute(_INSERT, _values(event))
+            return True
 
     def count_allowed(self, run_id: str, tool: str) -> int:
         """How many calls of `tool` this run made that were allowed and

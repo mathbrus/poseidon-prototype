@@ -385,6 +385,20 @@ def test_the_teardown_sweep_erases_every_row_of_the_company(registry: Registry):
     assert left("companies", "name") == ["other-corp"]
 
 
+def test_an_event_written_while_applied_never_outlives_the_sweep(registry: Registry):
+    """The heartbeat's tick row: it lands while the company is applied,
+    is swept with the rest, and a tick after the sweep writes nothing."""
+    companies, audit = Companies(registry), AuditStore(registry)
+    companies.upsert("test-corp", {"namespace": "c"})
+    tick = event(run_id="heartbeat-test-corp", company="test-corp", tool="heartbeat.tick")
+    assert audit.append_while_applied(tick) is True
+    assert len(audit.story("heartbeat-test-corp")) == 1
+
+    CompanySweep(registry).sweep("test-corp")
+    assert audit.append_while_applied(tick) is False
+    assert audit.story("heartbeat-test-corp") == []
+
+
 # -- workload identity reads ------------------------------------------------
 
 
