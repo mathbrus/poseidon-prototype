@@ -17,7 +17,7 @@ imports it and connects with its own `REGISTRY_DSN`.
 | `companies.py` | `Companies`: the compiled spec and the pause. `applied()` raises if two companies are applied. |
 | `instances.py` | `AgentInstances`: the standing agents. |
 | `policy.py` | `pack()` and `tombstone()` build bundle tarballs. `PolicyBundles` stores them per slot (`platform`, `company`) with `put`, `get` and `revoke`. |
-| `runs.py` | `Runs`: the run record, attempt counts and delivered pull requests. |
+| `runs.py` | `Runs`: the run record, attempt counts (a refused delivery concludes nothing), refusals, delivered pull requests and the runs holding a place. |
 | `participants.py` | `RunParticipants`: ephemeral agent rows, revocation, the spawn count, and `ParticipantRevoked`. |
 | `sandboxes.py` | `SandboxRegistrations`: run to sandbox address. |
 | `tickets.py` | `FiledTickets`: so the heartbeat reads its own tickets before the git host lists them. |
@@ -32,7 +32,7 @@ imports it and connects with its own `REGISTRY_DSN`.
 | `companies` | reconciler, console | The compiled spec (reconciler): not the blueprint's text, which stays on the Company CR. Who paused the heartbeat, and when (console). |
 | `agent_instances` | reconciler | Standing agents, with their namespace. |
 | `policy_bundles` | reconciler | Bundle tarball and revision, one row per slot. |
-| `runs` | orchestrator | Task, status, artifacts, and the conclusion (`pr_url`, `verdict`). |
+| `runs` | orchestrator | Task, status, artifacts, the conclusion (`pr_url`, `verdict`), what became of a delivery (`pr_settled`: merged, refused or superseded, and why), and whether a running run holds a place (`occupies`). |
 | `run_participants` | orchestrator | One row per ephemeral agent: its whole identity. |
 | `sandbox_registrations` | mcp-gateway | Run to sandbox address. |
 | `filed_tickets` | mcp-gateway | Each ticket the company filed. |

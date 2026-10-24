@@ -129,6 +129,10 @@ When the merge gate is automated:
   as the person who approved it. A vague spec passes, and the code merges.
   Proving a spec adequate (mutation testing, coverage floors) is out of
   scope.
+- **Contract-first order needs a one-place company.** A contract pull
+  request waiting on you keeps its place under `max_concurrent_runs`, so
+  with one place the implementation waits for its contract. With two or
+  more, the implementation can merge before its contract lands.
 - **Rework depth is read from a ticket title.** No agent can edit a
   ticket title, so it can't be lowered. Storing the depth in the registry
   would be sturdier. Issue
