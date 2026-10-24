@@ -59,8 +59,9 @@ activity.
 Birth is `create_run` → `check_budget` → `workflow_config`. A run born
 without budget headroom fails before any dispatch. Every dispatch
 carries the bounds `workflow_config` rendered. After teardown, a run
-that concluded nothing calls `record_attempts_exhausted`. Every run then
-wakes the heartbeat.
+that concluded nothing calls `abandon_exhausted`, which abandons its item
+when that run spent the last attempt. Every run then wakes the
+heartbeat.
 
 The implementer's completion claim is advisory. `platform_verify`, the
 worker's own test run in the sandbox, is the gate of record. A red

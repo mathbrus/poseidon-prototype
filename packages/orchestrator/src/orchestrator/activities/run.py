@@ -17,10 +17,10 @@ Retry safety, per activity:
                           store is append-only by design).
     teardown            — destroy is idempotent; the participants sweep and
                           the run row finalization are upserts.
-    record_attempts_exhausted
-                        — an append-only audit write plus one comment; a
-                          retry can duplicate both (a second notice on the
-                          item, never a lost one).
+    abandon_exhausted   — an append-only audit write, then the item's
+                          abandonment: closes are idempotent, a comment
+                          (a bootstrap ticket's, a refusal's) can repeat
+                          on a retry — a second notice, never a lost one.
     read_documents      — read-only (the company's documents at base_ref
                           under the platform identity); safe.
 """
@@ -53,6 +53,12 @@ from orchestrator.activities.documents import (
     present_texts,
     read_documents,
 )
+from orchestrator.activities.tickets import (
+    abandon_ticket,
+    is_bootstrap,
+    refuse_delivery,
+    spent,
+)
 from orchestrator.audit import record_event
 from orchestrator.clients import GatewayClient
 from orchestrator.config import WorkerSettings
@@ -67,17 +73,22 @@ from registry import (
 from sandbox.contract import SandboxBackend, SandboxHandle
 
 
-def attempts_exhausted_comment(kind: str, count: int, max_attempts: int) -> str:
+def attempts_exhausted_comment(
+    kind: str, count: int, max_attempts: int, bootstrap: bool = False
+) -> str:
     """The notice the platform leaves on the item itself, so the
-    abandonment is visible where a human looks — not only in the ledger."""
-    item = "pull request" if kind == "review" else "issue"
+    abandonment is visible where a human looks — not only in the ledger:
+    an abandoned issue closes as not planned, a pull request whose review
+    never reached a verdict is refused."""
+    if kind == "review":
+        return (
+            f"Poseidon ran {count} review run(s) on this pull request and none"
+            " reached a verdict. That is the blueprint's `heartbeat.max_attempts`"
+            f" ({max_attempts}): the pull request is closed unmerged."
+        )
     return (
-        f"Poseidon ran {count} {kind} run(s) on this {item} and none concluded"
-        f" — no {'verdict' if kind == 'review' else 'pull request'} was"
-        f" reached. That is the blueprint's `heartbeat.max_attempts`"
-        f" ({max_attempts}), so the heartbeat will not start another on its"
-        f" own. A human can: `poseidon start"
-        f" {'review' if kind == 'review' else 'implement'} <number>`."
+        f"Poseidon spent {count} attempt(s) on this issue and none delivered"
+        " work that merged. " + spent(max_attempts, bootstrap)
     )
 
 
@@ -285,19 +296,19 @@ class RunActivities:
         log.info("run finalized", extra={"status": record.status})
         return record.as_dict()
 
-    @activity.defn(name="record_attempts_exhausted")
-    async def record_attempts_exhausted(
-        self, run_id: str, workflow_id: str
-    ) -> dict[str, Any]:
+    @activity.defn(name="abandon_exhausted")
+    async def abandon_exhausted(self, run_id: str, workflow_id: str) -> dict[str, Any]:
         """Called after teardown by a run that concluded nothing. If that
         run was the last the blueprint's `heartbeat.max_attempts` allows on
-        its issue or PR, say so twice: a `gate.heartbeat_attempts` /
-        `gate_exhausted` process-gate event under this run's id, and a
-        platform comment on the item, so the world learns the company has
-        stopped trying. Nothing to record when the run worked no item (a
-        scope run), when attempts remain, or when another run already
-        concluded the item (it is consumed by that conclusion, not by
-        exhaustion)."""
+        its issue or PR, the company stops trying, on the record and on the
+        item: a `gate.heartbeat_attempts` / `gate_exhausted` process-gate
+        event under this run's id, then the item abandoned with the notice
+        on it — an issue closed as not planned with its rework chain (a
+        bootstrap ticket only told, since the heartbeat halts on it), a pull
+        request refused, which returns or abandons its ticket. Nothing to do
+        when the run worked no item (a scope run), when attempts remain, or
+        when another run already concluded the item (it is consumed by that
+        conclusion, not by exhaustion)."""
         log = self._log.bind(run_id=run_id)
 
         def read() -> tuple[str, int, int, int] | None:
@@ -341,15 +352,35 @@ class RunActivities:
             company=self._company(),
             workflow=workflow_id,
         )
-        body = attempts_exhausted_comment(kind, count, max_attempts)
         repo = (await self._repo())["url"]
         async with GatewayClient(
             self._settings.mcp_gateway_url, self._settings.gateway_token()
         ) as gateway:
             if kind == "review":
-                await gateway.comment_pr(run_id, repo, number, body)
+                await refuse_delivery(
+                    gateway,
+                    self._runs,
+                    self._company(),
+                    run_id,
+                    repo,
+                    number,
+                    attempts_exhausted_comment(kind, count, max_attempts),
+                    max_attempts,
+                )
             else:
-                await gateway.comment_issue(run_id, repo, number, body)
+                issue = await gateway.read_issue(run_id, repo, number)
+                await abandon_ticket(
+                    gateway,
+                    self._runs,
+                    self._company(),
+                    run_id,
+                    repo,
+                    number,
+                    issue,
+                    attempts_exhausted_comment(
+                        kind, count, max_attempts, is_bootstrap(issue)
+                    ),
+                )
         log.info(
             "attempts exhausted",
             extra={"workflow": kind, "number": number, "attempts": count},
@@ -364,5 +395,5 @@ class RunActivities:
             self.dispatch_documents,
             self.record_gate_outcome,
             self.teardown,
-            self.record_attempts_exhausted,
+            self.abandon_exhausted,
         ]

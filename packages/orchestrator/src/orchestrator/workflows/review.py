@@ -614,7 +614,7 @@ class ReviewWorkflow(RunWorkflow):
         self._state = RUN_FINALIZING
         record = await self.teardown(input.run_id, handle, result, error)
         if not concluded:
-            await self.record_attempts(input.run_id)
+            await self.abandon_exhausted(input.run_id)
         # However this run ended, it changed the world the standing
         # heartbeat watches — nudge it; the reconcile timer covers a
         # nudge that goes missing.

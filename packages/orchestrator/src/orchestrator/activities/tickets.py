@@ -14,16 +14,19 @@ Every act is the platform's, never a role's: the platform identity calls
 the gateway's audit row is the record. A pull request closed without
 merging is refused (`refuse_delivery`): the work did not land, so its
 ticket goes back on the backlog as one spent attempt, with the reason on
-it for the next attempt to read.
+it for the next attempt to read. A ticket whose attempts are spent is
+abandoned (`abandon_ticket`): closed as not planned, with its chain.
 """
 
 import asyncio
 import re
+from typing import Any
 
 from common.audit import RATIONALE_LIMIT
-from common.tasks import CLOSE_COMPLETED, ISSUE_TASK_RE
+from common.tasks import CLOSE_COMPLETED, CLOSE_NOT_PLANNED, ISSUE_TASK_RE
 from common.telemetry import get_logger
 from common.workflows import PR_MERGED, PR_REFUSED
+from orchestrator.activities.documents import BOOTSTRAP_TITLES
 from orchestrator.clients import GatewayClient
 from registry import Runs
 
@@ -52,7 +55,26 @@ def merged_outside_rationale(pr_number: int) -> str:
     return f"pull request #{pr_number} merged outside the platform"
 
 
-def refused_comment(pr_number: int, reason: str, attempt: int, max_attempts: int) -> str:
+def is_bootstrap(issue: dict[str, Any]) -> bool:
+    """Whether the platform filed this ticket for an absent document. It is
+    never closed for spent attempts: the heartbeat would file it again,
+    and its halt on the ticket is the record."""
+    return issue.get("title") in BOOTSTRAP_TITLES.values()
+
+
+def spent(max_attempts: int, bootstrap: bool) -> str:
+    """What becomes of a ticket whose last attempt is spent, said once."""
+    return f"That is the blueprint's `heartbeat.max_attempts` ({max_attempts}): " + (
+        "the heartbeat halts on this document's ticket. A human can:"
+        " `poseidon start implement <number>`."
+        if bootstrap
+        else "the ticket is closed as not planned."
+    )
+
+
+def refused_comment(
+    pr_number: int, reason: str, attempt: int, max_attempts: int, bootstrap: bool
+) -> str:
     """What a ticket says when its delivery is refused: which pull
     request, why, and where the ticket stands."""
     head = f"Pull request #{pr_number} was not merged: {reason}"
@@ -61,9 +83,8 @@ def refused_comment(pr_number: int, reason: str, attempt: int, max_attempts: int
             f"{head}\n\nThe ticket is back on the backlog: attempt {attempt} of"
             f" {max_attempts}."
         )
-    return (
-        f"{head}\n\nThat was attempt {attempt} of {max_attempts}, the last the"
-        " blueprint's `heartbeat.max_attempts` allows."
+    return f"{head}\n\nThat was attempt {attempt} of {max_attempts}. " + spent(
+        max_attempts, bootstrap
     )
 
 
@@ -95,28 +116,90 @@ async def close_fulfilled_tickets(
     ticket = await asyncio.to_thread(consumed_ticket, runs, company, pr_number)
     if ticket is None:
         return []
-    fulfilled = await gateway.read_issue(run_id, repo_url, ticket)
-    chain = {ticket: fulfilled}
-    match = REWORK_TITLE_RE.match(str(fulfilled.get("title") or ""))
+    issue = await gateway.read_issue(run_id, repo_url, ticket)
+    chain = await ticket_chain(gateway, runs, company, run_id, repo_url, ticket, issue)
+    closed = await _close_open(
+        gateway, run_id, repo_url, chain, CLOSE_COMPLETED, rationale
+    )
+    _log.bind(run_id=run_id).info(
+        "tickets closed", extra={"pr_number": pr_number, "closed": closed}
+    )
+    return closed
+
+
+async def ticket_chain(
+    gateway: GatewayClient,
+    runs: Runs,
+    company: str,
+    run_id: str,
+    repo_url: str,
+    ticket: int,
+    issue: dict[str, Any],
+) -> dict[int, dict[str, Any]]:
+    """A ticket (`issue`, already read) and, when it is a rework ticket,
+    its chain: the root ticket the root PR's implement run consumed and
+    every open rework ticket filed for the same root PR — by number, as
+    read. A merge closes the whole chain, and so does abandonment."""
+    chain = {ticket: issue}
+    match = REWORK_TITLE_RE.match(str(issue.get("title") or ""))
     if match:
         root_pr = int(match.group(2))
         root = await asyncio.to_thread(consumed_ticket, runs, company, root_pr)
         if root is not None and root not in chain:
             chain[root] = await gateway.read_issue(run_id, repo_url, root)
-        for issue in await gateway.read_open_issues(run_id, repo_url):
-            rework = REWORK_TITLE_RE.match(str(issue.get("title") or ""))
+        for other in await gateway.read_open_issues(run_id, repo_url):
+            rework = REWORK_TITLE_RE.match(str(other.get("title") or ""))
             if rework and int(rework.group(2)) == root_pr:
-                chain.setdefault(int(issue["number"]), issue)
+                chain.setdefault(int(other["number"]), other)
+    return chain
+
+
+async def _close_open(
+    gateway: GatewayClient,
+    run_id: str,
+    repo_url: str,
+    chain: dict[int, dict[str, Any]],
+    reason: str,
+    rationale: str,
+) -> list[int]:
+    """Close every open ticket of `chain` with `reason`, the rationale on
+    each; an already-closed one is skipped. Returns the numbers closed."""
     closed = []
     for number, issue in sorted(chain.items()):
         if issue.get("state") != "open":
             continue
         await gateway.close_issue(
-            run_id, repo_url, number, CLOSE_COMPLETED, rationale[:RATIONALE_LIMIT]
+            run_id, repo_url, number, reason, rationale[:RATIONALE_LIMIT]
         )
         closed.append(number)
+    return closed
+
+
+async def abandon_ticket(
+    gateway: GatewayClient,
+    runs: Runs,
+    company: str,
+    run_id: str,
+    repo_url: str,
+    ticket: int,
+    issue: dict[str, Any],
+    notice: str,
+) -> list[int]:
+    """A ticket (`issue`, already read) whose attempts are spent: closed as
+    not planned with `notice` on it, and its whole rework chain with it. A
+    bootstrap ticket only gets the notice (`is_bootstrap`). Returns the
+    numbers closed."""
+    if issue.get("state") != "open":
+        return []
+    if is_bootstrap(issue):
+        await gateway.comment_issue(run_id, repo_url, ticket, notice)
+        return []
+    chain = await ticket_chain(gateway, runs, company, run_id, repo_url, ticket, issue)
+    closed = await _close_open(
+        gateway, run_id, repo_url, chain, CLOSE_NOT_PLANNED, notice
+    )
     _log.bind(run_id=run_id).info(
-        "tickets closed", extra={"pr_number": pr_number, "closed": closed}
+        "ticket abandoned", extra={"ticket": ticket, "closed": closed}
     )
     return closed
 
@@ -135,9 +218,10 @@ async def refuse_delivery(
     it, remember the refusal on the run that delivered it, and tell the
     ticket that run consumed why it is back. The refusal gives the ticket
     back as one spent attempt (`Runs.issue_attempts`), and the next
-    attempt's brief carries the reason (`Runs.refusals`). Each act is
-    idempotent but the comment, which a retry can repeat. Returns the
-    ticket's number, or None when the delivery worked no open ticket."""
+    attempt's brief carries the reason (`Runs.refusals`); a refusal that
+    spends the ticket's last attempt abandons it (`abandon_ticket`). Each
+    act is idempotent but the comment, which a retry can repeat. Returns
+    the ticket's number, or None when the delivery worked no open ticket."""
     reason = reason[:RATIONALE_LIMIT]
     await gateway.close_pr(run_id, repo_url, pr_number, reason)
     await asyncio.to_thread(runs.mark_pr_settled, company, pr_number, PR_REFUSED, reason)
@@ -149,12 +233,15 @@ async def refuse_delivery(
         return None
     attempts = (await asyncio.to_thread(runs.issue_attempts, company)).get(ticket)
     attempt = attempts.count if attempts else 1
-    await gateway.comment_issue(
-        run_id,
-        repo_url,
-        ticket,
-        refused_comment(pr_number, reason, attempt, max_attempts),
+    notice = refused_comment(
+        pr_number, reason, attempt, max_attempts, is_bootstrap(issue)
     )
+    if attempt < max_attempts:
+        await gateway.comment_issue(run_id, repo_url, ticket, notice)
+    else:
+        await abandon_ticket(
+            gateway, runs, company, run_id, repo_url, ticket, issue, notice
+        )
     _log.bind(run_id=run_id).info(
         "delivery refused",
         extra={"pr_number": pr_number, "ticket": ticket, "attempt": attempt},

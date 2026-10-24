@@ -915,20 +915,7 @@ def test_close_superseded_pr_names_the_rework_ticket(settings, monkeypatch):
     assert gateway.comments == []
 
 
-@pytest.mark.parametrize(
-    ("attempts", "tail"),
-    [
-        (1, "The ticket is back on the backlog: attempt 1 of 2."),
-        (
-            2,
-            "That was attempt 2 of 2, the last the blueprint's"
-            " `heartbeat.max_attempts` allows.",
-        ),
-    ],
-)
-def test_a_refused_delivery_gives_its_ticket_back_told_why(
-    settings, monkeypatch, attempts, tail
-):
+def test_a_refused_delivery_gives_its_ticket_back_told_why(settings, monkeypatch):
     """The PR closes with the reason on it, the refusal is remembered on
     the delivering run, and the ticket says why it is back and which
     attempt that was."""
@@ -937,9 +924,6 @@ def test_a_refused_delivery_gives_its_ticket_back_told_why(
     gateway = FakeIssueGateway(issues={7: _issue(7, "Add slugify")})
     monkeypatch.setattr(module, "GatewayClient", gateway)
     runs = InMemoryRuns()
-    for attempt in range(1, attempts):
-        _delivered(runs, f"run-before-{attempt}", "implement issue #7", 30 + attempt)
-        runs.mark_pr_settled("hello-saas", 30 + attempt, "refused", "earlier")
     _delivered(runs, "run-impl", "implement issue #7", 41)
     activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]), runs=runs)
     reason = "owner rejected the merge: breaks the CLI"
@@ -948,9 +932,40 @@ def test_a_refused_delivery_gives_its_ticket_back_told_why(
     assert runs.get("run-impl").pr_settled == "refused"
     assert runs.get("run-impl").pr_settled_reason == reason
     assert gateway.comments == [
-        (7, f"Pull request #41 was not merged: {reason}\n\n{tail}")
+        (
+            7,
+            f"Pull request #41 was not merged: {reason}\n\n"
+            "The ticket is back on the backlog: attempt 1 of 2.",
+        )
     ]
     assert runs.issue_attempts("hello-saas")[7].concluded is False
+
+
+def test_a_refusal_that_spends_the_last_attempt_abandons_the_ticket(
+    settings, monkeypatch
+):
+    """The second refused delivery under `max_attempts: 2` is the
+    ticket's last: it closes as not planned, the refusal's notice on it."""
+    import orchestrator.activities.review as module
+
+    gateway = FakeIssueGateway(issues={7: _issue(7, "Add slugify")})
+    monkeypatch.setattr(module, "GatewayClient", gateway)
+    runs = InMemoryRuns()
+    _delivered(runs, "run-before", "implement issue #7", 31)
+    runs.mark_pr_settled("hello-saas", 31, "refused", "earlier")
+    _delivered(runs, "run-impl", "implement issue #7", 41)
+    activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]), runs=runs)
+    asyncio.run(activities.refuse_delivery(RUN_ID, 41, "nobody answered"))
+    assert gateway.comments == []
+    assert gateway.closed == [
+        (
+            7,
+            "Pull request #41 was not merged: nobody answered\n\n"
+            "That was attempt 2 of 2. That is the blueprint's"
+            " `heartbeat.max_attempts` (2): the ticket is closed as not planned.",
+        )
+    ]
+    assert gateway.close_reasons == ["not_planned"]
 
 
 def test_a_refused_delivery_with_no_open_ticket_only_closes(settings, monkeypatch):

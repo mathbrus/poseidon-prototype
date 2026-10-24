@@ -357,8 +357,8 @@ class Harness:
             harness.effects.append(f"close_tickets #{pr_number} {sha} {pr_title}")
             return [7]
 
-        @activity.defn(name="record_attempts_exhausted")
-        async def record_attempts_exhausted(run_id: str, workflow_id: str) -> dict:
+        @activity.defn(name="abandon_exhausted")
+        async def abandon_exhausted(run_id: str, workflow_id: str) -> dict:
             harness.attempts_recorded.append(run_id)
             return {"exhausted": False}
 
@@ -410,7 +410,7 @@ class Harness:
             record_gate_outcome,
             merge_pr,
             close_tickets,
-            record_attempts_exhausted,
+            abandon_exhausted,
             teardown,
             wake_heartbeat,
         ]

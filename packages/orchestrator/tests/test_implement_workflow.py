@@ -156,8 +156,8 @@ class Harness:
                 return harness.verify_outcomes.pop(0)
             return {"passed": True, "output": ""}
 
-        @activity.defn(name="record_attempts_exhausted")
-        async def record_attempts_exhausted(run_id: str, workflow_id: str) -> dict:
+        @activity.defn(name="abandon_exhausted")
+        async def abandon_exhausted(run_id: str, workflow_id: str) -> dict:
             harness.attempts_recorded.append(run_id)
             return {"exhausted": False}
 
@@ -192,7 +192,7 @@ class Harness:
             dispatch_documents,
             dispatch_agent,
             platform_verify,
-            record_attempts_exhausted,
+            abandon_exhausted,
             teardown,
             wake_heartbeat,
         ]
