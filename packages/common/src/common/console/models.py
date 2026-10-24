@@ -109,11 +109,10 @@ class ResumeRequest(Model):
 
 
 class DeleteRequest(Model):
-    """`DELETE /company`. `wait: false` answers before the reconciler's
-    teardown ends; the act and the teardown are the same either way."""
+    """`DELETE /company`. The console answers once the company is gone:
+    its runs ended, its rows swept, its workflow histories deleted."""
 
     rationale: str = Rationale
-    wait: bool = True
 
 
 # -- the chokepoint ------------------------------------------------------------
@@ -281,7 +280,8 @@ class ApplyResult(Model):
 
 class CompanyDeleted(Model):
     """`DELETE /company`: the runs cancelled on the way, and how long the
-    teardown took (0 without waiting)."""
+    delete took. The receipt: nothing else of the company is left to
+    read."""
 
     company: str
     runs_cancelled: list[str]

@@ -104,7 +104,7 @@ def request_for(view: ActView) -> tuple[str, str, dict[str, Any] | None]:
             "/blueprint/apply",
             {"blueprint": HELLO_SAAS.read_text()},
         ),
-        COMPANY_DELETE: lambda: ("DELETE", "/company", {**why, "wait": False}),
+        COMPANY_DELETE: lambda: ("DELETE", "/company", why),
         HEARTBEAT_WAKE: lambda: ("POST", "/heartbeat/wake", None),
         HEARTBEAT_PAUSE: lambda: ("POST", "/heartbeat/pause", why),
         HEARTBEAT_RESUME: lambda: ("POST", "/heartbeat/resume", why),

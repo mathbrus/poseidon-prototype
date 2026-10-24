@@ -23,11 +23,17 @@ import httpx
 import yaml
 from fastapi import FastAPI
 
+from common.audit import AuditEvent
 from common.authn import Principal
 from common.console import EXECUTION_RUNNING
 from common.policy import GATE_RESOLVE, verdict_rule
 from common.topology import COMPANY_NAMESPACE, CONSOLE_TOKEN_AUDIENCE, PLATFORM_NAMESPACE
-from common.workflows import RUN_RUNNING, workflow_id
+from common.workflows import (
+    HEARTBEAT_PAUSED,
+    HEARTBEAT_WORKFLOW,
+    RUN_RUNNING,
+    workflow_id,
+)
 from compiler import DeploymentPlan, compile_blueprint
 from console import crs
 from console import service as service_module
@@ -49,6 +55,7 @@ COMPANY = "hello-saas"
 # The example the world's company is applied from.
 HELLO_SAAS = Path(__file__).resolve().parents[4] / "examples" / "hello-saas.yaml"
 NOW = "2026-01-01T00:00:00+00:00"
+HEARTBEAT_PREFIX = workflow_id(HEARTBEAT_WORKFLOW, "")
 # The tokens the fake TokenReview knows: the human the company names, a
 # human the console may declare but the company does not name, a human the
 # console does not declare, and an agent's workload token.
@@ -84,11 +91,16 @@ class FakeReviewer:
 
 class FakeWorkflows:
     """Records what the console asked Temporal for, in order. `running`
-    maps a workflow id to the state its `state()` query answers."""
+    maps a workflow id to the state its `state()` query answers; a
+    cancelled or terminated workflow closes at once. `held` says whether
+    the company's heartbeat would read a pause: a wake then answers
+    `paused`, as the loop's next tick would."""
 
-    def __init__(self) -> None:
+    def __init__(self, held: Callable[[], bool] = lambda: False) -> None:
         self.calls: list[tuple[str, Any]] = []
         self.running: dict[str, str] = {}
+        self.closed: dict[str, str] = {}
+        self._held = held
 
     async def start(self, workflow: str, key: str, payload: dict[str, Any]) -> str:
         wf_id = workflow_id(workflow, key)
@@ -100,13 +112,31 @@ class FakeWorkflows:
         if wf_id not in self.running:
             raise WorkflowNotFound(wf_id)
         self.calls.append(("signal", (wf_id, name, args)))
+        if name == "wake" and wf_id.startswith(HEARTBEAT_PREFIX) and self._held():
+            self.running[wf_id] = HEARTBEAT_PAUSED
 
     async def cancel(self, wf_id: str) -> None:
         if wf_id not in self.running:
             raise WorkflowNotFound(wf_id)
         self.calls.append(("cancel", wf_id))
+        del self.running[wf_id]
+        self.closed[wf_id] = "CANCELED"
+
+    async def terminate(self, wf_id: str, reason: str) -> None:
+        if wf_id not in self.running:
+            raise WorkflowNotFound(wf_id)
+        self.calls.append(("terminate", wf_id))
+        del self.running[wf_id]
+        self.closed[wf_id] = "TERMINATED"
+
+    async def delete(self, wf_id: str) -> None:
+        self.calls.append(("delete", wf_id))
+        self.running.pop(wf_id, None)
+        self.closed.pop(wf_id, None)
 
     async def inspect(self, wf_id: str) -> dict[str, Any]:
+        if wf_id in self.closed:
+            return {"workflow_id": wf_id, "status": self.closed[wf_id], "state": None}
         if wf_id not in self.running:
             raise WorkflowNotFound(wf_id)
         return {
@@ -176,11 +206,18 @@ class World:
         # which company it hosts from here.
         self.companies = FixedCompanies(lambda: self.now)
         self.companies.upsert(COMPANY, applied_spec())
-        self.workflows = FakeWorkflows()
+        self.workflows = FakeWorkflows(
+            held=lambda: self.companies.paused(COMPANY) is not None
+        )
         self.documents = FakeDocuments()
         self.submitted: list[DeploymentPlan] = []
         self.deleted: list[str] = []
-        self.waited: list[bool] = []
+        # What the world looked like when the Company CR went: the rows the
+        # sweep erased, in the order written, the pause, and what Temporal
+        # still ran.
+        self.erased: list[AuditEvent] = []
+        self.paused_at_delete: dict[str, Any] | None = None
+        self.running_at_delete: dict[str, str] = {}
         self.cr: dict[str, Any] | None = None
         # What OPA answers, per tool; the default is the rule the compiled
         # bundle would name: the act's for a human the company names,
@@ -206,9 +243,15 @@ class World:
     def read_company(self) -> dict[str, Any] | None:
         return self.cr
 
-    def delete(self, company: str, wait: bool = True) -> None:
+    def delete(self, company: str, timeout_s: float) -> None:
+        """The Company CR deleted and the reconciler's teardown done: the
+        sweep over every double the world holds. What Temporal still runs
+        is what the console must end."""
         self.deleted.append(company)
-        self.waited.append(wait)
+        self.cr = None
+        self.erased = list(self.audit.events)
+        self.paused_at_delete = self.companies.paused(company)
+        self.running_at_delete = dict(self.workflows.running)
         InMemoryCompanySweep(
             companies=self.companies,
             instances=self.instances,

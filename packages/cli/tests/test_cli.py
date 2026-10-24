@@ -307,16 +307,7 @@ def test_company_delete_names_the_running_runs_then_asks_the_console(runner, con
     assert result.exit_code == 0, result.output
     assert "hello-saas: 1 running run(s)" in result.output and REVIEW in result.output
     assert f"hello-saas deleted in 0 s; cancelled {REVIEW}" in result.output
-    assert console.requests[-1][:3] == (
-        "DELETE",
-        "/company",
-        {"rationale": "done", "wait": True},
-    )
-    quick = runner.invoke(
-        cli.app, ["company", "delete", "--yes", "--no-wait", "--reason", "done"]
-    )
-    assert quick.exit_code == 0, quick.output
-    assert console.requests[-1][2] == {"rationale": "done", "wait": False}
+    assert console.requests[-1][:3] == ("DELETE", "/company", {"rationale": "done"})
 
 
 def test_company_delete_asks_before_acting(runner, console):

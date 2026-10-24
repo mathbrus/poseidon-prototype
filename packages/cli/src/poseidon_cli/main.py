@@ -425,12 +425,13 @@ def company_show(as_json: bool = JSON_OPTION) -> None:
 def company_delete(
     reason: str = REASON_OPTION,
     yes: bool = typer.Option(False, "--yes", "-y", help="Delete without asking."),
-    no_wait: bool = NO_WAIT_OPTION,
 ) -> None:
-    """Delete the company: cancels its running runs, removes it and waits
-    for the teardown. Asks first, naming the runs it will cancel. The one
-    way to stop a company (`pause` holds it instead); applying its
-    blueprint again brings it back."""
+    """Delete the company: holds its heartbeat, cancels its running runs,
+    removes it and erases every record the platform kept of it — runs,
+    tickets, spend, audit rows, workflow histories. Asks first, naming the
+    runs it will cancel. The one way to stop a company (`pause` holds it
+    instead); applying its blueprint again starts a new company, with no
+    history."""
     client = _client()
     company = _call(client.whoami).company
     if not company:
@@ -449,12 +450,13 @@ def company_delete(
             render.ERR,
         )
     if not yes:
-        typer.confirm(f"delete {company}?", abort=True)
-    result = _call(client.delete_company, reason, wait=not no_wait)
+        typer.confirm(
+            f"delete {company} and erase everything recorded about it?", abort=True
+        )
+    result = _call(client.delete_company, reason)
     cancelled = result.runs_cancelled
     render.act(
-        f"{result.company} deleted"
-        + (f" in {render.duration(result.elapsed_s)}" if not no_wait else "")
+        f"{result.company} deleted in {render.duration(result.elapsed_s)}"
         + (f"; cancelled {', '.join(cancelled)}" if cancelled else "")
     )
 

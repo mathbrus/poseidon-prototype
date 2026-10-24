@@ -1,8 +1,7 @@
 {
   "request": {
     "body": {
-      "rationale": "the vision is done",
-      "wait": true
+      "rationale": "the vision is done"
     },
     "path": "/company",
     "query": {}

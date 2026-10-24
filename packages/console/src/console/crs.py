@@ -165,13 +165,12 @@ def read_company(api: k8s.CustomObjectsApi | None = None) -> dict[str, Any] | No
 
 def delete_company(
     name: str,
-    wait: bool = True,
-    api: k8s.CustomObjectsApi | None = None,
     timeout_s: float = TEARDOWN_TIMEOUT_S,
+    api: k8s.CustomObjectsApi | None = None,
 ) -> None:
-    """Delete the Company CR and, unless told not to, wait for the
-    reconciler's teardown to finish — the CR is gone once the tombstone is
-    served, the rows swept and the namespace deleted. A company that is
+    """Delete the Company CR and wait for the reconciler's teardown to
+    finish: the CR is gone once the tombstone is served, the namespace
+    deleted and every registry row of the company swept. A company that is
     not there is already deleted."""
     api = api or _api()
     try:
@@ -179,8 +178,6 @@ def delete_company(
     except k8s.exceptions.ApiException as exc:
         if exc.status != 404:
             raise
-        return
-    if not wait:
         return
     deadline = time.monotonic() + timeout_s
     while True:

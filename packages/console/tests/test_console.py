@@ -68,6 +68,7 @@ from common.text import UNTRUSTED_CLIP, clip_head
 from common.topology import BLUEPRINT_LIMIT_BYTES, PLATFORM_NAMESPACE
 from common.workflows import GATE_PARKED, gate_rule
 from console import fakes
+from console import service as service_module
 from console.config import ConsoleSettings
 from console.fakes import COMPANY, World, applied_spec, as_owner, company_cr
 
@@ -76,6 +77,19 @@ pytestmark = pytest.mark.anyio
 HELLO_SAAS = fakes.HELLO_SAAS.read_text()
 PLATFORM_NS = PLATFORM_NAMESPACE
 RUN_ID = "run-01CONSOLE"
+SPEND = {
+    "company": COMPANY,
+    "run_id": RUN_ID,
+    "agent_id": "reviewer",
+    "parent_agent_id": "",
+    "role": "reviewer",
+    "model": "mock-brain",
+    "prompt_tokens": 10,
+    "completion_tokens": 5,
+    "cached_tokens": 0,
+    "reasoning_tokens": 0,
+    "usd": 0.25,
+}
 
 
 def model(cls, response: httpx.Response):
@@ -437,10 +451,20 @@ async def test_a_later_apply_is_policys(client, world):
 async def test_deleting_the_company_is_decided_audited_and_ends_its_runs_first(
     client, world
 ):
-    """The one stop there is, as a console act: decided under the person's
-    name, its running runs cancelled through the same path a cancel takes,
-    then the Company CR deleted and the teardown waited for."""
+    """The one stop there is, as a console act, in its order: decided under
+    the person's name; the heartbeat held and woken until it says so; the
+    running runs cancelled through the path a cancel takes and waited for
+    until closed; then the Company CR deleted and its teardown waited for;
+    then the company's workflow histories deleted. Nothing of the company
+    is left, the act's own rows included: the answer is the receipt."""
+    heartbeat = f"heartbeat-{COMPANY}"
+    world.workflows.running[heartbeat] = "sleeping"
     a_review_run(world)
+    world.runs.start("run-done", "implement issue #3", "implement", None, COMPANY)
+    world.runs.finish("run-done", "done")
+    world.ledger.record(**SPEND)
+    world.tickets.record("github.com/example/hello-saas", 3, heartbeat)
+
     response = await client.request(
         "DELETE", "/company", json={"rationale": "wrong vision"}, headers=as_owner()
     )
@@ -448,17 +472,76 @@ async def test_deleting_the_company_is_decided_audited_and_ends_its_runs_first(
     assert deleted.company == COMPANY
     assert deleted.runs_cancelled == [RUN_ID]
     assert deleted.rule == "company_delete"
+    assert world.workflows.calls == [
+        ("signal", (heartbeat, "wake", [])),
+        ("cancel", f"review-{RUN_ID}"),
+        ("terminate", heartbeat),
+        ("delete", heartbeat),
+        ("delete", f"review-{RUN_ID}"),
+        ("delete", "implement-run-done"),
+    ]
+    # When the CR went: the act recorded first and the cancel after it
+    # under the same name, the loop held under it, the run closed and the
+    # loop still running, waiting to be ended.
+    assert [(e.tool, e.decision, e.agent_id) for e in world.erased] == [
+        (COMPANY_DELETE, "allow", "owner"),
+        (RUN_CANCEL, "allow", "owner"),
+    ]
+    assert [e.rationale for e in world.erased] == [
+        "wrong vision",
+        "company deleted: wrong vision",
+    ]
+    assert world.paused_at_delete["by"] == "owner"
+    assert world.running_at_delete == {heartbeat: "paused"}
     assert world.deleted == [COMPANY]
-    assert world.workflows.calls == [("cancel", f"review-{RUN_ID}")]
-    # The delete's own rows went with every other row of the company: the
-    # response is the receipt.
+    # The sweep took every row of the company with it.
     assert world.audit.events == [] and world.runs.rows == {}
+    assert world.ledger.entries == [] and world.tickets.rows == {}
+    assert world.workflows.running == {} and world.workflows.closed == {}
     # Nothing is left to act on.
     assert (await client.get("/heartbeat", headers=as_owner())).status_code == 404
     again = await client.request(
         "DELETE", "/company", json={"rationale": "again"}, headers=as_owner()
     )
     assert again.status_code == 404
+
+
+async def test_a_delete_that_cannot_finish_leaves_the_company_held_and_a_second_finishes(
+    client, world, monkeypatch
+):
+    """A heartbeat that does not hold in time — a tick still deciding —
+    fails the act before anything is torn down: the company stays applied
+    and held, and asking again finishes the delete."""
+    monkeypatch.setattr(service_module, "TEARDOWN_TIMEOUT_S", 0)
+    heartbeat = f"heartbeat-{COMPANY}"
+    world.workflows.running[heartbeat] = "ticking"
+    world.workflows.signal = _silent_signal(world.workflows)
+
+    response = await client.request(
+        "DELETE", "/company", json={"rationale": "first"}, headers=as_owner()
+    )
+    assert response.status_code == 503
+    assert "the heartbeat has not held" in Problem.model_validate(response.json()).detail
+    assert world.deleted == [] and world.companies.paused(COMPANY)["by"] == "owner"
+
+    world.workflows.running[heartbeat] = "paused"  # the tick ended, held
+    deleted = model(
+        CompanyDeleted,
+        await client.request(
+            "DELETE", "/company", json={"rationale": "again"}, headers=as_owner()
+        ),
+    )
+    assert deleted.company == COMPANY and world.deleted == [COMPANY]
+    assert world.companies.applied() is None
+
+
+def _silent_signal(workflows):
+    """A loop that hears the wake but is still mid-tick: its state stays."""
+
+    async def signal(wf_id, name, args):
+        workflows.calls.append(("signal", (wf_id, name, args)))
+
+    return signal
 
 
 async def test_the_company_read_is_the_crs_phase(client, world):
@@ -478,19 +561,6 @@ async def test_the_company_read_is_the_crs_phase(client, world):
     )
     state = model(CompanyView, await client.get("/company", headers=as_owner()))
     assert state.phase == "converged" and state.bundle_revision == "r1"
-
-
-async def test_a_delete_may_decline_to_wait_for_the_teardown(client, world):
-    """`wait: false` is the CLI's `--no-wait`: the act and the teardown
-    are the same, only the answer comes before the namespace is gone."""
-    response = await client.request(
-        "DELETE",
-        "/company",
-        json={"rationale": "quick", "wait": False},
-        headers=as_owner(),
-    )
-    model(CompanyDeleted, response)
-    assert world.deleted == [COMPANY] and world.waited == [False]
 
 
 async def test_a_stranger_cannot_delete_the_company(client, world):

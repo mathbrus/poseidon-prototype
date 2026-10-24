@@ -195,12 +195,9 @@ class ConsoleClient:
     def tickets(self) -> TicketList:
         return self._call("GET", "/tickets", TicketList)
 
-    def delete_company(self, rationale: str, wait: bool = True) -> CompanyDeleted:
+    def delete_company(self, rationale: str) -> CompanyDeleted:
         return self._call(
-            "DELETE",
-            "/company",
-            CompanyDeleted,
-            DeleteRequest(rationale=rationale, wait=wait),
+            "DELETE", "/company", CompanyDeleted, DeleteRequest(rationale=rationale)
         )
 
     # -- runs -----------------------------------------------------------------

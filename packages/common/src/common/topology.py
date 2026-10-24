@@ -18,9 +18,10 @@ EGRESS_PROXY_PORT = 3128
 BUNDLE_PORT = 8081
 CONSOLE_PORT = 8090
 
-# How long a company delete waits for the reconciler's teardown (the
-# tombstone served, the rows swept, the namespace gone) before it is an
-# error. The console waits this long; its clients wait longer than it.
+# How long a company delete may take — the heartbeat held, its runs ended,
+# the reconciler's teardown (the tombstone served, the namespace gone, the
+# rows swept) — before it is an error. The console waits this long; its
+# clients wait longer than it.
 TEARDOWN_TIMEOUT_S = 600
 
 # The most a blueprint's text may be, in bytes. The Company CR keeps the
