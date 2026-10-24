@@ -70,6 +70,11 @@ CREATE TABLE IF NOT EXISTS registry.runs (
     company     text,
     task        text NOT NULL DEFAULT '',
     status      text NOT NULL,
+    -- Whether the running run holds one of the company's
+    -- max_concurrent_runs places. A run parked on a person's merge verdict
+    -- gives its place back with its crew and sandbox (Runs.vacate); one
+    -- whose pull request edits the contract tree keeps it.
+    occupies    boolean NOT NULL DEFAULT true,
     pr_url      text,
     -- What became of the delivered PR once the platform learned it
     -- (common.workflows.PR_SETTLED): merged, refused (closed without

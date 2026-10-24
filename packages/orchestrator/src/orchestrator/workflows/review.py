@@ -126,6 +126,9 @@ class ReviewWorkflow(RunWorkflow):
         self._state = RUN_RUNNING
         self._budget_gate = Gate(BUDGET_GATE)
         self._merge_gate = Gate(MERGE_GATE)
+        # The run's sandbox while it holds one: teardown destroys it, and
+        # a merge park gives it back early and forgets it.
+        self._handle: dict[str, Any] | None = None
 
     @workflow.signal
     def budget(self, approved: bool) -> None:
@@ -389,7 +392,11 @@ class ReviewWorkflow(RunWorkflow):
         )
 
     async def _human_merge(
-        self, input: "ReviewInput", pr: dict[str, Any], gate: dict[str, Any]
+        self,
+        input: "ReviewInput",
+        pr: dict[str, Any],
+        gate: dict[str, Any],
+        keep_slot: bool,
     ) -> dict[str, Any]:
         """The human gate: every gate without `automate`, and the fallback
         whenever automation declines or its rework chain is spent. Park on
@@ -404,7 +411,23 @@ class ReviewWorkflow(RunWorkflow):
         back from the audit store and `merge.resolve` decides on it — so a
         signal delivered by any other road (network reach to the workflow
         engine, a human the company did not name) finds no recorded
-        verdict and ends the run unmerged, by a rule that says so."""
+        verdict and ends the run unmerged, by a rule that says so.
+
+        A run waiting on a person holds nothing: its crew and its sandbox
+        are given back before it parks — the merge itself names the head,
+        never a sandbox — and so is its place under `max_concurrent_runs`,
+        unless `keep_slot` (a pull request editing the contract tree, so a
+        one-place company implements nothing before its contract lands)."""
+        await workflow.execute_activity(
+            "vacate",
+            args=[input.run_id, self._handle, keep_slot],
+            start_to_close_timeout=timedelta(seconds=self._profile.step_s),
+            retry_policy=STEP_RETRY,
+        )
+        self._handle = None
+        if not keep_slot:
+            # The place is free: the heartbeat may start other work now.
+            await self.wake_heartbeat()
         # The row first, then the state: a run that reads parked always has
         # the row its deadlines are measured from.
         await self.record_gate(input.run_id, MERGE_GATE, GATE_PARKED)
@@ -447,7 +470,6 @@ class ReviewWorkflow(RunWorkflow):
 
     @workflow.run
     async def run(self, input: ReviewInput) -> dict[str, Any]:
-        handle: dict[str, Any] | None = None
         result: dict[str, Any] | None = None
         error: str | None = None
         cancelled = False
@@ -488,7 +510,7 @@ class ReviewWorkflow(RunWorkflow):
                 start_to_close_timeout=timedelta(seconds=self._profile.step_s),
                 retry_policy=STEP_RETRY,
             )
-            handle = await workflow.execute_activity(
+            self._handle = await workflow.execute_activity(
                 "provision_sandbox",
                 args=[input.run_id, workspace_tar],
                 start_to_close_timeout=timedelta(seconds=self._profile.step_s),
@@ -580,7 +602,9 @@ class ReviewWorkflow(RunWorkflow):
             if automated:
                 outcome = await self._automated_merge(input, pr, result, config, verify)
             if not outcome.get("released") and not outcome.get("error"):
-                outcome = await self._human_merge(input, pr, gate)
+                outcome = await self._human_merge(
+                    input, pr, gate, keep_slot=self._touches_contract(pr, config)
+                )
             if outcome.get("refused"):
                 await self._refuse(input, outcome["refused"])
             if outcome.get("error"):
@@ -612,7 +636,7 @@ class ReviewWorkflow(RunWorkflow):
             cause = exc.cause
             error = f"{exc.message}: {cause}" if cause else exc.message
         self._state = RUN_FINALIZING
-        record = await self.teardown(input.run_id, handle, result, error)
+        record = await self.teardown(input.run_id, self._handle, result, error)
         if not concluded:
             await self.abandon_exhausted(input.run_id)
         # However this run ended, it changed the world the standing

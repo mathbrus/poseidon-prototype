@@ -382,6 +382,25 @@ def test_observe_reoffers_a_ticket_whose_delivery_was_refused(
     assert [(i["number"], i["attempts"]) for i in observed["backlog"]] == [(3, 1)]
 
 
+def test_a_run_parked_on_a_merge_verdict_holds_no_place(
+    observation, runs, monkeypatch, fake_gateway
+):
+    """A review parked on a person's merge verdict has given its place
+    back: it does not count against `max_concurrent_runs`, and the
+    decision text says it waits, apart."""
+    _backlog_gateway(monkeypatch, fake_gateway, [])
+    runs.start("run-r", "review pull request #4", "review", company=COMPANY)
+    runs.start("run-i", "implement issue #5", "implement", company=COMPANY)
+    runs.vacate("run-r")
+    observed = asyncio.run(observation.heartbeat_observe(MAX_ATTEMPTS))
+    assert (observed["active_runs"], observed["waiting_runs"]) == (1, 1)
+    prompt = decision_prompt(observed, ["implement"])
+    assert prompt.startswith(
+        "Heartbeat tick. Runs in flight: 1 (1 more waiting on a person's merge"
+        " verdict)."
+    )
+
+
 def test_observe_excludes_an_issue_with_a_live_run(
     observation, runs, monkeypatch, fake_gateway
 ):

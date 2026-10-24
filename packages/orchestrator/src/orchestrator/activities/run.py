@@ -15,6 +15,8 @@ Retry safety, per activity:
     record_gate_outcome — appends an audit event; a retried append
                           duplicates a row, never loses one (the audit
                           store is append-only by design).
+    vacate              — the first half of teardown, idempotent the same
+                          way, plus one idempotent row update.
     teardown            — destroy is idempotent; the participants sweep and
                           the run row finalization are upserts.
     abandon_exhausted   — an append-only audit write, then the item's
@@ -224,21 +226,14 @@ class RunActivities:
             "gate outcome recorded", extra={"gate": gate, "outcome": kind}
         )
 
-    @activity.defn(name="teardown")
-    async def teardown(
-        self,
-        run_id: str,
-        handle: dict[str, Any] | None,
-        result: dict[str, Any] | None,
-        error: str | None,
-    ) -> dict[str, Any]:
-        """Compensation + finalization: revoke the run's ephemeral
-        identities (the binding rows die on every terminal
-        path, before the token TTLs would), destroy the sandbox (when one
-        was provisioned), retire its registration, link the artifacts the
-        run produced, and write the honest terminal run record, which is
-        also the workflow's result."""
+    async def _give_back(self, run_id: str, handle: dict[str, Any] | None) -> str | None:
+        """What a run holds, given back: its ephemeral identities revoked
+        (the binding rows die before the token TTLs would), their pods
+        destroyed, its sandbox destroyed (when one was provisioned) and its
+        registration retired. Every step runs whatever the one before did;
+        returns the first failure, or None."""
         log = self._log.bind(run_id=run_id)
+        error = None
         # Handle-independent on purpose: bind precedes provision, so
         # ephemeral agents can exist even when no sandbox ever did.
         if self._crew is not None:
@@ -278,6 +273,42 @@ class RunActivities:
                 # failure: the sandbox is already gone, so the address it
                 # names answers nothing.
                 log.info("sandbox unregister failed", extra={"error": str(exc)})
+        return error
+
+    @activity.defn(name="vacate")
+    async def vacate(
+        self, run_id: str, handle: dict[str, Any] | None, keep_slot: bool
+    ) -> None:
+        """A run that will wait on a person gives back what it holds: its
+        crew and its sandbox (`_give_back`, teardown's first half) and,
+        unless `keep_slot`, its place under `max_concurrent_runs`, so the
+        heartbeat may start other work while the person decides. A failure
+        raises: the workflow keeps the handle, and teardown tries again."""
+        error = await self._give_back(run_id, handle)
+        if error:
+            raise RuntimeError(error)
+        if not keep_slot:
+            await asyncio.to_thread(self._runs.vacate, run_id)
+        self._log.bind(run_id=run_id).info("run vacated", extra={"keep_slot": keep_slot})
+
+    @activity.defn(name="teardown")
+    async def teardown(
+        self,
+        run_id: str,
+        handle: dict[str, Any] | None,
+        result: dict[str, Any] | None,
+        error: str | None,
+    ) -> dict[str, Any]:
+        """Compensation + finalization: give back what the run holds
+        (`_give_back`: its ephemeral identities, their pods, its sandbox
+        and its registration), link the artifacts the run produced, and
+        write the honest terminal run record, which is also the
+        workflow's result."""
+        log = self._log.bind(run_id=run_id)
+        # Always given back, whatever the run's own error: compensation
+        # runs on every terminal path.
+        released = await self._give_back(run_id, handle)
+        error = error or released
         result = result or {}
         ticket_urls = list(result.get("ticket_urls") or [])
         if ticket_urls:
@@ -394,6 +425,7 @@ class RunActivities:
             self.workflow_config,
             self.dispatch_documents,
             self.record_gate_outcome,
+            self.vacate,
             self.teardown,
             self.abandon_exhausted,
         ]

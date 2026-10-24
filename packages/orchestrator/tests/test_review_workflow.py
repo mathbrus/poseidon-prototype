@@ -141,12 +141,21 @@ class Harness:
     torn_down: list[tuple[dict[str, Any] | None, str | None]] = field(
         default_factory=list
     )
+    # The sandbox handle each teardown was given.
+    torn_down_handles: list[dict[str, Any] | None] = field(default_factory=list)
+    # Each give-back before a merge park: (handle, keep_slot, the gate
+    # outcomes recorded before it).
+    vacated: list[tuple[dict[str, Any] | None, bool, list[str]]] = field(
+        default_factory=list
+    )
     # The runs that asked the platform, after teardown, whether they spent
     # the last attempt on their PR — only runs that reached no verdict.
     attempts_recorded: list[str] = field(default_factory=list)
     wakes: int = 0
     # A dispatch that never answers, so a test can cancel the run mid-flight.
     dispatch_hangs: bool = False
+    # The first dispatch hits the run's budget cap and parks on `budget`.
+    budget_capped: bool = False
     dispatches: int = 0
     # The head verify and the reviewer dispatch, in the order they ran.
     sequence: list[str] = field(default_factory=list)
@@ -251,6 +260,8 @@ class Harness:
                 # Heartbeat so the workflow's cancel reaches the activity.
                 activity.heartbeat()
                 await asyncio.sleep(0.05)
+            if harness.budget_capped and harness.dispatches == 1:
+                return {"status": "failed", "error": "budget_exhausted: cap reached"}
             return dict(harness.dispatch)
 
         @activity.defn(name="record_verdict")
@@ -362,6 +373,12 @@ class Harness:
             harness.attempts_recorded.append(run_id)
             return {"exhausted": False}
 
+        @activity.defn(name="vacate")
+        async def vacate(
+            run_id: str, handle: dict[str, Any] | None, keep_slot: bool
+        ) -> None:
+            harness.vacated.append((handle, keep_slot, list(harness.gate_events)))
+
         @activity.defn(name="teardown")
         async def teardown(
             run_id: str,
@@ -370,6 +387,7 @@ class Harness:
             error: str | None,
         ) -> dict[str, Any]:
             harness.torn_down.append((result, error))
+            harness.torn_down_handles.append(handle)
             # Spread first: the dispatch result carries its own status
             # field, and the record's status/error must win, like the
             # real teardown's honest terminal write — which also reads a
@@ -411,6 +429,7 @@ class Harness:
             merge_pr,
             close_tickets,
             abandon_exhausted,
+            vacate,
             teardown,
             wake_heartbeat,
         ]
@@ -936,6 +955,76 @@ async def test_a_human_gate_never_touches_the_automation_machinery(env):
     assert harness.merges == [PR]
     assert harness.effects == ["merge", f"close_tickets #{PR} abc123 Add slugify utility"]
     assert record["merged"] is True
+
+
+async def test_a_merge_park_gives_back_its_crew_sandbox_and_place(env):
+    """Before the merge park is recorded, the run gives back its crew and
+    its sandbox and its place under `max_concurrent_runs`, and nudges the
+    heartbeat; teardown then has no sandbox left to destroy."""
+    harness = Harness(merge_gate=HUMAN_GATE)
+    worker, handle = await start_review(env.client, harness)
+    try:
+        await wait_for_park(handle)
+        assert harness.vacated == [({"sandbox": "sbx-1"}, False, [])]
+        assert harness.wakes == 1
+        await handle.signal("merge", args=[True])
+        record = await handle.result()
+    finally:
+        await worker.__aexit__(None, None, None)
+
+    assert record["merged"] is True
+    assert harness.torn_down_handles == [None]
+    assert harness.wakes == 2
+
+
+async def test_a_contract_tree_park_keeps_its_place(env):
+    """A pull request editing the contract tree keeps its place while it
+    waits, so a one-place company implements nothing before its contract
+    lands; its crew and sandbox are still given back, and no nudge is due."""
+    harness = Harness(
+        merge_gate=AUTOMATED_GATE,
+        contract_paths=["tests/contract/"],
+        pr_paths=["tests/contract/test_slugify_contract.py"],
+        deletions={
+            "removed_tests": 0,
+            "added_tests": 4,
+            "removed_asserts": 0,
+            "added_asserts": 4,
+        },
+    )
+    worker, handle = await start_review(env.client, harness)
+    try:
+        await wait_for_park(handle)
+        assert harness.vacated == [({"sandbox": "sbx-1"}, True, ["automation_declined"])]
+        assert harness.wakes == 0
+        await handle.signal("merge", args=[True])
+        await handle.result()
+    finally:
+        await worker.__aexit__(None, None, None)
+    assert harness.torn_down_handles == [None]
+
+
+async def test_a_budget_park_gives_nothing_back(env):
+    """The budget park re-dispatches into the same agent and sandbox once
+    approved, so it holds both; only a merge park gives them back."""
+    harness = Harness(merge_gate=None, budget_capped=True)
+    worker, handle = await start_review(env.client, harness)
+    try:
+        for _ in range(200):
+            if await handle.query("state") == "parked-budget_exhausted":
+                break
+            await asyncio.sleep(0.05)
+        else:
+            raise AssertionError("the review never parked on its budget")
+        await handle.signal("budget", args=[True])
+        record = await handle.result()
+    finally:
+        await worker.__aexit__(None, None, None)
+
+    assert harness.dispatches == 2
+    assert harness.vacated == []
+    assert harness.torn_down_handles == [{"sandbox": "sbx-1"}]
+    assert record["status"] == "done"
 
 
 async def test_a_close_that_keeps_failing_ends_the_run_with_the_merge_recorded(env):

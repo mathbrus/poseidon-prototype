@@ -95,13 +95,21 @@ def _world(observed: dict[str, Any]) -> list[str]:
     ]
 
 
+def in_flight(observed: dict[str, Any]) -> str:
+    """The runs holding a place — what `max_concurrent_runs` bounds — and,
+    apart, the ones waiting on a person's merge verdict, which hold none."""
+    waiting = observed.get("waiting_runs") or 0
+    more = f" ({waiting} more waiting on a person's merge verdict)" if waiting else ""
+    return f"Runs in flight: {observed['active_runs']}{more}."
+
+
 def decision_prompt(observed: dict[str, Any], may_start: list[str]) -> str:
     """The decide dispatch's user message: the whole observation plus the
     closed action set and the two-line reply contract."""
     startable = ", ".join([*may_start, "idle"])
     return "\n\n".join(
         [
-            f"Heartbeat tick. Runs in flight: {observed['active_runs']}."
+            f"Heartbeat tick. {in_flight(observed)}"
             f" Spent today: ${observed['daily_spent_usd']:.2f}."
             f" Open tickets on the repository: {observed['open_tickets']}.\n"
             f"Startable actions: {startable}",
@@ -118,9 +126,8 @@ def scope_prompt(observed: dict[str, Any]) -> str:
     yield the next slice of work as tickets."""
     return "\n\n".join(
         [
-            "Scope the next slice of work. Runs in flight:"
-            f" {observed['active_runs']}. Open tickets on the repository:"
-            f" {observed['open_tickets']}.",
+            f"Scope the next slice of work. {in_flight(observed)} Open tickets"
+            f" on the repository: {observed['open_tickets']}.",
             *_world(observed),
         ]
     )
@@ -186,7 +193,7 @@ class ObservationActivities:
         of it could only fail at the head ref."""
 
         def read() -> tuple[
-            int, float, dict[int, Attempts], list[dict[str, Any]], list[Any]
+            int, int, float, dict[int, Attempts], list[dict[str, Any]], list[Any]
         ]:
             company = self._company()
             reviews = self._runs.review_attempts(company)
@@ -208,15 +215,21 @@ class ObservationActivities:
                 )
             return (
                 self._runs.active_count(company),
+                self._runs.vacated_count(company),
                 self._ledger.spent_today(company),
                 self._runs.issue_attempts(company),
                 delivered,
                 self._runs.recent(company, RECENT_RUNS_LIMIT),
             )
 
-        active_runs, daily_spent, issues, delivered, recent = await asyncio.to_thread(
-            read
-        )
+        (
+            active_runs,
+            waiting_runs,
+            daily_spent,
+            issues,
+            delivered,
+            recent,
+        ) = await asyncio.to_thread(read)
         reviewable = []
         repo = await self._repo()
         paths = await asyncio.to_thread(
@@ -324,7 +337,10 @@ class ObservationActivities:
             key=lambda issue: issue["number"],
         )[:BACKLOG_LIMIT]
         observed = {
+            # What `max_concurrent_runs` bounds: the runs holding a place.
+            # A run parked on a person's merge verdict holds none.
             "active_runs": active_runs,
+            "waiting_runs": waiting_runs,
             "daily_spent_usd": daily_spent,
             # Every open issue, worked or not: the backlog the scoping cap
             # bounds is what the repository shows, not what is startable.

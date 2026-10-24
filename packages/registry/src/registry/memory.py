@@ -456,6 +456,7 @@ class InMemoryRuns:
         record = self.rows.get(run_id) or RunRecord(run_id=run_id)
         record.task = task
         record.status = "running"
+        record.occupies = True
         record.workflow = workflow
         record.workflow_id = workflow_id
         record.company = company
@@ -509,13 +510,25 @@ class InMemoryRuns:
         ]
 
     def active_count(self, company: str) -> int:
+        return self._running(company, occupies=True)
+
+    def vacated_count(self, company: str) -> int:
+        return self._running(company, occupies=False)
+
+    def _running(self, company: str, occupies: bool) -> int:
         return sum(
             1
             for r in self.rows.values()
             if r.company == company
             and r.status == "running"
+            and r.occupies is occupies
             and r.workflow in RUN_WORKFLOWS
         )
+
+    def vacate(self, run_id: str) -> None:
+        record = self.rows.get(run_id)
+        if record is not None:
+            record.occupies = False
 
     def issue_attempts(self, company: str) -> dict[int, Attempts]:
         return self._attempts(

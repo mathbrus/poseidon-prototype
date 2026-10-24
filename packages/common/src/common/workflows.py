@@ -83,7 +83,10 @@ HEARTBEAT_STATES = (HEARTBEAT_SLEEPING, HEARTBEAT_TICKING, HEARTBEAT_PAUSED)
 
 # What a run's registry row says of it: running until its teardown
 # writes the terminal status, done or failed. Not the workflow's state:
-# a run parked on a gate is still `running` here.
+# a run parked on a gate is still `running` here. A run parked on a
+# person's merge verdict has vacated (`runs.occupies` false): it gave back
+# its crew, its sandbox and its place under `max_concurrent_runs`, unless
+# its pull request edits the contract tree.
 RUN_STATUS_RUNNING = "running"
 RUN_STATUS_DONE = "done"
 RUN_STATUS_FAILED = "failed"

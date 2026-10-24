@@ -496,6 +496,25 @@ def test_active_count_counts_every_running_run_of_the_company(registry: Registry
     assert Runs(registry).active_count("hello-saas") == 3
 
 
+def test_a_vacated_run_holds_no_place_until_it_starts_again(registry: Registry):
+    """A review parked on a person's merge verdict gives its place back: it
+    is still running, counted apart; a retried start takes the place
+    again."""
+    runs = Runs(registry)
+    runs.start("run-vc-1", "review pull request #4", "review", None, "hello-saas")
+    runs.start("run-vc-2", "implement issue #5", "implement", None, "hello-saas")
+    runs.vacate("run-vc-1")
+    assert runs.active_count("hello-saas") == 1
+    assert runs.vacated_count("hello-saas") == 1
+    assert runs.get("run-vc-1").status == "running"
+    assert runs.get("run-vc-1").occupies is False
+    runs.start("run-vc-1", "review pull request #4", "review", None, "hello-saas")
+    assert (runs.active_count("hello-saas"), runs.vacated_count("hello-saas")) == (2, 0)
+    runs.vacate("run-vc-1")
+    runs.finish("run-vc-1", "done")
+    assert runs.vacated_count("hello-saas") == 0
+
+
 def test_issue_attempts_fold_every_run_on_the_ticket(registry: Registry):
     """One `Attempts` per issue, from the canonical task: the count spans
     every status, `live` is any running run, and `concluded` is a delivered

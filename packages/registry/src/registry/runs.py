@@ -40,6 +40,7 @@ class RunRecord:
     run_id: str
     task: str = ""
     status: str = "running"
+    occupies: bool = True
     workflow: str = "implement"
     workflow_id: str | None = None
     company: str | None = None
@@ -59,6 +60,7 @@ class RunRecord:
             run_id=row["run_id"],
             task=row["task"],
             status=row["status"],
+            occupies=row["occupies"],
             workflow=row["workflow"],
             workflow_id=row["workflow_id"],
             company=row["company"],
@@ -116,6 +118,7 @@ class Runs:
                 ON CONFLICT (run_id) DO UPDATE SET
                     task = EXCLUDED.task,
                     status = 'running',
+                    occupies = true,
                     workflow = EXCLUDED.workflow,
                     workflow_id = EXCLUDED.workflow_id,
                     company = EXCLUDED.company,
@@ -209,15 +212,31 @@ class Runs:
     def active_count(self, company: str) -> int:
         """Runs currently occupying the company — what the heartbeat
         compares against `max_concurrent_runs`: every run the heartbeat
-        may start, the conductor's own scope run included. Only the
-        heartbeat's decision rows are not runs."""
+        may start, the conductor's own scope run included, but a run that
+        gave its place back while it waits on a person (`vacate`). Only
+        the heartbeat's decision rows are not runs."""
+        return self._running(company, occupies=True)
+
+    def vacated_count(self, company: str) -> int:
+        """Runs still running that hold no place: parked on a person's
+        merge verdict, their crew and sandbox given back."""
+        return self._running(company, occupies=False)
+
+    def _running(self, company: str, occupies: bool) -> int:
         rows = self._db.query(
             "SELECT COUNT(*) AS n FROM registry.runs"
-            " WHERE company = %s AND status = 'running'"
+            " WHERE company = %s AND status = 'running' AND occupies = %s"
             "   AND workflow = ANY(%s)",
-            (company, list(RUN_WORKFLOWS)),
+            (company, occupies, list(RUN_WORKFLOWS)),
         )
         return int(rows[0]["n"])
+
+    def vacate(self, run_id: str) -> None:
+        """The run gives its place under `max_concurrent_runs` back while
+        it waits on a person; it is still running."""
+        self._db.execute(
+            "UPDATE registry.runs SET occupies = false WHERE run_id = %s", (run_id,)
+        )
 
     def issue_attempts(self, company: str) -> dict[int, Attempts]:
         """Every issue the company's implement runs ever took up, keyed by
