@@ -189,15 +189,15 @@ def test_the_merged_work_fell_in_the_delegated_class(delegated_overnight: dict):
 
 def test_the_merge_was_released_by_policy_not_a_human(delegated_overnight: dict):
     """The merge was released by the compiled decision, not a human gate.
-    The review's story carries a policy_resolved gate outcome and a
+    The review's story carries a automated gate outcome and a
     merge.resolve allow — and NO human gate_approved event."""
     story = audit_story(delegated_overnight["review"]["run_id"])
     gate_rules = gate_merge_rules(story)
-    assert "gate_policy_resolved" in gate_rules, gate_rules
+    assert "gate_automated" in gate_rules, gate_rules
     assert "gate_approved" not in gate_rules, "a human approval sneaked in"
     resolves = [e for e in story if e["tool"] == MERGE_RESOLVE]
     assert resolves and resolves[-1]["decision"] == "allow", resolves
-    assert resolves[-1]["rule"] == "merge_resolve_delegated"
+    assert resolves[-1]["rule"] == "merge_resolve_automated"
     assert any(e["tool"] == "git.merge_pr" for e in story), "no merge tool call"
 
 
@@ -341,9 +341,9 @@ def test_the_contract_pr_needed_the_one_human_merge(contract_first: dict):
     the spec changes under a person's hand, by construction."""
     story = audit_story(contract_first["contract_review_run_id"])
     rules = gate_merge_rules(story)
-    assert "gate_policy_declined" in rules, rules
+    assert "gate_automation_declined" in rules, rules
     assert "gate_approved" in rules, rules
-    assert "gate_policy_resolved" not in rules, rules
+    assert "gate_automated" not in rules, rules
     assert contract_first["contract_merged"]["merged"] is True, (
         "the contract never landed"
     )
@@ -360,13 +360,13 @@ def test_the_implementation_auto_merged_on_a_green_contract(contract_first: dict
         "in-class work did not merge"
     )
     gate_rules = gate_merge_rules(story)
-    assert "gate_policy_resolved" in gate_rules, gate_rules
+    assert "gate_automated" in gate_rules, gate_rules
     assert "gate_approved" not in gate_rules, (
         "a human approval sneaked into the implement merge"
     )
     resolves = [e for e in story if e["tool"] == MERGE_RESOLVE]
     assert resolves and resolves[-1]["decision"] == "allow", resolves
-    assert resolves[-1]["rule"] == "merge_resolve_delegated", resolves[-1]
+    assert resolves[-1]["rule"] == "merge_resolve_automated", resolves[-1]
 
 
 def test_contract_arc_had_exactly_one_human_act(contract_first: dict):

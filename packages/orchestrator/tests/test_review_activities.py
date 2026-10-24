@@ -442,8 +442,8 @@ def test_resolve_merge_audits_the_decision_either_way(settings, audit, monkeypat
 
     answers = iter(
         [
-            {"allow": True, "rule": "merge_resolve_delegated"},
-            {"allow": False, "rule": "merge_resolve_undelegated_path"},
+            {"allow": True, "rule": "merge_resolve_automated"},
+            {"allow": False, "rule": "merge_resolve_path_not_automated"},
         ]
     )
     seen = []
@@ -463,27 +463,27 @@ def test_resolve_merge_audits_the_decision_either_way(settings, audit, monkeypat
     }
     released = asyncio.run(
         activities.resolve_merge(
-            RUN_ID, "policy", {**facts, "paths": ["src/a.py"]}, "wf-rev"
+            RUN_ID, "automated", {**facts, "paths": ["src/a.py"]}, "wf-rev"
         )
     )
     declined = asyncio.run(
         activities.resolve_merge(
-            RUN_ID, "policy", {**facts, "paths": ["deploy/x"]}, "wf-rev"
+            RUN_ID, "automated", {**facts, "paths": ["deploy/x"]}, "wf-rev"
         )
     )
-    assert released == {"allow": True, "rule": "merge_resolve_delegated"}
-    assert declined == {"allow": False, "rule": "merge_resolve_undelegated_path"}
+    assert released == {"allow": True, "rule": "merge_resolve_automated"}
+    assert declined == {"allow": False, "rule": "merge_resolve_path_not_automated"}
 
     # The decision input carries the caller-verified facts, platform-shaped,
     # and names the path being decided.
     assert seen[0]["tool"] == MERGE_RESOLVE
     assert seen[0]["lifecycle"] == "platform"
-    assert seen[0]["args"] == {"resolver": "policy", **facts, "paths": ["src/a.py"]}
+    assert seen[0]["args"] == {"resolver": "automated", **facts, "paths": ["src/a.py"]}
 
     events = [e for e in audit.events if e.tool == MERGE_RESOLVE]
     assert [(e.decision, e.rule) for e in events] == [
-        ("allow", "merge_resolve_delegated"),
-        ("deny", "merge_resolve_undelegated_path"),
+        ("allow", "merge_resolve_automated"),
+        ("deny", "merge_resolve_path_not_automated"),
     ]
     assert all(e.source == "process-lifecycle" for e in events)
 

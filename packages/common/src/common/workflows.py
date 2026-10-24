@@ -93,19 +93,19 @@ RUN_STATUSES = (RUN_STATUS_RUNNING, RUN_STATUS_DONE, RUN_STATUS_FAILED)
 # process-gate audit row as `gate_<kind>` by the orchestrator and read
 # back by the console. A run began waiting on it (parked — the row a
 # parked run's deadlines are measured from), a human answered (approved,
-# rejected), nobody did
-# (escalated at half the deadline, expired at the end), policy answered
-# the merge (resolved it, or declined and fell back to the human), the
-# review filed a rework ticket or spent its last rework, an approving
-# signal arrived without a recorded verdict, the heartbeat halted a start
-# on a gate nobody resolves, or a text spent its last attempt.
+# rejected), nobody did (escalated at half the deadline, expired at the
+# end), automation answered the merge (merged it, or declined and fell
+# back to the human), the review filed a rework ticket or spent its last
+# rework, an approving signal arrived without a recorded verdict, the
+# heartbeat halted a start on a gate nobody resolves, or a text spent its
+# last attempt.
 GATE_PARKED = "parked"
 GATE_APPROVED = "approved"
 GATE_REJECTED = "rejected"
 GATE_ESCALATED = "escalated"
 GATE_EXPIRED = "expired"
-GATE_POLICY_RESOLVED = "policy_resolved"
-GATE_POLICY_DECLINED = "policy_declined"
+GATE_AUTOMATED = "automated"
+GATE_AUTOMATION_DECLINED = "automation_declined"
 GATE_REWORK_FILED = "rework_filed"
 GATE_REWORK_EXHAUSTED = "rework_exhausted"
 GATE_VERDICT_UNVERIFIED = "verdict_unverified"
@@ -117,8 +117,8 @@ GATE_OUTCOMES = (
     GATE_REJECTED,
     GATE_ESCALATED,
     GATE_EXPIRED,
-    GATE_POLICY_RESOLVED,
-    GATE_POLICY_DECLINED,
+    GATE_AUTOMATED,
+    GATE_AUTOMATION_DECLINED,
     GATE_REWORK_FILED,
     GATE_REWORK_EXHAUSTED,
     GATE_VERDICT_UNVERIFIED,
@@ -127,7 +127,7 @@ GATE_OUTCOMES = (
 )
 # The outcomes that release what the gate held — the only `allow` rows a
 # gate writes. Every other outcome is a `deny`.
-GATE_RELEASING = (GATE_APPROVED, GATE_POLICY_RESOLVED)
+GATE_RELEASING = (GATE_APPROVED, GATE_AUTOMATED)
 _GATE_PREFIX = "gate_"
 
 

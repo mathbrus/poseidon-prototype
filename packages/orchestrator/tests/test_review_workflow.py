@@ -11,11 +11,11 @@ What must hold:
   (the OPA half of the same guarantee is pinned in the compiler's
   bundle-decision tests);
 - revocation mid-flight: once the live bundle no longer carries the
-  delegation, resolve_merge denies and the run flips to human-only
+  automation, resolve_merge denies and the run flips to human-only
   cleanly — config read at run start grants nothing by itself;
 - the human `merge` signal still resolves every gate: overrides a
-  decline, decides an exhausted rework chain, and the human-resolved
-  path never touches the policy machinery at all;
+  decline, decides an exhausted rework chain, and a gate without
+  `automate` never touches the automation machinery at all;
 - a contract-tree PR is the human's to merge by construction: the gate
   declines before spending any layer — no verify run, no composed
   baseline, no resolve evaluation, no rework ticket — and the human's
@@ -52,7 +52,7 @@ PR = 41
 # The head commit read_pr reports: every fetch and the merge name it.
 HEAD_SHA = "f00d5ha"
 
-POLICY_GATE = {
+AUTOMATED_GATE = {
     "deadline_minutes": 1,
     "automate": {"paths": ["src/", "tests/"], "max_reworks": 2},
 }
@@ -93,7 +93,7 @@ class Harness:
         default_factory=lambda: {"independent": True, "reason": "lineage run-impl"}
     )
     resolve: dict[str, Any] = field(
-        default_factory=lambda: {"allow": True, "rule": "merge_resolve_delegated"}
+        default_factory=lambda: {"allow": True, "rule": "merge_resolve_automated"}
     )
     # The console's recorded verdict the human path reads back (None: no
     # human ever answered through the console), and what the compiled
@@ -463,10 +463,10 @@ async def wait_for_park(handle: WorkflowHandle) -> None:
 
 
 async def test_the_head_is_verified_before_the_reviewer_holds_the_sandbox(env):
-    """Under a delegated gate the platform's verify runs first, in the
+    """Under an automated gate the platform's verify runs first, in the
     sandbox as provisioned: the reviewer holds a shell there, so nothing
     it leaves behind can reach the verify of record."""
-    harness = Harness(merge_gate=POLICY_GATE)
+    harness = Harness(merge_gate=AUTOMATED_GATE)
     await run_review(env.client, harness)
 
     assert harness.sequence == ["verify", "dispatch"]
@@ -478,7 +478,9 @@ async def test_red_checks_file_rework_without_a_reviewer(env):
     suite feeds the bounded rework loop before any reviewer is dispatched,
     so no reviewer can talk the run past it and none is paid for. The red
     suite is the review's conclusion, so no attempt is counted as lost."""
-    harness = Harness(merge_gate=POLICY_GATE, verify={"passed": False, "output": "red"})
+    harness = Harness(
+        merge_gate=AUTOMATED_GATE, verify={"passed": False, "output": "red"}
+    )
     record = await run_review(env.client, harness)
 
     assert harness.dispatches == 0
@@ -504,10 +506,10 @@ async def test_red_checks_file_rework_without_a_reviewer(env):
 
 async def test_red_checks_at_the_rework_bound_still_get_a_reviewer(env):
     """The chain is spent, so the red suite escalates: the reviewer still
-    runs, so the human park carries its findings, and no policy layer is
+    runs, so the human park carries its findings, and no automated layer is
     spent — no resolve, no independence read, straight to the human."""
     harness = Harness(
-        merge_gate=POLICY_GATE,
+        merge_gate=AUTOMATED_GATE,
         verify={"passed": False, "output": "red"},
         depth={"depth": 2, "root_pr": 38},
     )
@@ -535,7 +537,7 @@ async def test_green_checks_with_a_fail_verdict_merge_nothing(env):
     carry a failed verdict, which feeds the rework loop before any further
     layer is spent."""
     harness = Harness(
-        merge_gate=POLICY_GATE,
+        merge_gate=AUTOMATED_GATE,
         dispatch=dispatch_result(verdict="fail", verdict_rationale="Blocking."),
     )
     record = await run_review(env.client, harness)
@@ -557,10 +559,10 @@ async def test_green_checks_with_a_fail_verdict_merge_nothing(env):
 
 
 async def test_both_layers_green_and_allowed_releases_the_merge(env):
-    """The full policy path: verdict journaled, checks green, independence
+    """The full automated path: verdict journaled, checks green, independence
     established, compiled allow — the merge happens with no human signal
     and the gate outcome names the resolver."""
-    harness = Harness(merge_gate=POLICY_GATE)
+    harness = Harness(merge_gate=AUTOMATED_GATE)
     record = await run_review(env.client, harness)
 
     assert harness.verdicts == [("pass", "Suite green; in scope.")]
@@ -571,7 +573,7 @@ async def test_both_layers_green_and_allowed_releases_the_merge(env):
     # The compiled decision saw the real facts, changed paths included.
     assert harness.resolve_args == [
         [
-            "policy",
+            "automated",
             {
                 "verdict": "pass",
                 "checks_green": True,
@@ -581,7 +583,7 @@ async def test_both_layers_green_and_allowed_releases_the_merge(env):
             },
         ]
     ]
-    assert harness.gate_events == ["policy_resolved"]
+    assert harness.gate_events == ["automated"]
     assert harness.merges == [PR]
     # The merge names the head the run read, the one every sandbox held.
     assert harness.merge_heads == [HEAD_SHA]
@@ -601,7 +603,7 @@ async def test_a_reviewers_architecture_request_reaches_teardown(env):
     records it on the run's row."""
     url = "https://github.test/example/repo/issues/77"
     harness = Harness(
-        merge_gate=POLICY_GATE, dispatch={**dispatch_result(), "ticket_urls": [url]}
+        merge_gate=AUTOMATED_GATE, dispatch={**dispatch_result(), "ticket_urls": [url]}
     )
     await run_review(env.client, harness)
     (result, _error) = harness.torn_down[0]
@@ -614,9 +616,9 @@ async def test_a_reviewers_architecture_request_reaches_teardown(env):
 async def test_a_red_contract_verify_feeds_rework_not_the_resolve(env):
     """The baseline layer is required: head suite green, verdict pass —
     and the base-ref contract run red still merges nothing. The failure
-    feeds the bounded rework loop, and policy is never even asked."""
+    feeds the bounded rework loop, and the merge rule is never even asked."""
     harness = Harness(
-        merge_gate=POLICY_GATE,
+        merge_gate=AUTOMATED_GATE,
         contract_paths=["tests/contract/"],
         contract_verify={"passed": False, "output": "contract red"},
     )
@@ -642,7 +644,7 @@ async def test_a_green_contract_verify_rides_the_resolve(env):
     declared: the workspace is re-fetched with the contract overlay, the
     sandbox re-provisioned, the verify scoped to the contract paths, and
     the fact rides the compiled decision."""
-    harness = Harness(merge_gate=POLICY_GATE, contract_paths=["tests/contract/"])
+    harness = Harness(merge_gate=AUTOMATED_GATE, contract_paths=["tests/contract/"])
     record = await run_review(env.client, harness)
 
     # First fetch: the plain head tree for the reviewer. Second: the
@@ -656,7 +658,7 @@ async def test_a_green_contract_verify_rides_the_resolve(env):
     assert harness.scoped_verifies == [["tests/contract/"]]
     assert harness.resolve_args == [
         [
-            "policy",
+            "automated",
             {
                 "verdict": "pass",
                 "checks_green": True,
@@ -677,7 +679,7 @@ async def test_a_declared_tree_the_base_ref_lacks_replays_nothing(env):
     fact rides the resolve vacuously true — as it would undeclared —
     until a human merges the first contract pull request."""
     harness = Harness(
-        merge_gate=POLICY_GATE, contract_paths=["tests/contract/"], contract_tree=[]
+        merge_gate=AUTOMATED_GATE, contract_paths=["tests/contract/"], contract_tree=[]
     )
     record = await run_review(env.client, harness)
 
@@ -692,7 +694,7 @@ async def test_a_declared_tree_the_base_ref_lacks_replays_nothing(env):
 async def test_no_contract_tree_means_no_composed_run(env):
     """Undeclared means untouched: no overlay fetch, one provision, no
     scoped verify."""
-    harness = Harness(merge_gate=POLICY_GATE)
+    harness = Harness(merge_gate=AUTOMATED_GATE)
     await run_review(env.client, harness)
 
     assert harness.fetches == [[HEAD_SHA, None]]
@@ -729,7 +731,7 @@ async def test_an_oracle_edit_is_surfaced_before_the_human_park(env):
 
 async def test_a_contract_tree_pr_parks_before_any_layer_is_spent(env):
     """The workflow-layer half of the carve-out guarantee: a PR touching
-    the declared contract tree can never policy-merge, so the gate
+    the declared contract tree is never an automated merge, so the gate
     declines positionally — a perfect verdict is journaled, then no verify
     run, no composed baseline, no resolve evaluation, no rework ticket —
     and the run parks on the human, who reads the deletion facts posted
@@ -742,7 +744,7 @@ async def test_a_contract_tree_pr_parks_before_any_layer_is_spent(env):
         "added_asserts": 4,
     }
     harness = Harness(
-        merge_gate=POLICY_GATE,
+        merge_gate=AUTOMATED_GATE,
         contract_paths=["tests/contract/"],
         pr_paths=["tests/contract/test_slugify_contract.py"],
         deletions=deletions,
@@ -760,7 +762,7 @@ async def test_a_contract_tree_pr_parks_before_any_layer_is_spent(env):
         assert harness.resolve_args == []
         assert harness.depth_calls == 0
         assert harness.reworks == []
-        assert harness.gate_events == ["policy_declined", "parked"]
+        assert harness.gate_events == ["automation_declined", "parked"]
         assert harness.merges == []
         await handle.signal("merge", args=[True])
         record = await handle.result()
@@ -769,7 +771,7 @@ async def test_a_contract_tree_pr_parks_before_any_layer_is_spent(env):
 
     # The human's approving verdict is the one authority that merges an oracle
     # edit — and it still works, findings and facts already on the PR.
-    assert harness.gate_events == ["policy_declined", "parked", "approved"]
+    assert harness.gate_events == ["automation_declined", "parked", "approved"]
     assert harness.merges == [PR]
     assert record["status"] == "done"
     assert record["merged"] is True
@@ -780,7 +782,7 @@ async def test_a_rejected_contract_pr_fails_honestly(env):
     merges nothing and the run finalizes failed — a gutted contract never
     slips through by timeout or default."""
     harness = Harness(
-        merge_gate=POLICY_GATE,
+        merge_gate=AUTOMATED_GATE,
         contract_paths=["tests/contract/"],
         pr_paths=["tests/contract/test_slugify_contract.py"],
         deletions={
@@ -801,7 +803,7 @@ async def test_a_rejected_contract_pr_fails_honestly(env):
     assert harness.merges == []
     assert harness.reworks == []
     assert harness.effects == []
-    assert harness.gate_events == ["policy_declined", "parked", "rejected"]
+    assert harness.gate_events == ["automation_declined", "parked", "rejected"]
     assert record["status"] == "failed"
     assert "merge gate rejected" in record["error"]
 
@@ -809,26 +811,26 @@ async def test_a_rejected_contract_pr_fails_honestly(env):
 # -- carve-outs and revocation park on the human ---------------------------
 
 
-async def test_a_policy_decline_parks_on_the_human_who_can_release(env):
-    """A carve-out (or any out-of-class) deny with perfect layers is a
+async def test_an_automation_decline_parks_on_the_human_who_can_release(env):
+    """A carve-out (or any path not automated) deny with perfect layers is a
     decline, not a failure: the run parks on the human signal, and the
     human's approving verdict still releases the merge — the override survives
-    delegation."""
+    automation."""
     harness = Harness(
-        merge_gate=POLICY_GATE,
+        merge_gate=AUTOMATED_GATE,
         resolve={"allow": False, "rule": "merge_resolve_carved_out_path"},
     )
     worker, handle = await start_review(env.client, harness)
     try:
         await wait_for_park(handle)
-        assert harness.gate_events == ["policy_declined", "parked"]
+        assert harness.gate_events == ["automation_declined", "parked"]
         assert harness.merges == []
         await handle.signal("merge", args=[True])
         record = await handle.result()
     finally:
         await worker.__aexit__(None, None, None)
 
-    assert harness.gate_events == ["policy_declined", "parked", "approved"]
+    assert harness.gate_events == ["automation_declined", "parked", "approved"]
     assert harness.merges == [PR]
     assert record["status"] == "done"
     assert record["merged"] is True
@@ -836,17 +838,22 @@ async def test_a_policy_decline_parks_on_the_human_who_can_release(env):
 
 async def test_revocation_mid_flight_flips_the_gate_to_human_only(env):
     """Config read at run start grants nothing by itself: once the live
-    bundle no longer carries the delegation (the blueprint diff), the
+    bundle no longer carries the automation (the blueprint diff), the
     resolve denies and the run is human-only — unanswered, it escalates
     and expires like any human gate, and nothing merges."""
     harness = Harness(
-        merge_gate=POLICY_GATE,
+        merge_gate=AUTOMATED_GATE,
         resolve={"allow": False, "rule": "default_deny"},
     )
     record = await run_review(env.client, harness)
 
     assert harness.merges == []
-    assert harness.gate_events == ["policy_declined", "parked", "escalated", "expired"]
+    assert harness.gate_events == [
+        "automation_declined",
+        "parked",
+        "escalated",
+        "expired",
+    ]
     assert record["status"] == "failed"
     assert "merge gate expired" in record["error"]
 
@@ -859,7 +866,7 @@ async def test_an_exhausted_rework_chain_escalates_to_the_human(env):
     a rework_exhausted process-gate event, and the human decides — here,
     a rejection, which fails the run honestly with nothing merged."""
     harness = Harness(
-        merge_gate=POLICY_GATE,
+        merge_gate=AUTOMATED_GATE,
         dispatch=dispatch_result(verdict="fail", verdict_rationale="Still blocking."),
         depth={"depth": 2, "root_pr": 38},
     )
@@ -881,9 +888,9 @@ async def test_an_exhausted_rework_chain_escalates_to_the_human(env):
     assert "merge gate rejected" in record["error"]
 
 
-async def test_a_human_gate_never_touches_the_policy_machinery(env):
-    """resolved_by: human is exactly the pre-delegation workflow: no
-    verify re-run, no independence read, no delegated resolve, no rework
+async def test_a_human_gate_never_touches_the_automation_machinery(env):
+    """A gate without `automate` is the plain human workflow: no
+    verify re-run, no independence read, no automated resolve, no rework
     counting — park, approve, verify the recorded verdict, merge."""
     harness = Harness(merge_gate=HUMAN_GATE)
     worker, handle = await start_review(env.client, harness)
@@ -910,7 +917,7 @@ async def test_a_close_that_keeps_failing_ends_the_run_with_the_merge_recorded(e
     """The merge landed; the tickets did not close. The run ends in error
     rather than leaving the open ticket silent, and the record still says
     what was merged."""
-    harness = Harness(merge_gate=POLICY_GATE, close_fails=True)
+    harness = Harness(merge_gate=AUTOMATED_GATE, close_fails=True)
     record = await run_review(env.client, harness)
 
     assert harness.merges == [PR]
@@ -920,7 +927,7 @@ async def test_a_close_that_keeps_failing_ends_the_run_with_the_merge_recorded(e
     assert record["merge_sha"] == "abc123"
 
 
-@pytest.mark.parametrize("gate", [HUMAN_GATE, POLICY_GATE])
+@pytest.mark.parametrize("gate", [HUMAN_GATE, AUTOMATED_GATE])
 async def test_a_head_that_moved_after_review_merges_nothing(env, gate):
     """A push to the PR branch after the run read its head: both resolvers
     merge through the same pinned call, the host refuses it, and the run
@@ -992,12 +999,12 @@ async def test_a_signal_contradicting_the_record_merges_nothing(env):
     assert record["status"] == "failed"
 
 
-async def test_a_policy_decline_released_by_a_human_reads_the_record_too(env):
-    """The override survives delegation, and it is verified like any
+async def test_an_automation_decline_released_by_a_human_reads_the_record_too(env):
+    """The override survives automation, and it is verified like any
     human release: the decline parks, the human's recorded approving
     verdict is read back and decided on, then the merge."""
     harness = Harness(
-        merge_gate=POLICY_GATE,
+        merge_gate=AUTOMATED_GATE,
         resolve={"allow": False, "rule": "merge_resolve_carved_out_path"},
     )
     worker, handle = await start_review(env.client, harness)
@@ -1008,8 +1015,8 @@ async def test_a_policy_decline_released_by_a_human_reads_the_record_too(env):
     finally:
         await worker.__aexit__(None, None, None)
 
-    assert [args[0] for args in harness.resolve_args] == ["policy", "human"]
-    assert harness.gate_events == ["policy_declined", "parked", "approved"]
+    assert [args[0] for args in harness.resolve_args] == ["automated", "human"]
+    assert harness.gate_events == ["automation_declined", "parked", "approved"]
     assert harness.merges == [PR]
     assert record["merged"] is True
 
@@ -1018,7 +1025,7 @@ async def test_a_missing_verdict_fails_before_any_gate(env):
     """The platform-side belt on the reviewer's contract (every review
     ends in a verdict): a dispatch that somehow reports no verdict reaches
     no gate and merges nothing."""
-    harness = Harness(merge_gate=POLICY_GATE, dispatch=dispatch_result(verdict=None))
+    harness = Harness(merge_gate=AUTOMATED_GATE, dispatch=dispatch_result(verdict=None))
     record = await run_review(env.client, harness)
 
     assert harness.verdicts == []
@@ -1041,7 +1048,7 @@ async def test_a_reviewer_that_died_mid_flight_leaves_the_pr_for_another_try(env
     accounting runs — the PR is the heartbeat's to offer again, bounded
     by the blueprint's cap."""
     harness = Harness(
-        merge_gate=POLICY_GATE,
+        merge_gate=AUTOMATED_GATE,
         dispatch=dispatch_result(
             status="failed", error="litellm.Timeout", verdict=None, comment_urls=[]
         ),
@@ -1060,7 +1067,7 @@ async def test_a_verdict_bearing_failure_is_a_conclusion(env):
     attempt accounting is never asked — the PR is consumed by the verdict
     on its row, not by the attempt cap."""
     for harness in (
-        Harness(merge_gate=POLICY_GATE, dispatch=dispatch_result(verdict="fail")),
+        Harness(merge_gate=AUTOMATED_GATE, dispatch=dispatch_result(verdict="fail")),
         Harness(merge_gate=HUMAN_GATE),
     ):
         worker, handle = await start_review(env.client, harness)

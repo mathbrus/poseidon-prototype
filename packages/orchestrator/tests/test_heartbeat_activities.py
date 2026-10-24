@@ -430,7 +430,7 @@ def test_observe_excludes_a_review_that_concluded_whatever_its_status(
     runs.finish("run-a", "done", pr_url="https://github.test/example/repo/pull/4")
     runs.start("run-b", "review pull request #4", "review", company=COMPANY)
     runs.record_verdict("run-b", "fail")
-    runs.finish("run-b", "failed", error="policy merge gate: rework ticket filed")
+    runs.finish("run-b", "failed", error="automated merge gate: rework ticket filed")
     observed = asyncio.run(observation.heartbeat_observe(MAX_ATTEMPTS))
     assert observed["reviewable_prs"] == []
 

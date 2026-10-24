@@ -441,12 +441,12 @@ def _merge_gate_file(
     change policy never could (a carve-out, the contract tree): that is
     the override the gate promises.
 
-    The delegated path (a policy-resolved gate only): the three
+    The automated path (a gate with an `automate` block only): the three
     caller-verified facts ride the input (the reviewer's verdict, the
     platform's own model-free checks, reviewer-independence from the
-    implementer); the delegated class, the carve-outs and the contract
-    tree are compiled literals. No delegation compiles no delegated
-    allow, so an unattended merge with no declared class falls to the
+    implementer); the automated paths, the carve-outs and the contract
+    tree are compiled literals. No `automate` block compiles no automated
+    allow, so an unattended merge with no declared paths falls to the
     default deny — revocation is a blueprint diff.
 
     Fail-safe defaults throughout: each allow references every input it
@@ -459,7 +459,7 @@ def _merge_gate_file(
         # deny names why.
         '\ndeny_rules contains "merge_resolve_resolver_missing" if {\n'
         f'\tinput.tool == "{MERGE_RESOLVE}"\n'
-        '\tnot object.get(input, ["args", "resolver"], "") in ["human", "policy"]\n'
+        '\tnot object.get(input, ["args", "resolver"], "") in ["human", "automated"]\n'
         "}\n"
         '\nallow_rules contains "merge_resolve_human" if {\n'
         '\tinput.lifecycle == "platform"\n'
@@ -492,39 +492,39 @@ def _merge_gate_file(
     )
     automate = gate.get("automate")
     if automate is not None:
-        body += _delegated_rules(company, automate, policies)
+        body += _automated_rules(company, automate, policies)
     return _rego_file(company, body)
 
 
-def _delegated_rules(
-    company: str, delegation: dict[str, Any], policies: dict[str, Any]
+def _automated_rules(
+    company: str, automate: dict[str, Any], policies: dict[str, Any]
 ) -> str:
-    """The policy path of the merge gate; every rule is scoped to
-    `resolver == "policy"` so the human path is never held to the
-    delegated class."""
-    paths = json.dumps(sorted(delegation.get("paths") or []))
+    """The automated path of the merge gate; every rule is scoped to
+    `resolver == "automated"` so the human path is never held to the
+    automated paths."""
+    paths = json.dumps(sorted(automate.get("paths") or []))
     carved = json.dumps(
         sorted({*NEVER_AUTOMATED_PATHS, *(policies.get("deny_paths") or [])})
     )
     contract_paths = sorted((policies.get("contract_tests") or {}).get("paths") or [])
-    policy_path = (
-        f'\tinput.tool == "{MERGE_RESOLVE}"\n\tinput.args.resolver == "policy"\n'
+    automated_path = (
+        f'\tinput.tool == "{MERGE_RESOLVE}"\n\tinput.args.resolver == "automated"\n'
     )
-    # A declared contract tree prices its fact into the delegation: the
+    # A declared contract tree prices its fact into the automation: the
     # allow additionally requires the platform-composed contract verify
     # (base-ref contract tree over the PR head) to be green. Undeclared,
-    # the fact is vacuously absent — the delegation never promised a spec.
+    # the fact is vacuously absent — the automation never promised a spec.
     contract_requirement = (
         "\tinput.args.contract_green == true\n" if contract_paths else ""
     )
     contract_deny = (
         # The oracle never merges with the code it certifies: a changed
         # path under the contract tree denies the resolve by its own name —
-        # the belt under the validate-time refusal to delegate it, kept
+        # the belt under the validate-time refusal to automate it, kept
         # separate from the generic carve-out so the audit row names the
-        # class that refused.
+        # paths that refused.
         '\ndeny_rules contains "merge_resolve_contract_path" if {\n'
-        + policy_path
+        + automated_path
         + '\tsome path in object.get(input, ["args", "paths"], [])\n'
         f"\tsome contract in {json.dumps(contract_paths)}\n"
         "\tstartswith(path, contract)\n"
@@ -533,21 +533,21 @@ def _delegated_rules(
         # idiom: object.get so the absent key denies rather than leaving
         # the rule unevaluated.
         '\ndeny_rules contains "merge_resolve_contract_not_green" if {\n'
-        + policy_path
+        + automated_path
         + '\tobject.get(input, ["args", "contract_green"], false) != true\n'
         "}\n"
         if contract_paths
         else ""
     )
     return (
-        "\npath_delegated(path) if {\n"
-        f"\tsome delegated in {paths}\n"
-        "\tstartswith(path, delegated)\n"
+        "\npath_automated(path) if {\n"
+        f"\tsome automated in {paths}\n"
+        "\tstartswith(path, automated)\n"
         "}\n"
-        '\nallow_rules contains "merge_resolve_delegated" if {\n'
+        '\nallow_rules contains "merge_resolve_automated" if {\n'
         '\tinput.lifecycle == "platform"\n'
         f'\tinput.company == "{company}"\n'
-        + policy_path
+        + automated_path
         # The quality layers, verified by the caller and riding the
         # input: the independent reviewer's verdict, the platform's own
         # model-free checks, and the registry-checked independence of the
@@ -555,47 +555,47 @@ def _delegated_rules(
         + '\tinput.args.verdict == "pass"\n'
         "\tinput.args.checks_green == true\n"
         "\tinput.args.reviewer_independent == true\n" + contract_requirement +
-        # Every changed path fits the delegated class; an empty diff has
-        # nothing to delegate and is not a merge policy can resolve.
+        # Every changed path is automated; an empty diff has nothing to
+        # merge and is not a merge automation can release.
         "\tcount(input.args.paths) > 0\n"
         "\tevery path in input.args.paths {\n"
-        "\t\tpath_delegated(path)\n"
+        "\t\tpath_automated(path)\n"
         "\t}\n"
         "}\n"
         # Path rules fail closed, the git.open_pr idiom: without the
-        # changed paths in the input the class cannot be checked.
+        # changed paths in the input the automated paths cannot be checked.
         '\ndeny_rules contains "merge_resolve_paths_missing" if {\n'
-        + policy_path
+        + automated_path
         + "\tnot input.args.paths\n"
         "}\n"
-        # The undelegatable surfaces as a deny — the belt under the
-        # compile-time refusal to delegate them: a changed path under a
-        # carve-out denies the resolve whatever the delegated class says.
+        # The surfaces never automated as a deny — the belt under the
+        # compile-time refusal to automate them: a changed path under a
+        # carve-out denies the resolve whatever the automated paths say.
         '\ndeny_rules contains "merge_resolve_carved_out_path" if {\n'
-        + policy_path
+        + automated_path
         + '\tsome path in object.get(input, ["args", "paths"], [])\n'
         f"\tsome carved in {carved}\n"
         "\tstartswith(path, carved)\n"
         "}\n"
-        '\ndeny_rules contains "merge_resolve_undelegated_path" if {\n'
-        + policy_path
+        '\ndeny_rules contains "merge_resolve_path_not_automated" if {\n'
+        + automated_path
         + '\tsome path in object.get(input, ["args", "paths"], [])\n'
-        "\tnot path_delegated(path)\n"
+        "\tnot path_automated(path)\n"
         "}\n"
         + contract_deny
         # Each caller-verified fact restated as a fail-safe named deny:
         # object.get, never a bare reference, so the absent key denies
         # rather than leaving the rule unevaluated.
         + '\ndeny_rules contains "merge_resolve_verdict_not_pass" if {\n'
-        + policy_path
+        + automated_path
         + '\tobject.get(input, ["args", "verdict"], "") != "pass"\n'
         "}\n"
         '\ndeny_rules contains "merge_resolve_checks_not_green" if {\n'
-        + policy_path
+        + automated_path
         + '\tobject.get(input, ["args", "checks_green"], false) != true\n'
         "}\n"
         '\ndeny_rules contains "merge_resolve_not_independent" if {\n'
-        + policy_path
+        + automated_path
         + '\tobject.get(input, ["args", "reviewer_independent"], false) != true\n'
         "}\n"
     )

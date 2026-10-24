@@ -319,18 +319,18 @@ def test_gate_outcomes_are_process_gate_audit_events(activities, audit):
     assert all(e.workflow == f"review-{RUN_ID}" for e in events)
 
 
-def test_policy_gate_outcomes_map_to_decisions(activities, audit):
-    """policy_resolved released a merge (allow); policy_declined fell back
+def test_automation_gate_outcomes_map_to_decisions(activities, audit):
+    """automated released a merge (allow); automation_declined fell back
     to the human signal (deny) — distinguishable from human verdicts
     forever."""
-    for kind in ("policy_resolved", "policy_declined"):
+    for kind in ("automated", "automation_declined"):
         asyncio.run(
             activities.record_gate_outcome(RUN_ID, "merge", kind, f"review-{RUN_ID}")
         )
     events = [e for e in audit.events if e.run_id == RUN_ID]
     assert [(e.rule, e.decision) for e in events] == [
-        ("gate_policy_resolved", "allow"),
-        ("gate_policy_declined", "deny"),
+        ("gate_automated", "allow"),
+        ("gate_automation_declined", "deny"),
     ]
 
 

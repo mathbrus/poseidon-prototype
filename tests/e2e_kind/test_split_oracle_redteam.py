@@ -314,7 +314,7 @@ def test_the_composed_baseline_refused_the_merge(laundered: dict):
     review = laundered["review"]
     story = audit_story(laundered["review_run_id"])
     assert review["status"] == "failed", review
-    assert "gate_policy_resolved" not in gate_merge_rules(story), gate_merge_rules(story)
+    assert "gate_automated" not in gate_merge_rules(story), gate_merge_rules(story)
     assert not any(e["tool"] == "git.merge_pr" for e in story), (
         "a merge was attempted on a red contract split_baseline"
     )
@@ -448,8 +448,8 @@ def test_the_contract_pr_parked_on_the_human_and_merged_nothing(gutted: dict):
     human's own act."""
     story = audit_story(gutted["review_run_id"])
     rules = gate_merge_rules(story)
-    assert "gate_policy_declined" in rules, rules
-    assert "gate_policy_resolved" not in rules, rules
+    assert "gate_automation_declined" in rules, rules
+    assert "gate_automated" not in rules, rules
     assert "gate_approved" not in rules, "a human approval sneaked in"
     assert not any(e["tool"] == "git.merge_pr" for e in story), "the gutted spec merged"
     assert not _is_merged(gutted["env"], gutted["pr_number"])
@@ -560,8 +560,8 @@ def test_merge_resolve_denied_the_carveout_path(carveout: dict):
     assert all(e["decision"] == "deny" for e in resolves)
     assert any(e["rule"] == "merge_resolve_carved_out_path" for e in resolves)
     rules = gate_merge_rules(story)
-    assert "gate_policy_declined" in rules
-    assert "gate_policy_resolved" not in rules
+    assert "gate_automation_declined" in rules
+    assert "gate_automated" not in rules
     assert carveout["review"]["status"] == "failed"
     assert not any(e["tool"] == "git.merge_pr" for e in story), (
         "a merge was attempted despite the carve-out deny"
