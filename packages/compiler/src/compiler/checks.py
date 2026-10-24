@@ -65,7 +65,7 @@ def check(
     problems += _toolchain(blueprint)
     problems += _heartbeat_authority(blueprint, roles)
     # Document-level like the platform-tool rule, repeated here because the
-    # compiler accepts unvalidated dicts and must fail closed on a
+    # compiler accepts unvalidated dicts and must fail closed on an
     # automation validate_blueprint would have refused.
     problems += merge_gate_problems(blueprint)
     problems += contract_tests_problems(blueprint)
