@@ -571,6 +571,7 @@ def gate_endings(stack: None, baseline_env: dict) -> dict:
         # Three approvals in turn: the first merges as reviewed; each later
         # one finds the base moved and is verified on it first.
         result["a2_record"] = _decided(a2, a2_review, True, "e2e: approve")
+        result["a2_story"] = audit_story(a2_review)
         result["w_record"] = _decided(w, w_review, True, "e2e: approve")
         result["w_story"] = audit_story(w_review)
         result["b1_record"] = _decided(b1, b1_review, True, "e2e: approve")
@@ -594,6 +595,12 @@ def _comments(env: dict, number: int) -> list[str]:
 
 def _pull(env: dict, number: int) -> dict:
     return github_api(env, "GET", f"/repos/{target_slug(env)}/pulls/{number}").json()
+
+
+def _archives(story: list[dict]) -> list[dict]:
+    """The trees the run built: the head, then one per merge verified onto
+    a moved base."""
+    return [e for e in story if e["tool"] == "repo.archive" and e["decision"] == "allow"]
 
 
 def test_a_parked_review_holds_nothing(gate_endings: dict) -> None:
@@ -641,8 +648,9 @@ def test_the_first_approval_merges_as_reviewed(gate_endings: dict) -> None:
     """Nothing merged since its review: the redelivery merges with no
     verify on a moved base, and closes its ticket."""
     env = gate_endings["env"]
-    assert gate_endings["a2_record"]["merged"] is True, gate_endings["a2_record"]
+    assert gate_endings["a2_record"]["status"] == "done", gate_endings["a2_record"]
     assert _pull(env, gate_endings["a2"])["merged"] is True
+    assert len(_archives(gate_endings["a2_story"])) == 1
     assert issue_state(env, gate_endings["tickets"][0]) == "closed"
 
 
@@ -652,12 +660,11 @@ def test_a_clean_merge_onto_a_moved_base_is_verified_then_merged(
     """The base moved under the world's pull request: the platform built
     the head merged onto it — a second archive — ran the suite there, and
     merged on green."""
-    assert gate_endings["w_record"]["merged"] is True, gate_endings["w_record"]
+    env = gate_endings["env"]
+    assert gate_endings["w_record"]["status"] == "done", gate_endings["w_record"]
+    assert _pull(env, gate_endings["w"])["merged"] is True
     story = gate_endings["w_story"]
-    archives = [
-        e for e in story if e["tool"] == "repo.archive" and e["decision"] == "allow"
-    ]
-    assert len(archives) == 2, archives
+    assert len(_archives(story)) == 2, _archives(story)
     approved = next(i for i, e in enumerate(story) if e["rule"] == "gate_approved")
     verifies = [
         e

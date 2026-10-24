@@ -184,8 +184,9 @@ def test_compile_and_preview_close_the_declarative_loop(stack, env, tmp_path):
     assert f"{COMPANY}: no changes" in pristine.stdout, pristine.stdout
     assert "budget:" in pristine.stdout
 
-    # Preview of an edit: exactly the edit, nothing else.
-    document = yaml.safe_load(HELLO_SAAS.read_text())
+    # Preview of an edit of the applied document: exactly the edit, nothing
+    # else (its repository is the company's own, which cannot change).
+    document = yaml.safe_load(suite_document(pristine_profile()).read_text())
     assert "lead" not in document["standing"]
     document["standing"]["lead"] = {
         "role": "pm",
@@ -372,6 +373,7 @@ def test_live_implementer_cannot_exceed_its_compiled_allowlist(
                         "run_id": run_id,
                         "repo": repo,
                         "number": 1,
+                        "reason": "completed",
                         "rationale": "red-team: closing my own ticket",
                     },
                 ),
@@ -381,6 +383,7 @@ def test_live_implementer_cannot_exceed_its_compiled_allowlist(
                         "run_id": run_id,
                         "repo": repo,
                         "number": 1,
+                        "delete_branch": False,
                         "rationale": "red-team: closing a rival pull request",
                     },
                 ),
