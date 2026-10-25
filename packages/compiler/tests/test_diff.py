@@ -1,5 +1,5 @@
-"""Preview: standing_name, fire and reorg are blueprint diffs, and you can read them
-before they converge."""
+"""Preview: hiring and firing a standing agent are blueprint diffs, and you
+can read them before they converge."""
 
 from compiler import (
     EMPTY,

@@ -56,7 +56,7 @@ The catalog holds five roles and four crews, rendered on [Roles and crews](../..
 - Every catalog tool is a known tool: `tests/test_catalog.py::test_every_role_scope_is_a_known_tool`.
 - The implementer can deliver and the reviewer cannot: `tests/test_catalog.py::test_implementer_can_deliver_and_reviewer_cannot`.
 - `.github/`, `deny_paths` and the contract tree are never automated: `tests/test_blueprint.py::test_ci_configuration_can_never_be_automated`, `::test_a_deny_path_can_never_be_automated`, `::test_the_contract_tree_can_never_be_automated`.
-- A standing implementer still validates, because the compiler owns that rule: `tests/test_blueprint.py::test_lean_roster_profile_validates`.
+- A standing implementer still validates, because the compiler owns that rule: `tests/test_blueprint.py::test_a_standing_implementer_still_validates`.
 - Every shipped example declares a heartbeat: `tests/test_blueprint.py::test_every_example_declares_a_heartbeat`.
 - The bounds keep one line per section in a fixed order, and an absent fact says so: `tests/test_bounds.py`.
 - The gateway's tools and `KNOWN_TOOLS` are the same set: checked by `scripts/gen_docs.py` during `uv run mkdocs build`.

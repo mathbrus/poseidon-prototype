@@ -161,12 +161,12 @@ def test_a_tool_scope_may_narrow_the_catalog(blueprint):
     assert validate_blueprint(blueprint) is blueprint
 
 
-# -- the lean-standing profile validates --------------------------------------------
+# -- the standing agents ------------------------------------------------------
 
 
-def test_lean_roster_profile_validates(blueprint):
-    """The checked-in document IS the lean profile; the rule that rejects
-    standing implementers is a compile error, not a schema one — so a
+def test_a_standing_implementer_still_validates(blueprint):
+    """The example hires one standing agent, the PM; the rule that refuses
+    a standing implementer is the compiler's, not the schema's — so a
     standing-implementer document still *validates* structurally."""
     assert validate_blueprint(blueprint) is blueprint
     standing_implementer = copy.deepcopy(blueprint)
@@ -269,8 +269,8 @@ def test_a_prefix_containing_the_contract_tree_is_refused(blueprint):
 
 
 def test_a_contract_tree_under_a_deny_path_is_refused(blueprint):
-    """A contract path no PR may touch is a spec nobody could ever
-    deliver — frozen by configuration."""
+    """A contract path no PR may touch is a contract tree nobody could
+    ever deliver into — fixed by configuration."""
     blueprint["policies"]["deny_paths"] = [".github/workflows/", "specs/"]
     blueprint["policies"]["contract_tests"] = {
         "paths": ["specs/contract/"],
@@ -279,7 +279,7 @@ def test_a_contract_tree_under_a_deny_path_is_refused(blueprint):
     assert any("no role could ever deliver" in p for p in problems_of(blueprint))
 
 
-def test_contract_owners_name_catalog_templates(blueprint):
+def test_contract_owners_name_catalog_roles(blueprint):
     blueprint["policies"]["contract_tests"] = {
         "paths": ["tests/contract/"],
         "roles": ["spec-author"],
@@ -424,8 +424,8 @@ def test_open_ticket_cap_starts_at_one(blueprint):
 
 
 def test_heartbeat_may_start_only_the_three_workflows(blueprint):
-    blueprint["heartbeat"]["may_start"] = ["intake"]
-    (problem,) = [p for p in problems_of(blueprint) if "intake" in p]
+    blueprint["heartbeat"]["may_start"] = ["deploy"]
+    (problem,) = [p for p in problems_of(blueprint) if "deploy" in p]
     assert "heartbeat.may_start" in problem
     assert "'scope'" in problem  # the allowed values are shown
     blueprint["heartbeat"]["may_start"] = ["scope"]

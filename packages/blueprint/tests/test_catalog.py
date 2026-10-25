@@ -80,19 +80,20 @@ def test_implementer_can_deliver_and_reviewer_cannot():
 
 
 def test_contract_author_is_a_distinct_deliver_capable_role():
-    """The spec's author delivers through the same governed `git.open_pr`
-    as any change — deliver-capable unlike `reviewer`, and a distinct role
-    so `policies.contract_tests` can fence the tree to it, crew-request
-    rows never collide with a same-run delivery crew, and reviewer
-    independence (keyed on crew_template) holds against it for free."""
+    """The contract tree's author delivers through the same governed
+    `git.open_pr` as any change — deliver-capable unlike `reviewer`, and a
+    distinct role so `policies.contract_tests` can fence the tree to it,
+    crew-request rows never collide with a same-run delivery crew, and
+    reviewer independence (keyed on crew_template) holds against it for
+    free."""
     assert "git.open_pr" in ROLES["contract-author"].tools
     assert "contract-author" not in CREW_TEMPLATES["feature-delivery"].roles
 
 
-def test_every_crew_member_may_ask_for_an_architecture_change():
+def test_the_roles_that_do_not_write_the_masterplan_may_ask_to_change_it():
     """Asking is not writing: the implementer, reviewer and contract
-    author hold `architecture.request`; the steward writes the plan and
-    the PM files tickets with its own tools."""
+    author hold `architecture.request`; the steward writes the masterplan
+    and the PM files tickets with its own tools."""
     for name in ("implementer", "reviewer", "contract-author"):
         assert "architecture.request" in ROLES[name].tools, name
     for name in ("pm", STEWARD_ROLE):

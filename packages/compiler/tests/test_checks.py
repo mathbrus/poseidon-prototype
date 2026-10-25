@@ -38,7 +38,7 @@ def test_scope_for_a_role_nobody_uses_is_dead_config(blueprint):
 
 
 def test_spawn_authority_cannot_be_widened(blueprint):
-    """Granting a role a crew its template does not permit is an error, not
+    """Granting a hire a crew its role does not permit is an error, not
     a silent drop — a workflow might depend on the grant. The reviewer role
     grants no spawn authority."""
     blueprint["standing"]["future-lead"] = {
@@ -105,9 +105,8 @@ def test_child_scope_need_not_be_a_subset_of_the_conductor(blueprint):
 
 
 def test_standing_implementer_is_a_compile_error(standing_implementer):
-    """The strict lean-standing stance — no standing implementer counts;
-    workflow nodes bind to spawners only. A standing-implementer shape is a
-    compile error."""
+    """Only a spawner may be standing: execution is ephemeral crews under
+    the conductor, so a standing implementer is a compile error."""
     with pytest.raises(CompileError) as err:
         compile_blueprint(standing_implementer)
     assert "non-spawner role 'implementer'" in str(err.value)
@@ -121,8 +120,9 @@ def test_a_standing_steward_is_a_compile_error(blueprint):
     assert "non-spawner role 'steward'" in problem
 
 
-def test_lean_roster_compiles_to_exactly_one_instance(blueprint):
-    """The standing agents is the PM alone; execution is ephemeral crews."""
+def test_the_example_compiles_to_one_standing_agent(blueprint):
+    """The PM is the example's one standing agent; execution is ephemeral
+    crews."""
     plan = compile_blueprint(blueprint)
     assert [i.standing_name for i in plan.instances] == ["pm"]
 

@@ -207,7 +207,7 @@ def standing(role: str, **extra) -> dict:
     }
 
 
-# -- the lean-standing exit criteria ----------------------------------------
+# -- the PM conducts and does not implement ---------------------------------
 
 
 def test_pm_may_request_a_crew(decide):
@@ -315,7 +315,7 @@ def test_denied_paths_beat_an_allowed_branch(decide):
     assert decision == {"allow": False, "rule": "git_open_pr_denied_paths"}
 
 
-# -- run binding and tenancy ----------------------------------------------
+# -- run binding, and the company's own rules -------------------------------
 
 
 def test_sandbox_tools_require_a_verified_run_binding(decide):
@@ -501,9 +501,9 @@ def test_crew_rule_compares_the_raw_role_name():
 
 
 def test_crew_request_is_narrowed_to_may_spawn(decide):
-    """The compiled crew.request rule requires the requested
-    template to be in the conductor's may_spawn list — spawn intent outside
-    it never even records."""
+    """The compiled crew.request rule requires the requested crew to be in
+    the conductor's may_spawn list — spawn intent outside it never even
+    records."""
     allowed = decide(
         **standing(
             "pm",
@@ -851,7 +851,7 @@ def test_agents_cannot_claim_the_merge_resolve(decide_automated):
 
 
 def test_one_architecture_request_per_run(decide):
-    """A bound crew member may ask once per run — the count rides the
+    """A bound ephemeral agent may ask once per run — the count rides the
     input from the gateway's own audit trail — and never without the
     count; the PM, who files tickets itself, has no such tool."""
 
@@ -1014,14 +1014,14 @@ CONTRACT_TESTS = {"paths": ["tests/contract/"], "roles": ["contract-author"]}
 
 
 @pytest.fixture(scope="module")
-def decide_split(tmp_path_factory):
-    """The company with the oracle split declared: a protected contract
-    tree owned by the contract-authoring crew's role, beside automated
-    paths that cannot contain it."""
-    return _decider(tmp_path_factory, _company(_split))
+def decide_contract_tree(tmp_path_factory):
+    """The company with a contract tree declared: acceptance tests only the
+    contract-authoring crew's role may deliver into, beside automated paths
+    that cannot contain them."""
+    return _decider(tmp_path_factory, _company(_declare_contract_tree))
 
 
-def _split(blueprint: dict) -> None:
+def _declare_contract_tree(blueprint: dict) -> None:
     """Declare the contract tree, its authoring crew, and automated paths
     beside it."""
     blueprint["policies"]["contract_tests"] = copy.deepcopy(CONTRACT_TESTS)
@@ -1036,11 +1036,11 @@ def _contract_crew(blueprint: dict) -> None:
     }
 
 
-def test_the_implementer_cannot_pr_the_contract_tree(decide_split):
+def test_the_implementer_cannot_pr_the_contract_tree(decide_contract_tree):
     """`git.open_pr` into the contract tree dies at the gateway for any
     role outside the declared owners — the PR never exists, and the audit
     row names the class, not an index."""
-    decision = decide_split(
+    decision = decide_contract_tree(
         **ephemeral(
             "feature-delivery",
             "implementer",
@@ -1054,10 +1054,10 @@ def test_the_implementer_cannot_pr_the_contract_tree(decide_split):
     assert decision == {"allow": False, "rule": "git_open_pr_contract_tree"}
 
 
-def test_unit_tests_stay_the_implementers(decide_split):
-    """The split, not a freeze: everything outside the contract tree is
+def test_unit_tests_stay_the_implementers(decide_contract_tree):
+    """The contract tree, not every test: everything outside it is
     ordinary code the implementer still owns end to end."""
-    decision = decide_split(
+    decision = decide_contract_tree(
         **ephemeral(
             "feature-delivery",
             "implementer",
@@ -1071,11 +1071,12 @@ def test_unit_tests_stay_the_implementers(decide_split):
     assert decision["allow"] is True
 
 
-def test_the_contract_author_delivers_into_the_contract_tree(decide_split):
-    """The split's positive half: the contract-authoring crew's author —
-    a distinct, deliver-capable template — opens the contract PR through
-    the same governed `git.open_pr` as any change."""
-    decision = decide_split(
+def test_the_contract_author_delivers_into_the_contract_tree(decide_contract_tree):
+    """The tree's positive half: the role the declaration names — the
+    contract-authoring crew's distinct, deliver-capable contract author —
+    opens the contract PR through the same governed `git.open_pr` as any
+    change."""
+    decision = decide_contract_tree(
         **ephemeral(
             "contract-authoring",
             "contract-author",
@@ -1089,11 +1090,11 @@ def test_the_contract_author_delivers_into_the_contract_tree(decide_split):
     assert decision["allow"] is True
 
 
-def test_a_contract_path_is_never_an_automated_merge(decide_split):
+def test_a_contract_path_is_never_an_automated_merge(decide_contract_tree):
     """Every fact green and the resolve still denies by the class's own
-    name: oracle edits never auto-merge with the code they certify — they
-    park on the human `merge` signal like any carve-out."""
-    decision = decide_split(
+    name: an edit to the contract tree never merges under the automation it
+    grades — it parks for a person's verdict like any carve-out."""
+    decision = decide_contract_tree(
         **merge_resolve(
             verdict="pass",
             checks_green=True,
@@ -1103,8 +1104,8 @@ def test_a_contract_path_is_never_an_automated_merge(decide_split):
     assert decision == {"allow": False, "rule": "merge_resolve_contract_path"}
 
 
-def test_the_automated_paths_still_resolve_beside_the_contract_tree(decide_split):
-    decision = decide_split(
+def test_the_automated_paths_still_resolve_beside_the_contract_tree(decide_contract_tree):
+    decision = decide_contract_tree(
         **merge_resolve(
             verdict="pass",
             checks_green=True,
@@ -1114,11 +1115,11 @@ def test_the_automated_paths_still_resolve_beside_the_contract_tree(decide_split
     assert decision == {"allow": True, "rule": "merge_resolve_automated"}
 
 
-def test_a_red_contract_verify_merges_nothing(decide_split):
+def test_a_red_contract_verify_merges_nothing(decide_contract_tree):
     """The baseline layer is required: a head suite weakened to green
     cannot launder a merge — the base-ref contract run is its own fact,
     and red denies by name."""
-    decision = decide_split(
+    decision = decide_contract_tree(
         **merge_resolve(
             verdict="pass",
             checks_green=True,
@@ -1129,12 +1130,12 @@ def test_a_red_contract_verify_merges_nothing(decide_split):
     assert decision == {"allow": False, "rule": "merge_resolve_contract_not_green"}
 
 
-def test_the_contract_fact_fails_closed_when_absent(decide_split):
+def test_the_contract_fact_fails_closed_when_absent(decide_contract_tree):
     """A declared contract tree prices its fact into the automation: the
     absent key denies, the checks_not_green idiom."""
     args = merge_resolve(verdict="pass", checks_green=True, paths=["src/a.py"])
     del args["args"]["contract_green"]
-    decision = decide_split(**args)
+    decision = decide_contract_tree(**args)
     assert decision == {"allow": False, "rule": "merge_resolve_contract_not_green"}
 
 
@@ -1153,11 +1154,11 @@ def test_no_contract_tree_means_no_contract_fact(decide_automated):
 # -- the contract tree's authority is not looser, and it revokes like authority
 
 
-def test_the_contract_author_cannot_merge(decide_split):
-    """Authority not looser: the deliver-capable contract-author template
+def test_the_contract_author_cannot_merge(decide_contract_tree):
+    """Authority not looser: the deliver-capable contract-author role
     gains `git.open_pr` into its tree and nothing else — `git.merge_pr`
     stays platform-only."""
-    as_author = decide_split(
+    as_author = decide_contract_tree(
         **ephemeral(
             "contract-authoring",
             "contract-author",
@@ -1166,16 +1167,16 @@ def test_the_contract_author_cannot_merge(decide_split):
         )
     )
     assert as_author == {"allow": False, "rule": "default_deny"}
-    as_platform = decide_split(
+    as_platform = decide_contract_tree(
         PLATFORM_QUERY, lifecycle="platform", tool="git.merge_pr", args={"number": 4}
     )
     assert as_platform == {"allow": True, "rule": "platform_git_merge_pr"}
 
 
-def test_deny_paths_still_bind_the_contract_author(decide_split):
+def test_deny_paths_still_bind_the_contract_author(decide_contract_tree):
     """The blueprint's deny_paths outrank every grant for the contract
     author too: owning the contract tree buys no reach into a denied surface."""
-    decision = decide_split(
+    decision = decide_contract_tree(
         **ephemeral(
             "contract-authoring",
             "contract-author",
@@ -1191,7 +1192,7 @@ def test_deny_paths_still_bind_the_contract_author(decide_split):
 
 @pytest.fixture(scope="module")
 def decide_revoked(tmp_path_factory):
-    """`decide_split`'s company after the human revokes the contract tree:
+    """`decide_contract_tree`'s company after the human revokes the contract tree:
     the same blueprint with `policies.contract_tests` deleted — one diff,
     recompiled. The crew and its spawn grant may outlive the declaration;
     the tree's special authority may not."""
