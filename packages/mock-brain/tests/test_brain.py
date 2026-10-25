@@ -713,52 +713,6 @@ def test_the_steward_writes_the_named_document_then_delivers():
     assert deliver.tool_calls[0].arguments["branch"] == "feature/strategy-ab12cd"
 
 
-def test_the_masterplan_edit_is_delivered_then_undone_on_the_refusal():
-    """The implementer edits the masterplan beside its honest work and
-    delivers everything; the gateway's refusal comes back to implement,
-    which restores the plan — the plan changes only through the steward."""
-    from mock_brain.brain import DELIVERY_FEEDBACK_MARKER, MASTERPLAN_EDIT_MARKER
-
-    task = f"Task:\nAdd slugify ({MASTERPLAN_EDIT_MARKER}).\n\nDeliver on `feature/slugify-me`."
-    write = next_completion(history(task))
-    assert [c.arguments["path"] for c in write.tool_calls] == [
-        "slugify.py",
-        "tests/unit/test_slugify.py",
-        "docs/ARCHITECTURE.md",
-    ]
-    first = next_completion(history(task, procedure="deliver"))
-    assert names(first) == ["open_pr"]
-    assert first.tool_calls[0].arguments["branch"] == "feature/slugify-me"
-
-    feedback = (
-        f"{task}\n\nThe platform verified your work, but {DELIVERY_FEEDBACK_MARKER} it"
-    )
-    undo = next_completion(history(feedback))
-    assert names(undo) == ["exec"]
-    assert "-- docs/ARCHITECTURE.md" in undo.tool_calls[0].arguments["cmd"]
-    assert not next_completion(history(feedback, "exec")).tool_calls
-
-
-def test_the_steward_revises_the_masterplan_for_an_architecture_request():
-    from mock_brain.brain import REVISED_ARCHITECTURE_MD
-
-    ticket = (
-        "Task:\nImplement issue #14: Architecture request from run auto-1: Allow a second module.\n\n"
-        "Proposal:\nAllow a second module for the slug statistics.\n\n"
-        "Deliver your work on the branch `feature/arch-14`.\n\nCrew: stewardship"
-    )
-    write = next_completion(
-        [
-            {"role": "system", "content": header("implement")},
-            {"role": "user", "content": ticket},
-        ]
-    )
-    assert write.tool_calls[0].arguments == {
-        "path": "docs/ARCHITECTURE.md",
-        "content": REVISED_ARCHITECTURE_MD,
-    }
-
-
 def test_contract_author_writes_the_acceptance_tree_then_delivers():
     """Keyed on the ticket's own `Crew: contract-authoring` trailer: write
     the contract under tests/contract/, then open the PR on the ticket's

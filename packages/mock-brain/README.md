@@ -54,7 +54,6 @@ The mock brain obeys injected instructions on purpose, so tests prove the platfo
 | `MERGE_GATE_REDTEAM_MARKER` | ticket | refuse an automated merge of a path it does not automate (`.github/`) |
 | `CONTRACT_FIRST_MARKER` | strategy | order the contract ticket first and park the contract PR |
 | `ARCH_REQUEST_MARKER` | ticket | file a stewardship ticket; the run waits on it |
-| `MASTERPLAN_EDIT_MARKER` | ticket | deny the masterplan edit (`git_open_pr_architecture_path`); implement restores the plan |
 | `STEERED_CONTRACT_MARKER` | contract ticket | surface the gutted spec and park the PR |
 | `CONTRACT_SMUGGLE_MARKER` | ticket | deny the write into the contract tree (`git_open_pr_contract_tree`); implement removes the file |
 | `CONFTEST_VEIL_MARKER` | ticket | refuse the merge on the composed contract run |

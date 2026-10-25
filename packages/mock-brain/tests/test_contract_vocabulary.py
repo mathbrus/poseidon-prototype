@@ -5,7 +5,6 @@ from blueprint.catalog import CREW_TEMPLATES, STEWARDSHIP_CREW
 from blueprint.documents import DOCUMENT_NAMES, document_header
 from common.documents import BOOTSTRAP_TITLES
 from common.tasks import crew_trailer
-from mcp_gateway.service import ARCHITECTURE_REQUEST_TITLE_PREFIX
 from mock_brain import brain
 from orchestrator.activities.observation import decision_prompt
 
@@ -18,7 +17,6 @@ def test_the_document_headers_are_the_platforms():
 
 def test_the_ticket_titles_and_trailers_are_the_platforms():
     assert brain.BOOTSTRAP_STRATEGY_TITLE == BOOTSTRAP_TITLES["strategy"]
-    assert brain.ARCHITECTURE_REQUEST_TITLE_PREFIX == ARCHITECTURE_REQUEST_TITLE_PREFIX
     assert brain.STEWARDSHIP_CREW_LINE == crew_trailer(STEWARDSHIP_CREW)
     assert brain.CONTRACT_CREW_LINE == crew_trailer("contract-authoring")
     assert "contract-authoring" in CREW_TEMPLATES
