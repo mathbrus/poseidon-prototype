@@ -1,6 +1,7 @@
 """`poseidon follow`: the ledger's rows as lines, the cursor as the
 contract, spend only when it moves."""
 
+import json
 from typing import Any
 
 import httpx
@@ -10,6 +11,7 @@ from typer.testing import CliRunner
 from common.audit import HEARTBEAT_DECIDE, HEARTBEAT_TICK
 from common.console import AuditEventView, EventsSpend
 from poseidon_cli import ConsoleClient
+from poseidon_cli import follow as follow_module
 from poseidon_cli import main as cli
 from poseidon_cli.follow import follow, spend_line
 from poseidon_cli.render import row as render
@@ -100,13 +102,19 @@ def test_spend_prints_once_and_then_only_when_it_moves():
 
 
 class ScriptedEvents:
-    """A console answering /events page by page and /runs/{id} from a list."""
+    """A console answering /events page by page and /runs/{id} from a list.
+    Once its pages run out it answers empty pages — or, with `interrupt`,
+    the person following presses Ctrl-C."""
 
     def __init__(
-        self, pages: list[dict[str, Any]], runs: list[dict[str, Any]] | None = None
+        self,
+        pages: list[dict[str, Any]],
+        runs: list[dict[str, Any]] | None = None,
+        interrupt: bool = False,
     ):
         self.pages = list(pages)
         self.runs = list(runs or [])
+        self.interrupt = interrupt
         self.asked: list[str] = []
 
     def handler(self, request: httpx.Request) -> httpx.Response:
@@ -115,6 +123,8 @@ class ScriptedEvents:
             + ("?" + request.url.query.decode() if request.url.query else "")
         )
         if request.url.path == "/events":
+            if not self.pages and self.interrupt:
+                raise KeyboardInterrupt
             answer = self.pages.pop(0) if self.pages else page([], 0, usd=0.0)
             return httpx.Response(200, json=answer)
         if request.url.path.startswith("/runs/"):
@@ -168,6 +178,56 @@ def test_follow_prints_each_row_once_and_resumes_from_the_cursor():
     ]
 
 
+def answered_by(scripted: ScriptedEvents, monkeypatch) -> CliRunner:
+    """A runner whose commands reach `scripted` instead of a console."""
+    monkeypatch.setenv("POSEIDON_CONSOLE_URL", CONSOLE)
+    monkeypatch.setenv("POSEIDON_TOKEN", "t")
+    original = cli.ConsoleClient.__init__
+
+    def patched(self, base_url=None, token=None, transport=None, timeout=120.0):
+        original(self, base_url, token, httpx.MockTransport(scripted.handler), timeout)
+
+    monkeypatch.setattr(cli.ConsoleClient, "__init__", patched)
+    return CliRunner()
+
+
+def test_the_follow_command_prints_from_the_cursor_until_interrupted(monkeypatch):
+    """`poseidon follow --run R --after N` asks for R's rows past N, prints
+    each as its line and the spend, and on an interrupt names the cursor
+    to resume from."""
+    monkeypatch.setattr(follow_module, "POLL_S", 0.0)
+    first = [row(id=6), row(id=7, tool="git.open_pr")]
+    scripted = ScriptedEvents([page(first, 7, usd=0.5, run_usd=0.5)], interrupt=True)
+    runner = answered_by(scripted, monkeypatch)
+    result = runner.invoke(cli.app, ["follow", "--run", "run-01J", "--after", "5"])
+    assert result.exit_code == 0, result.output
+    assert result.stdout.splitlines()[:3] == [
+        str(render(first[0])),
+        str(render(first[1])),
+        "spend   run $0.50 of $0.50 total",
+    ]
+    assert result.stdout.splitlines()[-1].endswith("resume with --after 7")
+    assert scripted.asked == [
+        "/events?after=5&limit=200&run=run-01J",
+        "/events?after=7&limit=200&run=run-01J",
+    ]
+
+
+def test_the_follow_command_with_json_prints_only_the_rows(monkeypatch):
+    """One JSON object per row, as the console answered it, and nothing
+    else: no spend line, no closing summary."""
+    monkeypatch.setattr(follow_module, "POLL_S", 0.0)
+    first = [row(id=6), row(id=7, tool="git.open_pr")]
+    scripted = ScriptedEvents([page(first, 7, usd=0.5)], interrupt=True)
+    runner = answered_by(scripted, monkeypatch)
+    result = runner.invoke(cli.app, ["follow", "--json"])
+    assert result.exit_code == 0, result.output
+    assert [json.loads(line) for line in result.stdout.splitlines()] == [
+        event.model_dump(mode="json") for event in first
+    ]
+    assert scripted.asked[0] == "/events?after=0&limit=200"
+
+
 def test_start_follows_its_own_rows_to_the_end(monkeypatch):
     done = {
         **golden("GET /runs/{run_id}"),
@@ -181,15 +241,8 @@ def test_start_follows_its_own_rows_to_the_end(monkeypatch):
         },
     }
     scripted = ScriptedEvents([page([row(id=7)], 7, usd=0.0, run_usd=0.0)], runs=[done])
-    monkeypatch.setenv("POSEIDON_CONSOLE_URL", CONSOLE)
-    monkeypatch.setenv("POSEIDON_TOKEN", "t")
-    original = cli.ConsoleClient.__init__
-
-    def patched(self, base_url=None, token=None, transport=None, timeout=120.0):
-        original(self, base_url, token, httpx.MockTransport(scripted.handler), timeout)
-
-    monkeypatch.setattr(cli.ConsoleClient, "__init__", patched)
-    result = CliRunner().invoke(cli.app, ["start", "implement", "42", "--json"])
+    runner = answered_by(scripted, monkeypatch)
+    result = runner.invoke(cli.app, ["start", "implement", "42", "--json"])
     assert result.exit_code == 0, result.output
     assert str(render(row(id=7))) in result.output and '"status": "done"' in result.output
     assert "/events?after=0&limit=200&run=run-01J" in scripted.asked
