@@ -47,15 +47,15 @@ from common.workflows import ATTEMPTS_GATE, TICK_IDLE, tick_rule
 from mock_brain.brain import REVIEW_ABORT_MARKER
 
 from .blueprints import (
-    apply_blueprint,
+    ensure_applied,
     may_start,
     restore_pristine,
     single_attempt,
-    wait_for_convergence,
 )
 from .cluster import (
     HEARTBEAT_ID,
     HELLO_SAAS,
+    REWAKE_S,
     audit_story,
     heartbeat_ticks,
     per_run_cap,
@@ -248,7 +248,7 @@ def _terminal_runs(task: str, workflow: str, count: int) -> list[dict]:
     The periodic re-wake only covers a nudge whose backlog read landed too
     early; its extra ticks are idle rows, never actions."""
     deadline = time.monotonic() + 1200
-    next_wake = time.monotonic() + 60
+    next_wake = time.monotonic() + REWAKE_S
     runs: list[dict] = []
     while time.monotonic() < deadline:
         runs = runs_by_task(task, workflow=workflow)
@@ -258,8 +258,8 @@ def _terminal_runs(task: str, workflow: str, count: int) -> list[dict]:
             return runs
         if time.monotonic() >= next_wake:
             wake_heartbeat()
-            next_wake = time.monotonic() + 60
-        time.sleep(5)
+            next_wake = time.monotonic() + REWAKE_S
+        time.sleep(3)
     raise AssertionError(f"the heartbeat never ran {task!r} {count} times: {runs}")
 
 
@@ -286,8 +286,7 @@ def abandoned_review(merged_by_hand: dict, env: dict) -> dict:
     )
     result: dict = {"issue_number": issue_number}
 
-    apply_blueprint(single_attempt(HELLO_SAAS))
-    wait_for_convergence()
+    ensure_applied(single_attempt(HELLO_SAAS))
 
     implement = run_ticket(issue_number)
     assert implement["status"] == "done", f"unattended implement: {implement}"

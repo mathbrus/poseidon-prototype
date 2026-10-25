@@ -18,6 +18,7 @@ import socket
 import subprocess
 import tarfile
 import time
+from collections import defaultdict
 from collections.abc import Iterator
 from datetime import datetime
 from pathlib import Path
@@ -73,6 +74,29 @@ def harness_repo_or_fail() -> str:
 
 
 POSTGRES_USER = "poseidon"
+
+# How often a wait re-wakes the heartbeat while the run it waits for has
+# not started: a tick whose backlog read landed before the git host listed
+# a new issue or PR is followed by another this soon, not a minute later.
+REWAKE_S = 15
+
+# --- the harness's own time --------------------------------------------------
+#
+# What the harness spends waiting — applies, ticket listings, sweeps, wakes
+# — per step, across the session; the conftest prints it after the run, so
+# a slow suite says where its minutes went.
+
+STEP_TIMES: dict[str, list[float]] = defaultdict(list)
+
+
+@contextlib.contextmanager
+def timed(step: str) -> Iterator[None]:
+    start = time.monotonic()
+    try:
+        yield
+    finally:
+        STEP_TIMES[step].append(time.monotonic() - start)
+
 
 # --- kubectl -----------------------------------------------------------------
 
@@ -524,7 +548,7 @@ def await_run(
         run = run_by_task(task, workflow=workflow, since=since)
         if run and (not terminal or run["status"] in ("done", "failed")):
             return run
-        time.sleep(5)
+        time.sleep(2)
     raise AssertionError(f"run {task!r} never {'finished' if terminal else 'started'}")
 
 

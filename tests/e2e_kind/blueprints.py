@@ -3,11 +3,16 @@ running the platform does, and waiting for the company to converge — a
 phase the reconciler writes only once OPA serves the applied policy, not
 when the pods are Ready."""
 
+import contextlib
+import hashlib
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
 
 import yaml
+
+from common.topology import PHASE_CONVERGED
+from poseidon_cli import ConsoleError
 
 from .cluster import (
     COMPANY,
@@ -18,6 +23,7 @@ from .cluster import (
     console,
     harness_repo_or_fail,
     kubectl,
+    timed,
 )
 
 # The suite's derived blueprints, written here and removed with the process.
@@ -117,6 +123,27 @@ def apply_blueprint(path: Path, gate_minutes: int = E2E_GATE_MINUTES) -> None:
     assert result.company == COMPANY, result
 
 
+def ensure_applied(path: Path, gate_minutes: int = E2E_GATE_MINUTES) -> None:
+    """Apply the suite's version of `path` and wait for convergence —
+    unless the console already enforces exactly that text: the text it
+    keeps as applied hashes the same, and the Company is `converged` on
+    the generation that text made. Read from the server, never latched in
+    the harness, so a company that never re-converged is applied again."""
+    text = suite_document(path, gate_minutes).read_text()
+    with contextlib.suppress(ConsoleError):  # nothing applied yet
+        shown = console().blueprint()
+        if (
+            shown.sha256 == hashlib.sha256(text.encode()).hexdigest()
+            and shown.phase == PHASE_CONVERGED
+            and shown.observed_generation == shown.generation
+        ):
+            with timed("blueprint already enforced"):
+                return
+    with timed("blueprint apply and convergence"):
+        apply_blueprint(path, gate_minutes)
+        wait_for_convergence()
+
+
 def wait_for_convergence(timeout_s: int = 300) -> None:
     """The company namespace is Active, the Company reads `converged` for
     the generation just applied — the reconciler writes that phase only once
@@ -192,11 +219,11 @@ def bundle_revision_from_cr() -> str:
 
 def restore_pristine() -> None:
     """Back to the pristine blueprint, converged and asleep — what every
-    module that applied another blueprint owes the modules after it. Always
-    re-applies and waits for convergence (OPA bundle activation included):
-    a restore that skipped the wait could hand the next module a company
-    that never re-converged. The standing heartbeat reads the re-applied
-    section on its next tick and keeps running: a company always has one."""
-    apply_blueprint(pristine_blueprint())
-    wait_for_convergence()
-    await_heartbeat_asleep()
+    module that applied another blueprint owes the modules after it.
+    Convergence (OPA bundle activation included) is read from the server,
+    so a company that never re-converged is applied again. The heartbeat
+    reads the re-applied section on its next tick and keeps running: a
+    company always has one."""
+    ensure_applied(pristine_blueprint())
+    with timed("heartbeat asleep"):
+        await_heartbeat_asleep()

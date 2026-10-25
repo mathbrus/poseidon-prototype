@@ -3,7 +3,9 @@
 # restart re-fetches the current revision instead of running on whatever it
 # last held. Two bundles, under fixed names (`common.policy` spells them
 # too): the platform's own policy and the applied company's. Which company
-# that is, the chart never knows.
+# that is, the chart never knows. Polled every one to three seconds: a
+# blueprint a person applies is enforced within seconds, and `converged`
+# waits for exactly that.
 {{- define "poseidon.opaConfig" -}}
 services:
   bundles:
@@ -13,14 +15,14 @@ bundles:
     service: bundles
     resource: bundles/platform/bundle.tar.gz
     polling:
-      min_delay_seconds: 5
-      max_delay_seconds: 15
+      min_delay_seconds: 1
+      max_delay_seconds: 3
   company:
     service: bundles
     resource: bundles/company/bundle.tar.gz
     polling:
-      min_delay_seconds: 5
-      max_delay_seconds: 15
+      min_delay_seconds: 1
+      max_delay_seconds: 3
 {{- end }}
 apiVersion: v1
 kind: ConfigMap

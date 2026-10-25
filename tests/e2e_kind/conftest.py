@@ -117,15 +117,16 @@ from mock_brain.brain import (
 from ..brain_guard import paid_brain_problem
 from .blueprints import (
     E2E_GATE_MINUTES,
-    apply_blueprint,
+    ensure_applied,
     restore_pristine,
-    wait_for_convergence,
 )
 from .cluster import (
     COMPANY_NS,
     HELLO_SAAS,
     PLATFORM_NS,
     REPO_ROOT,
+    REWAKE_S,
+    STEP_TIMES,
     await_heartbeat_asleep,
     await_run,
     console,
@@ -137,6 +138,7 @@ from .cluster import (
     run_by_task,
     run_kubectl,
     sandbox_pods,
+    timed,
     wake_heartbeat,
 )
 
@@ -183,6 +185,19 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
         )
 
     items.sort(key=rank)
+
+
+def pytest_terminal_summary(terminalreporter) -> None:
+    """Where the harness's own waits went this session, per step: how
+    often, in all, and at most."""
+    if not STEP_TIMES:
+        return
+    terminalreporter.section("harness waits")
+    for step, times in sorted(STEP_TIMES.items(), key=lambda kv: -sum(kv[1])):
+        terminalreporter.write_line(
+            f"{step:<34} {len(times):>4}×  {sum(times):8.1f} s in all"
+            f"  {max(times):6.1f} s at most"
+        )
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -330,14 +345,15 @@ def await_unlisted(env: dict, number: int) -> None:
 
 
 def _await_listing(env: dict, done: Callable[[set[int]], bool], what: str) -> None:
-    deadline = time.monotonic() + 180
-    while time.monotonic() < deadline:
-        listed = github_api(
-            env, "GET", f"/repos/{target_slug(env)}/issues?state=open&per_page=100"
-        ).json()
-        if done({int(i["number"]) for i in listed}):
-            return
-        time.sleep(5)
+    with timed("git host listing"):
+        deadline = time.monotonic() + 180
+        while time.monotonic() < deadline:
+            listed = github_api(
+                env, "GET", f"/repos/{target_slug(env)}/issues?state=open&per_page=100"
+            ).json()
+            if done({int(i["number"]) for i in listed}):
+                return
+            time.sleep(5)
     raise AssertionError(f"the git host's listing never showed {what}")
 
 
@@ -461,15 +477,16 @@ def wake_until_run_started(
     covers a tick whose backlog read landed before the just-filed issue or
     just-delivered PR was visible on the git host — the extra ticks it may
     cause are idle rows, never actions."""
-    deadline = time.monotonic() + deadline_s
-    next_wake = 0.0
-    while time.monotonic() < deadline:
-        if run_by_task(task, workflow=workflow, since=since) is not None:
-            return
-        if time.monotonic() >= next_wake:
-            wake_heartbeat()
-            next_wake = time.monotonic() + 60
-        time.sleep(3)
+    with timed("wake until run started"):
+        deadline = time.monotonic() + deadline_s
+        next_wake = 0.0
+        while time.monotonic() < deadline:
+            if run_by_task(task, workflow=workflow, since=since) is not None:
+                return
+            if time.monotonic() >= next_wake:
+                wake_heartbeat()
+                next_wake = time.monotonic() + REWAKE_S
+            time.sleep(3)
     raise AssertionError(f"the heartbeat never started {task!r}")
 
 
@@ -797,9 +814,10 @@ def pr_state(env: dict, pr_url: str | None) -> str:
 
 
 def apply_and_settle(path: Path, env: dict, gate_minutes: int = E2E_GATE_MINUTES) -> None:
-    """Sweep, apply, converge, and wait for the standing heartbeat to be
-    asleep — the way every module that applies its own blueprint must
-    start. An empty campsite first: any open PR or issue an earlier module
+    """Sweep, apply, converge, and wait for the heartbeat to be asleep —
+    the way every module that applies its own blueprint must start. An
+    apply the console already enforces is not repeated
+    (`blueprints.ensure_applied`); the sweep and the wait always run. An empty campsite first: any open PR or issue an earlier module
     left becomes the loop's backlog the moment it reads the new section —
     a review the module never asked for, or a ticket it never filed. Then
     the wait: with the loop asleep over the swept backlog, the ticks a
@@ -808,9 +826,9 @@ def apply_and_settle(path: Path, env: dict, gate_minutes: int = E2E_GATE_MINUTES
     world."""
     sweep_repo_debris(env)
     lift_pause(env)
-    apply_blueprint(path, gate_minutes)
-    wait_for_convergence()
-    await_heartbeat_asleep()
+    ensure_applied(path, gate_minutes)
+    with timed("heartbeat asleep"):
+        await_heartbeat_asleep()
 
 
 @contextlib.contextmanager
@@ -846,8 +864,11 @@ def sweep_repo_debris(env: dict, deadline_s: int = 300) -> None:
     the loop if the ticket is still open. A sweep that cannot finish — a
     throttled token, a branch that will not delete — fails within
     `deadline_s`, by name."""
-    slug = target_slug(env)
-    deadline = time.monotonic() + deadline_s
+    with timed("repo sweep"):
+        _sweep(env, target_slug(env), time.monotonic() + deadline_s)
+
+
+def _sweep(env: dict, slug: str, deadline: float) -> None:
     _until_unlisted(
         env,
         f"/repos/{slug}/issues?state=open&per_page=100",

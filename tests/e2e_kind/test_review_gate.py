@@ -51,10 +51,9 @@ from mock_brain.brain import NEXT_SLICE_MARKER
 
 from .blueprints import (
     E2E_PATIENT_GATE_MINUTES,
-    apply_blueprint,
+    ensure_applied,
     may_start,
     restore_pristine,
-    wait_for_convergence,
 )
 from .cluster import (
     COMPANY_NS,
@@ -585,8 +584,7 @@ def gate_endings(stack: None, baseline_env: dict) -> dict:
 
         # Then the loop may implement no more, so a ticket that comes back
         # stays on the backlog to be read.
-        apply_blueprint(may_start(HELLO_SAAS, "review"), E2E_PATIENT_GATE_MINUTES)
-        wait_for_convergence()
+        ensure_applied(may_start(HELLO_SAAS, "review"), E2E_PATIENT_GATE_MINUTES)
 
         # Two approving verdicts in turn: the first merges as reviewed; the
         # second finds the base moved and is verified on it first.
