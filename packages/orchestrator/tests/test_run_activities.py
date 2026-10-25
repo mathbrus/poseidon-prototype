@@ -434,7 +434,6 @@ def test_teardown_links_the_tickets_a_run_filed(activities, runs):
     result = {
         "status": "done",
         "ticket_urls": ["https://github.test/i/7"],
-        "crew_request_id": "crq-1",
         "iterations": 0,
         "error": None,
     }

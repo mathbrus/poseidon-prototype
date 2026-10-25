@@ -1,4 +1,4 @@
-"""The merge gate's guardrails, proven at the workflow layer: the real
+"""The merge gate's guarantees, proven at the workflow layer: the real
 ReviewWorkflow runs against Temporal's time-skipping test environment with
 scripted activities — sequencing the activity units cannot see.
 
@@ -37,7 +37,6 @@ import pytest
 from temporalio import activity
 from temporalio.client import Client, WorkflowHandle
 from temporalio.exceptions import ApplicationError
-from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from orchestrator.workflows.base import FAST_TIMEOUTS
@@ -475,19 +474,6 @@ class Harness:
         ]
 
 
-def anyio_backend() -> str:
-    return "asyncio"
-
-
-async def env():
-    try:
-        environment = await WorkflowEnvironment.start_time_skipping()
-    except Exception as exc:
-        pytest.skip(f"temporal test server unavailable: {exc}")
-    yield environment
-    await environment.shutdown()
-
-
 def review_worker(client: Client, harness: Harness) -> tuple[Worker, str]:
     task_queue = f"tq-{uuid.uuid4().hex[:8]}"
     worker = Worker(
@@ -818,8 +804,9 @@ async def test_a_contract_tree_pr_parks_before_any_layer_is_spent(env):
         await worker.__aexit__(None, None, None)
 
     assert harness.torn_down_handles == [None]
-    # The human's approving verdict is the one authority that merges an oracle
-    # edit — and it still works, findings and facts already on the PR.
+    # The human's approving verdict is the one authority that merges a
+    # contract-tree edit — and it still works, findings and facts already
+    # on the PR.
     assert harness.gate_events == ["automation_declined", "parked", "approved"]
     assert harness.merges == [PR]
     assert record["status"] == "done"

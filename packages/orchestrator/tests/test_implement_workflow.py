@@ -13,7 +13,6 @@ from typing import Any
 import pytest
 from temporalio import activity
 from temporalio.client import Client
-from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from orchestrator.workflows.base import FAST_TIMEOUTS
@@ -206,19 +205,6 @@ class Harness:
         ]
 
 
-def anyio_backend() -> str:
-    return "asyncio"
-
-
-async def env():
-    try:
-        environment = await WorkflowEnvironment.start_time_skipping()
-    except Exception as exc:
-        pytest.skip(f"temporal test server unavailable: {exc}")
-    yield environment
-    await environment.shutdown()
-
-
 def implement_worker(client: Client, harness: Harness) -> tuple[Worker, str]:
     task_queue = f"tq-{uuid.uuid4().hex[:8]}"
     worker = Worker(
@@ -260,7 +246,7 @@ async def test_a_delivered_run_concluded_its_issue(env):
 
 
 async def test_a_retry_is_told_why_its_ticket_came_back(env):
-    """The ticket's refused deliveries ride the implementer's brief, after
+    """The ticket's refused deliveries ride the implementer's task, after
     the body, so the next attempt reads what went wrong before."""
     harness = Harness(
         refusals=[{"pr_url": "https://git.test/r/pulls/5", "reason": "owner rejected it"}]

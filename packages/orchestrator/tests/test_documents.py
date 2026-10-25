@@ -59,7 +59,7 @@ def test_sections_state_absence_and_dispatches_carry_only_present_texts():
     assert present_texts(documents) == {"strategy": "Ship slugs."}
 
 
-def test_the_bootstrap_ticket_is_the_stewards_whole_brief():
+def test_the_bootstrap_ticket_is_the_stewards_whole_task():
     """The platform-filed ticket names the file, the branch and the crew:
     the steward reads tickets, not this module."""
     body = bootstrap_body("strategy", "docs/STRATEGY.md", "feature/strategy-abc123")

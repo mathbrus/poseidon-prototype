@@ -11,7 +11,7 @@ from typing import Any
 import pytest
 
 from common.tasks import issue_run_task
-from common.topology import COMPANY_NAMESPACE, PLATFORM_NAMESPACE
+from common.topology import COMPANY_NAMESPACE
 from orchestrator.activities.implement import ImplementActivities
 from orchestrator.config import WorkerSettings
 from registry.memory import (
@@ -64,24 +64,6 @@ class FakeBackend:
         if self.destroy_error is not None:
             raise self.destroy_error
         self.destroyed.append(handle.job_name)
-
-
-def settings(tmp_path) -> WorkerSettings:
-    token_file = tmp_path / "token"
-    token_file.write_text("projected-token")
-    return WorkerSettings(
-        opa_url="http://opa.test:8181",
-        platform_namespace=PLATFORM_NAMESPACE,
-        agent_image="poseidon-agent-host:abc123",
-        model="mock-brain",
-        egress_proxy_url="http://127.0.0.1:3128",
-        egress_proxy_key="egress-key",
-        timeout_profile="default",
-        temporal_address="temporal.test:7233",
-        gateway_token_file=str(token_file),
-        mcp_gateway_url="http://gateway.test:8080",
-        sandbox_image="poseidon-sandbox:abc123",
-    )
 
 
 @pytest.fixture
@@ -204,7 +186,7 @@ def test_sandbox_policy_comes_from_the_applied_blueprint(activities):
     policy = activities._sandbox_policy(RUN_ID)
     assert policy.image == "poseidon-sandbox:abc123"
     assert policy.deadline_s == 3600
-    # The declared test command, and nothing else: no proxy is configured.
+    # The sandbox runs the test command the company declared.
     assert policy.env["TEST_CMD"] == "pytest -q"
     # The per-run egress credential rides the same env, minted from the
     # worker's proxy settings.

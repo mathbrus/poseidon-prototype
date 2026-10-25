@@ -15,7 +15,7 @@ import orchestrator.clients as clients
 from common.audit import HEARTBEAT_BOOTSTRAP, HEARTBEAT_DECIDE, HEARTBEAT_TICK
 from common.policy import HEARTBEAT_START
 from common.tasks import issue_run_task
-from common.topology import COMPANY_NAMESPACE, PLATFORM_NAMESPACE
+from common.topology import COMPANY_NAMESPACE
 from common.workflows import TICK_IDLE, TICK_STARTED, tick_rule
 from orchestrator.activities.bootstrap import BootstrapActivities
 from orchestrator.activities.heartbeat import DECIDE_TASK, HeartbeatActivities
@@ -26,7 +26,6 @@ from orchestrator.activities.observation import (
     scope_prompt,
 )
 from orchestrator.activities.tickets import CLOSED_OUTSIDE, refused_comment
-from orchestrator.config import WorkerSettings
 from orchestrator.workflows.base import Timeouts
 from registry import Attempts
 from registry.memory import (
@@ -42,24 +41,6 @@ COMPANY = "hello-saas"
 
 HEARTBEAT_SPEC = heartbeat_spec()
 MAX_ATTEMPTS = HEARTBEAT_SPEC["max_attempts"]
-
-
-def settings(tmp_path) -> WorkerSettings:
-    token_file = tmp_path / "token"
-    token_file.write_text("projected-token")
-    return WorkerSettings(
-        opa_url="http://opa.test:8181",
-        platform_namespace=PLATFORM_NAMESPACE,
-        sandbox_image="poseidon-sandbox:abc123",
-        agent_image="poseidon-agent-host:abc123",
-        model="mock-brain",
-        egress_proxy_url="http://127.0.0.1:3128",
-        egress_proxy_key="egress-key",
-        timeout_profile="default",
-        temporal_address="temporal.test:7233",
-        gateway_token_file=str(token_file),
-        mcp_gateway_url="http://gateway.test:8080",
-    )
 
 
 @pytest.fixture
@@ -199,8 +180,8 @@ def _backlog_gateway(
 
 
 def _opa(monkeypatch, allow: bool, rule: str):
-    # The OPA transport lives in orchestrator.opa now (shared with crew
-    # fulfilment); patch it there.
+    # The OPA transport every decision shares lives in common.opa: patch
+    # it there.
     import common.opa as module
 
     class FakeResponse:

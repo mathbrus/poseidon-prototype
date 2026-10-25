@@ -22,7 +22,6 @@ from common.topology import (
     TOKEN_MOUNT_DIR,
 )
 from orchestrator.activities.crew import CrewActivities
-from orchestrator.config import WorkerSettings
 from orchestrator.ephemeral_pods import (
     ephemeral_pod_manifest,
     pod_name,
@@ -153,24 +152,6 @@ def _crew(
         ledger or InMemoryBudgetLedger(),
         runs or InMemoryRuns(),
         provisioner,
-    )
-
-
-def settings(tmp_path) -> WorkerSettings:
-    token_file = tmp_path / "token"
-    token_file.write_text("projected")
-    return WorkerSettings(
-        opa_url="http://opa.test:8181",
-        platform_namespace=PLATFORM_NAMESPACE,
-        sandbox_image="poseidon-sandbox:abc123",
-        egress_proxy_url="http://127.0.0.1:3128",
-        egress_proxy_key="egress-key",
-        timeout_profile="default",
-        temporal_address="temporal.test:7233",
-        gateway_token_file=str(token_file),
-        mcp_gateway_url="http://gateway.test:8080",
-        agent_image="poseidon-agent-host:abc123",
-        model="mock-brain",
     )
 
 

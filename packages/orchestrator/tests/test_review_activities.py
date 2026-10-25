@@ -18,11 +18,10 @@ from common.audit import (
     gate_event,
 )
 from common.policy import GATE_RESOLVE, MERGE_RESOLVE
-from common.topology import COMPANY_NAMESPACE, PLATFORM_NAMESPACE
+from common.topology import COMPANY_NAMESPACE
 from common.workflows import MERGE_GATE
 from orchestrator.activities.review import ReviewActivities
 from orchestrator.activities.tickets import CLOSED_OUTSIDE, refused_comment
-from orchestrator.config import WorkerSettings
 from registry.memory import (
     InMemoryAuditStore,
     InMemoryCompanies,
@@ -46,47 +45,13 @@ REVIEW_SPEC = {
     ],
 }
 
-PM_ROW = {
-    "agent_id": "pm-1",
-    "company": "hello-saas",
-    "standing_name": "pm",
-    "role": "pm",
-    "namespace": COMPANY_NAMESPACE,
-}
-
-
-class FakeInstances:
-    def __init__(self, rows):
-        self.rows = rows
-
-    def for_company(self, company):
-        return [r for r in self.rows if r["company"] == company]
-
-
-def settings(tmp_path) -> WorkerSettings:
-    token_file = tmp_path / "token"
-    token_file.write_text("projected-token")
-    return WorkerSettings(
-        opa_url="http://opa.test:8181",
-        platform_namespace=PLATFORM_NAMESPACE,
-        sandbox_image="poseidon-sandbox:abc123",
-        agent_image="poseidon-agent-host:abc123",
-        model="mock-brain",
-        egress_proxy_url="http://127.0.0.1:3128",
-        egress_proxy_key="egress-key",
-        timeout_profile="default",
-        temporal_address="temporal.test:7233",
-        gateway_token_file=str(token_file),
-        mcp_gateway_url="http://gateway.test:8080",
-    )
-
 
 @pytest.fixture
 def audit() -> InMemoryAuditStore:
     return InMemoryAuditStore()
 
 
-def _activities(settings, spec, instances, audit=None, runs=None, participants=None):
+def _activities(settings, spec, audit=None, runs=None, participants=None):
     companies = InMemoryCompanies()
     if spec is not None:
         companies.upsert("hello-saas", spec)
@@ -106,9 +71,7 @@ def test_verdicts_are_journaled_audit_events(settings, audit):
     rides the rationale column in cleartext."""
     runs = InMemoryRuns()
     runs.start(RUN_ID, "review pull request #41", "review", company="hello-saas")
-    activities = _activities(
-        settings, REVIEW_SPEC, FakeInstances([PM_ROW]), audit, runs=runs
-    )
+    activities = _activities(settings, REVIEW_SPEC, audit, runs=runs)
     asyncio.run(
         activities.record_verdict(
             RUN_ID, "pass", "Suite green; in scope.", f"review-{RUN_ID}"
@@ -149,7 +112,7 @@ def test_read_pr_keeps_the_shape_and_drops_the_patches(
         }
 
     monkeypatch.setattr(module, "GatewayClient", fake_gateway(read_pr=read_pr))
-    activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]))
+    activities = _activities(settings, REVIEW_SPEC)
     pr = asyncio.run(activities.read_pr(RUN_ID, 41))
     assert pr["head_sha"] == "f00d5ha"
     assert "files" not in pr
@@ -175,7 +138,7 @@ def test_contract_tree_is_what_the_base_ref_holds(settings, monkeypatch, fake_ga
     monkeypatch.setattr(
         module, "GatewayClient", fake_gateway(present_paths=present_paths)
     )
-    activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]))
+    activities = _activities(settings, REVIEW_SPEC)
     tree = asyncio.run(
         activities.contract_tree(RUN_ID, ["tests/contract/", "tests/acceptance/"])
     )
@@ -237,7 +200,7 @@ def test_warn_contract_edit_posts_and_audits(settings, audit, monkeypatch, fake_
         return {"url": "https://pr/41#c-9"}
 
     monkeypatch.setattr(module, "GatewayClient", fake_gateway(comment_pr=comment_pr))
-    activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]), audit)
+    activities = _activities(settings, REVIEW_SPEC, audit)
     deletions = {
         "removed_tests": 2,
         "added_tests": 0,
@@ -264,7 +227,7 @@ def test_read_pr_refuses_a_headless_pr(settings, monkeypatch, fake_gateway):
         return {"number": number, "state": "open", "head": "f", "head_sha": ""}
 
     monkeypatch.setattr(module, "GatewayClient", fake_gateway(read_pr=read_pr))
-    activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]))
+    activities = _activities(settings, REVIEW_SPEC)
     with pytest.raises(RuntimeError, match="no head commit"):
         asyncio.run(activities.read_pr(RUN_ID, 41))
 
@@ -290,7 +253,7 @@ def test_read_pr_refuses_a_settled_pr(
         return {"number": number, "head": "feature/slugify-x", **pr}
 
     monkeypatch.setattr(module, "GatewayClient", fake_gateway(read_pr=read_pr))
-    activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]), audit)
+    activities = _activities(settings, REVIEW_SPEC, audit)
     with pytest.raises(ApplicationError) as caught:
         asyncio.run(activities.read_pr(RUN_ID, 41))
     assert caught.value.non_retryable
@@ -321,7 +284,7 @@ def test_merge_pr_raises_when_the_merge_does_not_land(
         return merged.pop(0)
 
     monkeypatch.setattr(module, "GatewayClient", fake_gateway(merge_pr=merge_pr))
-    activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]))
+    activities = _activities(settings, REVIEW_SPEC)
     assert asyncio.run(activities.merge_pr(RUN_ID, 41, "f00d5ha"))["sha"] == "abc123"
     with pytest.raises(RuntimeError, match="did not land"):
         asyncio.run(activities.merge_pr(RUN_ID, 41, "f00d5ha"))
@@ -346,7 +309,7 @@ def test_a_moved_head_answers_the_hosts_refusal(settings, monkeypatch, fake_gate
         return next(answers)
 
     monkeypatch.setattr(module, "GatewayClient", fake_gateway(merge_pr=merge_pr))
-    activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]))
+    activities = _activities(settings, REVIEW_SPEC)
     refused = asyncio.run(activities.merge_pr(RUN_ID, 41, "0ld5ha"))
     assert refused["refused"] == "head moved after review"
     with pytest.raises(RuntimeError, match="did not land"):
@@ -381,7 +344,6 @@ def test_disjoint_lineages_are_independent(settings):
     activities = _activities(
         settings,
         REVIEW_SPEC,
-        FakeInstances([PM_ROW]),
         runs=runs,
         participants=participants,
     )
@@ -405,7 +367,6 @@ def test_the_delivery_crew_may_not_review_its_own_change(settings):
     activities = _activities(
         settings,
         REVIEW_SPEC,
-        FakeInstances([PM_ROW]),
         runs=runs,
         participants=participants,
     )
@@ -421,7 +382,6 @@ def test_an_unattributed_pr_fails_independence_closed(settings):
     activities = _activities(
         settings,
         REVIEW_SPEC,
-        FakeInstances([PM_ROW]),
         runs=runs,
         participants=participants,
     )
@@ -436,7 +396,6 @@ def test_a_review_with_no_bound_reviewer_fails_independence_closed(settings):
     activities = _activities(
         settings,
         REVIEW_SPEC,
-        FakeInstances([PM_ROW]),
         runs=runs,
         participants=participants,
     )
@@ -464,7 +423,7 @@ def test_resolve_merge_audits_the_decision_either_way(settings, audit, monkeypat
         return next(answers)
 
     monkeypatch.setattr(module, "evaluate_decision", fake_evaluate)
-    activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]), audit)
+    activities = _activities(settings, REVIEW_SPEC, audit)
 
     facts = {
         "verdict": "pass",
@@ -576,7 +535,7 @@ def test_rework_depth_is_zero_outside_any_chain(settings, monkeypatch):
 
     monkeypatch.setattr(module, "GatewayClient", FakeIssueGateway())
     runs = InMemoryRuns()
-    activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]), runs=runs)
+    activities = _activities(settings, REVIEW_SPEC, runs=runs)
     # No implement run delivered the PR: no ticket to read.
     assert asyncio.run(activities.rework_depth(RUN_ID, 41)) == {
         "depth": 0,
@@ -593,7 +552,7 @@ def test_rework_depth_reads_the_canonical_ticket_title(settings, monkeypatch):
     monkeypatch.setattr(module, "GatewayClient", gateway)
     runs = InMemoryRuns()
     _chain(runs, "implement issue #7")
-    activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]), runs=runs)
+    activities = _activities(settings, REVIEW_SPEC, runs=runs)
     assert asyncio.run(activities.rework_depth(RUN_ID, 41)) == {
         "depth": 2,
         "root_pr": 38,
@@ -609,7 +568,7 @@ def test_rework_depth_treats_a_plain_ticket_as_depth_zero(settings, monkeypatch)
     monkeypatch.setattr(module, "GatewayClient", gateway)
     runs = InMemoryRuns()
     _chain(runs, "implement issue #7")
-    activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]), runs=runs)
+    activities = _activities(settings, REVIEW_SPEC, runs=runs)
     assert asyncio.run(activities.rework_depth(RUN_ID, 41)) == {
         "depth": 0,
         "root_pr": 41,
@@ -623,7 +582,7 @@ def test_file_rework_files_the_canonical_ticket_and_records_it(settings, monkeyp
     monkeypatch.setattr(module, "GatewayClient", gateway)
     runs = InMemoryRuns()
     runs.start(RUN_ID, "review pull request #41", "review", "wf-rev", "hello-saas")
-    activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]), runs=runs)
+    activities = _activities(settings, REVIEW_SPEC, runs=runs)
     ticket = asyncio.run(
         activities.file_rework(
             RUN_ID,
@@ -640,7 +599,7 @@ def test_file_rework_files_the_canonical_ticket_and_records_it(settings, monkeyp
     (created,) = gateway.created
     assert created["title"] == "Rework 3 for PR #38: Add slugify utility"
     body = created["body"]
-    # The ticket is the rework implementer's whole brief.
+    # The ticket is the rework implementer's whole task.
     assert "review verdict failed" in body
     assert "Blocking: criteria unmet." in body
     assert "- slugify.py" in body
@@ -670,7 +629,7 @@ def test_a_forged_standalone_ticket_cannot_reset_a_prs_depth(settings, monkeypat
     monkeypatch.setattr(module, "GatewayClient", gateway)
     runs = InMemoryRuns()
     _chain(runs, "implement issue #7")  # the PR's real lineage: ticket #7
-    activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]), runs=runs)
+    activities = _activities(settings, REVIEW_SPEC, runs=runs)
     # Depth is read from #7 (depth 2), never from the forged #999.
     assert asyncio.run(activities.rework_depth(RUN_ID, 41)) == {
         "depth": 2,
@@ -692,7 +651,7 @@ def test_a_forged_higher_depth_only_escalates_sooner(settings, monkeypatch):
     monkeypatch.setattr(module, "GatewayClient", gateway)
     runs = InMemoryRuns()
     _chain(runs, "implement issue #7")
-    activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]), runs=runs)
+    activities = _activities(settings, REVIEW_SPEC, runs=runs)
     assert asyncio.run(activities.rework_depth(RUN_ID, 41))["depth"] == 99
 
 
@@ -721,7 +680,7 @@ def _console_verdict(
 
 
 def test_read_human_verdict_is_none_until_the_console_answered(settings, audit):
-    activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]), audit)
+    activities = _activities(settings, REVIEW_SPEC, audit)
     # A process-gate row (the workflow's own record of a signal) is not a
     # verdict: only the console's rows name a person.
     audit.append(
@@ -745,7 +704,7 @@ def test_read_human_verdict_is_none_until_the_console_answered(settings, audit):
 def test_read_human_verdict_reads_the_latest_console_row(settings, audit):
     """Latest wins: an approving verdict followed by a rejecting one reads as rejected,
     and another run's verdict is never this run's."""
-    activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]), audit)
+    activities = _activities(settings, REVIEW_SPEC, audit)
     audit.append(_console_verdict(RUN_ID, True, "owner", "2026-01-01T00:00:01+00:00"))
     audit.append(
         _console_verdict("run-other", True, "owner", "2026-01-01T00:00:03+00:00")
@@ -780,7 +739,7 @@ def test_resolve_merge_on_the_human_path_carries_only_the_verdict(
         return {"allow": True, "rule": "merge_resolve_human"}
 
     monkeypatch.setattr(module, "evaluate_decision", fake_evaluate)
-    activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]), audit)
+    activities = _activities(settings, REVIEW_SPEC, audit)
     verdict = {"principal": "owner", "approved": True, "ts": "t"}
     result = asyncio.run(
         activities.resolve_merge(RUN_ID, "human", {"human_verdict": verdict}, "wf-rev")
@@ -810,7 +769,7 @@ def test_close_tickets_closes_the_consumed_ticket(settings, monkeypatch):
     monkeypatch.setattr(module, "GatewayClient", gateway)
     runs = InMemoryRuns()
     _delivered(runs, "run-impl", "implement issue #7", 41)
-    activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]), runs=runs)
+    activities = _activities(settings, REVIEW_SPEC, runs=runs)
     closed = asyncio.run(activities.close_tickets(RUN_ID, 41, "abc123", "Add slugify"))
     assert closed == [7]
     assert gateway.closed == [(7, "merged pull request #41 (abc123): Add slugify")]
@@ -836,7 +795,7 @@ def test_a_merged_rework_closes_the_whole_chain(settings, monkeypatch):
     _delivered(runs, "run-a", "implement issue #7", 41)
     _delivered(runs, "run-b", "implement issue #90", 42)
     _delivered(runs, "run-c", "implement issue #91", 43)
-    activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]), runs=runs)
+    activities = _activities(settings, REVIEW_SPEC, runs=runs)
     assert asyncio.run(activities.close_tickets(RUN_ID, 43, "s", "t")) == [7, 90, 91]
     assert gateway.issues[92]["state"] == "open"
 
@@ -849,7 +808,7 @@ def test_close_tickets_skips_closed_tickets_and_unattributed_prs(settings, monke
     gateway = FakeIssueGateway(issues={7: _issue(7, "Add slugify", state="closed")})
     monkeypatch.setattr(module, "GatewayClient", gateway)
     runs = InMemoryRuns()
-    activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]), runs=runs)
+    activities = _activities(settings, REVIEW_SPEC, runs=runs)
     assert asyncio.run(activities.close_tickets(RUN_ID, 41, "s", "t")) == []
     _delivered(runs, "run-impl", "implement issue #7", 42)
     assert asyncio.run(activities.close_tickets(RUN_ID, 42, "s", "t")) == []
@@ -873,7 +832,7 @@ def test_read_pr_settles_a_pr_settled_by_hand(settings, monkeypatch, merged, clo
     monkeypatch.setattr(module, "GatewayClient", gateway)
     runs = InMemoryRuns()
     _delivered(runs, "run-impl", "implement issue #7", 41)
-    activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]), runs=runs)
+    activities = _activities(settings, REVIEW_SPEC, runs=runs)
     for _ in range(2):
         with pytest.raises(ApplicationError, match="pr_not_open"):
             asyncio.run(activities.read_pr(RUN_ID, 41))
@@ -904,7 +863,7 @@ def test_pr_tips_answer_the_head_and_the_base_tip(settings, monkeypatch):
     monkeypatch.setattr(module, "GatewayClient", gateway)
     runs = InMemoryRuns()
     _delivered(runs, "run-impl", "implement issue #7", 41)
-    activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]), runs=runs)
+    activities = _activities(settings, REVIEW_SPEC, runs=runs)
     assert asyncio.run(activities.pr_tips(RUN_ID, 41)) == {
         "head_sha": "h1",
         "base_sha": "b2",
@@ -924,7 +883,7 @@ def test_close_superseded_pr_names_the_rework_ticket(settings, monkeypatch):
     monkeypatch.setattr(module, "GatewayClient", gateway)
     runs = InMemoryRuns()
     _delivered(runs, "run-impl", "implement issue #7", 41)
-    activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]), runs=runs)
+    activities = _activities(settings, REVIEW_SPEC, runs=runs)
     asyncio.run(activities.close_superseded_pr(RUN_ID, 41, 91))
     assert gateway.closed_prs == [(41, "superseded by rework ticket #91")]
     assert gateway.deleted_branches == []
@@ -943,7 +902,7 @@ def test_a_refused_delivery_gives_its_ticket_back_told_why(settings, monkeypatch
     monkeypatch.setattr(module, "GatewayClient", gateway)
     runs = InMemoryRuns()
     _delivered(runs, "run-impl", "implement issue #7", 41)
-    activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]), runs=runs)
+    activities = _activities(settings, REVIEW_SPEC, runs=runs)
     reason = "owner rejected the merge: breaks the CLI"
     asyncio.run(activities.refuse_delivery(RUN_ID, 41, reason))
     assert gateway.closed_prs == [(41, reason)]
@@ -974,7 +933,7 @@ def test_a_refusal_that_spends_the_last_attempt_abandons_the_ticket(
     _delivered(runs, "run-before", "implement issue #7", 31)
     runs.mark_pr_settled("hello-saas", 31, "refused", "earlier")
     _delivered(runs, "run-impl", "implement issue #7", 41)
-    activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]), runs=runs)
+    activities = _activities(settings, REVIEW_SPEC, runs=runs)
     asyncio.run(activities.refuse_delivery(RUN_ID, 41, "nobody answered"))
     assert gateway.comments == []
     assert gateway.closed == [
@@ -998,7 +957,7 @@ def test_a_refused_delivery_with_no_open_ticket_only_closes(settings, monkeypatc
     monkeypatch.setattr(module, "GatewayClient", gateway)
     runs = InMemoryRuns()
     _delivered(runs, "run-impl", "implement issue #7", 41)
-    activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]), runs=runs)
+    activities = _activities(settings, REVIEW_SPEC, runs=runs)
     for number in (39, 41):
         asyncio.run(activities.refuse_delivery(RUN_ID, number, "expired"))
     assert [n for n, _ in gateway.closed_prs] == [39, 41]

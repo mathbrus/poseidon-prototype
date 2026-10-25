@@ -18,10 +18,6 @@ pytestmark = pytest.mark.anyio
 COMPANY = "hello-saas"
 
 
-def anyio_backend() -> str:
-    return "asyncio"
-
-
 class FakeTemporal:
     def __init__(self, error: Exception | None = None) -> None:
         self.error = error

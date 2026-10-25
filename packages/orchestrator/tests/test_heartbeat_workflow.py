@@ -1,4 +1,4 @@
-"""The heartbeat's guardrails, proven at the workflow layer: the
+"""The heartbeat's guarantees, proven at the workflow layer: the
 real HeartbeatWorkflow runs against Temporal's time-skipping test environment
 with scripted activities — the tick's sequencing, cap halts, refusals,
 revocation and the wake path are exactly what the activity units cannot see.
@@ -23,7 +23,6 @@ from conftest import heartbeat_spec
 from temporalio import activity, workflow
 from temporalio.client import Client, WorkflowHandle
 from temporalio.exceptions import ApplicationError
-from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from common.workflows import GATE_HALTED
@@ -183,22 +182,6 @@ class StubScope:
 @pytest.fixture(autouse=True)
 def _clear_children():
     _CHILDREN.clear()
-
-
-def anyio_backend() -> str:
-    return "asyncio"
-
-
-async def env():
-    # The time-skipping environment fetches Temporal's test server binary
-    # on first use; a machine that cannot skips rather than failing, like
-    # the compiler's OPA decision tests.
-    try:
-        environment = await WorkflowEnvironment.start_time_skipping()
-    except Exception as exc:
-        pytest.skip(f"temporal test server unavailable: {exc}")
-    yield environment
-    await environment.shutdown()
 
 
 async def run_heartbeat(client: Client, harness: Harness) -> dict[str, Any]:
