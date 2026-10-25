@@ -931,8 +931,10 @@ def repo_sweeper(env: dict[str, str]):
     still holding it. Then the loop is given its idle tick on that empty
     backlog, so `test_quiet`'s successor session starts from rest."""
     yield
-    sweep_repo_debris(env)
-    lift_pause(env)
+    try:
+        sweep_repo_debris(env)
+    finally:
+        lift_pause(env)
     with contextlib.suppress(Exception):
         wake_heartbeat()
         await_heartbeat_asleep()

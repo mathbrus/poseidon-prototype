@@ -17,8 +17,7 @@ What the suite proves, and where:
   2 durable       test_happy_path (kill-worker resume with the crew up,
                   and the crew swept by the replayed compensation),
                   test_registry_durability; HERE: the killed happy-path
-                  run itself leaked no identity row, no ephemeral pod, no
-                  registration
+                  run's sandbox registration is terminated
   3 SDLC          test_scope + test_review_gate (the strategy scoped into
                   a ticket, implemented, reviewed with a parked gate, a
                   verdict through the console, platform merge — every run
@@ -137,7 +136,6 @@ from .cluster import (
     events_since,
     kubectl,
     psql_json,
-    sandbox_pods,
 )
 from .conftest import REPO_ROOT
 
@@ -231,30 +229,12 @@ def test_compile_and_preview_close_the_declarative_loop(stack, env, tmp_path):
 # -- 2 durable: the killed run's own leak check ------------------------------
 
 
-def test_the_killed_run_left_nothing_behind(implement_run: dict) -> None:
-    """The happy-path fixture kills the worker mid-run; earlier modules
-    assert the *sandbox*
-    leaked nothing and prove the crew sweep on a separate run. Here the
-    clause is closed on the killed run itself: its participant rows
-    are terminated, its ephemeral pod is gone, its sandbox registration is
-    terminated — no leaked sandbox, identity, or participant row."""
+def test_the_killed_run_left_no_sandbox_registration(implement_run: dict) -> None:
+    """The happy-path fixture kills the worker mid-run; test_happy_path
+    shows its crew and its pods swept. Here the clause is closed on what
+    the run registered: its sandbox registration is terminated, so the
+    gateway serves the run nothing."""
     run_id = implement_run["run_id"]
-
-    participants = psql_json(
-        "SELECT COALESCE(json_agg(p), '[]'::json) FROM ("
-        "SELECT agent_id, status, terminated_at"
-        " FROM registry.run_participants WHERE run_id = :'run_id') p",
-        run_id=run_id,
-    )
-    assert participants, "the crewed run minted no participants at all"
-    for row in participants:
-        assert row["status"] == "terminated", f"leaked participant: {row}"
-        assert row["terminated_at"], f"terminated without a timestamp: {row}"
-
-    # No live pod of any kind still carries the run's label (sandbox Jobs
-    # and ephemeral pods both do).
-    assert sandbox_pods(run_id) == [], "a labelled pod outlived the run"
-
     registrations = psql_json(
         "SELECT COALESCE(json_agg(r), '[]'::json) FROM ("
         "SELECT run_id, terminated_at FROM registry.sandbox_registrations"

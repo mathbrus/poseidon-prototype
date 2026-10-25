@@ -71,6 +71,7 @@ from .conftest import (
     REPO_BASELINE,
     apply_and_settle,
     assert_merge_closed_tickets,
+    await_unlisted,
     close_issue,
     close_pr,
     close_pr_url,
@@ -297,8 +298,12 @@ def requested(bootstrapped: dict) -> dict:
             result["request_ticket"] = github_api(
                 env, "GET", f"/repos/{target_slug(env)}/issues/{request_number}"
             ).json()
+            # The loop reads the host's listing when it is let go: it must
+            # not still show the tickets just closed.
             for issue in (number, *requests):
                 close_issue(env, issue)
+            for issue in (number, *requests):
+                await_unlisted(env, issue)
         yield result
     finally:
         for issue in (number, *requests):

@@ -71,13 +71,16 @@ def test_no_static_gateway_credential_in_cluster_pods(stack: None) -> None:
     """The workload-identity contract ('all callers authenticate with projected
     tokens') held structurally: neither the worker nor the agent pod
     carries a token in its env — each reads the projected token file — so
-    every green run on this cluster rode the projected tokens. The one
-    secret the worker reads is the egress proxy's key it hands each
-    sandbox, which no gateway accepts."""
+    every green run on this cluster rode the projected tokens. The two
+    secrets the worker reads are the registry's address and the egress
+    proxy's key it hands each sandbox, and no gateway accepts either."""
     worker = _declared_env(PLATFORM_NS, "orchestrator-worker")
     assert "GATEWAY_TOKEN_FILE" in worker
     assert not [name for name in worker if name.endswith("_TOKEN")], worker
-    assert {name for name, secret in worker.items() if secret} == {"EGRESS_PROXY_KEY"}
+    assert {name for name, secret in worker.items() if secret} == {
+        "EGRESS_PROXY_KEY",
+        "REGISTRY_DSN",
+    }
 
     # The blueprint's one standing agent: the PM. Nothing credential-shaped
     # at all, and nothing read from a Secret.

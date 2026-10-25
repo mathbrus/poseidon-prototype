@@ -54,7 +54,8 @@ def test_the_worker_kill_leaked_no_crew(implement_run: dict) -> None:
     run_id = implement_run["run_id"]
     implementer_id = ephemeral_agent_id("feature-delivery", "implementer", run_id)
     crew = {agent.agent_id: agent.status for agent in participants(run_id)}
-    assert crew.get(implementer_id) == "terminated", crew
+    assert implementer_id in crew, crew
+    assert all(status == "terminated" for status in crew.values()), crew
     # "Survived" means still there, not still there *this instant*. A
     # cancelled fulfillment retry can be mid-`provision` in a worker thread
     # when the workflow returns — `asyncio.to_thread` cannot interrupt it —
@@ -75,6 +76,7 @@ def test_the_worker_kill_leaked_no_crew(implement_run: dict) -> None:
             timeout=30,
         )
         if pod.returncode != 0:
+            assert "NotFound" in pod.stderr, pod.stderr
             break
         assert time.monotonic() < deadline, (
             f"the ephemeral pod survived teardown: {pod.stdout.strip()}"
