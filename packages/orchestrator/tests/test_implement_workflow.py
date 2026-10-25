@@ -11,6 +11,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 import pytest
+from conftest import state_is, until
 from temporalio import activity
 from temporalio.client import Client
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
@@ -361,15 +362,12 @@ async def test_a_budget_park_not_approved_ends_the_run_at_its_cap(env, verdict, 
             id=f"implement-{uuid.uuid4().hex[:8]}",
             task_queue=task_queue,
         )
-        # Queries do not advance the time-skipping clock: the park is
-        # reached in real time, its timers unfired until the result is
-        # awaited.
-        for _ in range(200):
-            if await handle.query("state") == "parked-budget_exhausted":
-                break
-            await asyncio.sleep(0.05)
-        else:
-            raise AssertionError("the run never parked on its budget")
+        # The park is reached in real time, its timers unfired until the
+        # result is awaited.
+        await until(
+            lambda: state_is(handle, "parked-budget_exhausted"),
+            "the run parked on its budget",
+        )
         if verdict is not None:
             await handle.signal("budget", args=[verdict])
         record = await handle.result()
@@ -397,11 +395,7 @@ async def test_a_cancelled_run_records_its_attempt(own_env):
             id=f"implement-{uuid.uuid4().hex[:8]}",
             task_queue=task_queue,
         )
-        for _ in range(200):
-            if harness.dispatches:
-                break
-            await asyncio.sleep(0.05)
-        assert harness.dispatches, "the implementer was never dispatched"
+        await until(lambda: harness.dispatches, "the implementer was dispatched")
         await handle.cancel()
         record = await handle.result()
     finally:

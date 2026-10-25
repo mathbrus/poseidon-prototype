@@ -34,6 +34,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 import pytest
+from conftest import state_is, until
 from temporalio import activity
 from temporalio.client import Client, WorkflowHandle
 from temporalio.exceptions import ApplicationError
@@ -48,6 +49,9 @@ RUN_ID = "run-review-wf"
 # The bounds the run's shape carries onto every dispatch.
 BOUNDS = "Repository: github.com/example/repo, base ref main."
 PR = 41
+# The states a review reports while parked on each gate.
+MERGE_PARK = "parked-merge_gate"
+BUDGET_PARK = "parked-budget_exhausted"
 # The head commit read_pr reports: every fetch and the merge name it.
 HEAD_SHA = "f00d5ha"
 # The base branch's tip the review ran against.
@@ -510,17 +514,6 @@ async def start_review(client: Client, harness: Harness) -> tuple[Worker, Workfl
     return worker, handle
 
 
-async def wait_for_park(handle: WorkflowHandle, state: str = "parked-merge_gate") -> None:
-    """Queries and signals do not advance the time-skipping clock, so the
-    park is reached in real time and the gate timers stay unfired until
-    the test awaits the result."""
-    for _ in range(200):
-        if await handle.query("state") == state:
-            return
-        await asyncio.sleep(0.05)
-    raise AssertionError(f"the review workflow never reached {state}")
-
-
 # -- both layers required ---------------------------------------------------
 
 
@@ -566,7 +559,7 @@ async def test_red_checks_at_the_rework_bound_still_get_a_reviewer(env):
     )
     worker, handle = await start_review(env.client, harness)
     try:
-        await wait_for_park(handle)
+        await until(lambda: state_is(handle, MERGE_PARK), "the review parked")
         assert harness.sequence == ["verify", "dispatch"]
         assert harness.verdicts == [("pass", "Suite green; in scope.")]
         assert harness.gate_events == ["rework_exhausted", "parked"]
@@ -780,7 +773,7 @@ async def test_a_contract_tree_pr_parks_before_any_layer_is_spent(env):
     )
     worker, handle = await start_review(env.client, harness)
     try:
-        await wait_for_park(handle)
+        await until(lambda: state_is(handle, MERGE_PARK), "the review parked")
         assert harness.verdicts == [("pass", "Suite green; in scope.")]
         assert harness.warns == [deletions]
         assert harness.verify_calls == 0
@@ -832,7 +825,7 @@ async def test_a_rejected_contract_pr_fails_honestly(env):
     )
     worker, handle = await start_review(env.client, harness)
     try:
-        await wait_for_park(handle)
+        await until(lambda: state_is(handle, MERGE_PARK), "the review parked")
         await handle.signal("merge", args=[False])
         record = await handle.result()
     finally:
@@ -861,7 +854,7 @@ async def test_an_automation_decline_parks_on_the_human_who_can_release(env):
     )
     worker, handle = await start_review(env.client, harness)
     try:
-        await wait_for_park(handle)
+        await until(lambda: state_is(handle, MERGE_PARK), "the review parked")
         assert harness.gate_events == ["automation_declined", "parked"]
         assert harness.merges == []
         await handle.signal("merge", args=[True])
@@ -919,7 +912,7 @@ async def test_an_exhausted_rework_chain_escalates_to_the_human(env):
     )
     worker, handle = await start_review(env.client, harness)
     try:
-        await wait_for_park(handle)
+        await until(lambda: state_is(handle, MERGE_PARK), "the review parked")
         assert harness.reworks == []
         assert harness.gate_events == ["rework_exhausted", "parked"]
         await handle.signal("merge", args=[False])
@@ -943,7 +936,7 @@ async def test_a_human_gate_never_touches_the_automation_machinery(env):
     harness = Harness(merge_gate=HUMAN_GATE)
     worker, handle = await start_review(env.client, harness)
     try:
-        await wait_for_park(handle)
+        await until(lambda: state_is(handle, MERGE_PARK), "the review parked")
         # Before the park is recorded, the run gives back its crew, its
         # sandbox and its place under `max_concurrent_runs`, and nudges
         # the heartbeat.
@@ -976,7 +969,9 @@ async def test_a_budget_park_gives_nothing_back(env):
     harness = Harness(merge_gate=None, budget_capped=True)
     worker, handle = await start_review(env.client, harness)
     try:
-        await wait_for_park(handle, "parked-budget_exhausted")
+        await until(
+            lambda: state_is(handle, BUDGET_PARK), "the review parked on its budget"
+        )
         await handle.signal("budget", args=[True])
         record = await handle.result()
     finally:
@@ -1002,7 +997,9 @@ async def test_a_budget_park_not_approved_ends_the_review_at_its_cap(
     harness = Harness(merge_gate=HUMAN_GATE, budget_capped=True)
     worker, handle = await start_review(env.client, harness)
     try:
-        await wait_for_park(handle, "parked-budget_exhausted")
+        await until(
+            lambda: state_is(handle, BUDGET_PARK), "the review parked on its budget"
+        )
         if verdict is not None:
             await handle.signal("budget", args=[verdict])
         record = await handle.result()
@@ -1050,7 +1047,7 @@ async def test_a_head_that_moved_after_review_merges_nothing(env, gate, moved):
     worker, handle = await start_review(env.client, harness)
     try:
         if gate is HUMAN_GATE:
-            await wait_for_park(handle)
+            await until(lambda: state_is(handle, MERGE_PARK), "the review parked")
             await handle.signal("merge", args=[True])
         record = await handle.result()
     finally:
@@ -1073,7 +1070,7 @@ async def _approved_review(env, harness: Harness) -> dict[str, Any]:
         return await run_review(env.client, harness)
     worker, handle = await start_review(env.client, harness)
     try:
-        await wait_for_park(handle)
+        await until(lambda: state_is(handle, MERGE_PARK), "the review parked")
         await handle.signal("merge", args=[True])
         return await handle.result()
     finally:
@@ -1150,7 +1147,7 @@ async def test_a_signal_without_a_recorded_verdict_merges_nothing(env):
     )
     worker, handle = await start_review(env.client, harness)
     try:
-        await wait_for_park(handle)
+        await until(lambda: state_is(handle, MERGE_PARK), "the review parked")
         await handle.signal("merge", args=[True])
         record = await handle.result()
     finally:
@@ -1213,7 +1210,7 @@ async def test_a_pass_the_human_rejected_is_a_conclusion(env):
     harness = Harness(merge_gate=HUMAN_GATE)
     worker, handle = await start_review(env.client, harness)
     try:
-        await wait_for_park(handle)
+        await until(lambda: state_is(handle, MERGE_PARK), "the review parked")
         await handle.signal("merge", args=[False])
         record = await handle.result()
     finally:
@@ -1233,11 +1230,7 @@ async def test_a_cancel_on_an_unconcluded_review_still_records_the_attempt(own_e
     harness = Harness(merge_gate=HUMAN_GATE, dispatch_hangs=True)
     worker, handle = await start_review(own_env.client, harness)
     try:
-        for _ in range(200):
-            if harness.dispatches:
-                break
-            await asyncio.sleep(0.05)
-        assert harness.dispatches, "the reviewer was never dispatched"
+        await until(lambda: harness.dispatches, "the reviewer was dispatched")
         await handle.cancel()
         record = await handle.result()
     finally:

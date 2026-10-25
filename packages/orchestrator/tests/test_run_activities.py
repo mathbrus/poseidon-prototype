@@ -122,6 +122,27 @@ def activities(settings, backend, runs, companies, instances, ledger, audit):
     return RunActivities(settings, backend, runs, companies, instances, ledger, audit)
 
 
+@pytest.fixture
+def participants() -> InMemoryRunParticipants:
+    return InMemoryRunParticipants()
+
+
+@pytest.fixture
+def crewed(settings, backend, runs, companies, instances, ledger, audit, participants):
+    """Run activities whose give-back goes through a crew: the crew
+    activities over `participants`, or the `crew` a test passes."""
+
+    def make(crew: Any = None) -> RunActivities:
+        crew = crew or CrewActivities(
+            settings, participants, audit, companies, ledger, runs
+        )
+        return RunActivities(
+            settings, backend, runs, companies, instances, ledger, audit, crew
+        )
+
+    return make
+
+
 # -- create_run ---------------------------------------------------------------
 
 
@@ -351,25 +372,13 @@ def unregistered(monkeypatch, fake_gateway) -> list[str]:
 
 @pytest.mark.parametrize("keep_slot", [True, False])
 def test_vacate_gives_back_the_crew_the_sandbox_and_the_place_unless_kept(
-    settings,
-    backend,
-    runs,
-    companies,
-    instances,
-    ledger,
-    audit,
-    unregistered,
-    keep_slot,
+    crewed, participants, backend, runs, unregistered, keep_slot
 ):
     """A run about to wait on a person gives back what it holds: its
     crew's identities, its sandbox and the sandbox's registration — and
     its place under `max_concurrent_runs`, unless it keeps it. The run
     stays running: only teardown finalizes it."""
-    participants = InMemoryRunParticipants()
-    crew = CrewActivities(settings, participants, audit, companies, ledger, runs)
-    activities = RunActivities(
-        settings, backend, runs, companies, instances, ledger, audit, crew
-    )
+    activities = crewed()
     asyncio.run(activities.create_run(RUN_ID, "review", "review pull request #41"))
     reviewer = "feature-review-reviewer-" + RUN_ID
     participants.add(reviewer, RUN_ID, "pm-1", "feature-review", "reviewer")
@@ -464,16 +473,12 @@ def test_teardown_reconstructs_a_missing_run_row(activities):
 
 
 def test_teardown_revokes_participants_on_every_terminal_path(
-    settings, backend, runs, companies, instances, ledger, audit, unregistered
+    crewed, participants, audit, unregistered
 ):
     """Run-binding termination rides the one compensation anchor: the
     sweep runs before the sandbox destroy, on the failure path (no handle)
     and the success path alike."""
-    participants = InMemoryRunParticipants()
-    crew = CrewActivities(settings, participants, audit, companies, ledger, runs)
-    activities = RunActivities(
-        settings, backend, runs, companies, instances, ledger, audit, crew
-    )
+    activities = crewed()
 
     participants.add(
         "feature-delivery-implementer-" + RUN_ID,
@@ -506,9 +511,7 @@ def test_teardown_revokes_participants_on_every_terminal_path(
     assert unregistered == [RUN_ID]
 
 
-def test_revoke_failure_is_loud_but_not_masking(
-    settings, backend, runs, companies, instances, ledger, audit, unregistered
-):
+def test_revoke_failure_is_loud_but_not_masking(crewed, backend, unregistered):
     """A failed sweep surfaces in the run record; the sandbox is still
     destroyed and the run still finalizes."""
 
@@ -516,9 +519,7 @@ def test_revoke_failure_is_loud_but_not_masking(
         async def revoke_participants(self, run_id: str):
             raise RuntimeError("registry unreachable")
 
-    activities = RunActivities(
-        settings, backend, runs, companies, instances, ledger, audit, BrokenCrew()
-    )
+    activities = crewed(BrokenCrew())
     record = asyncio.run(
         activities.teardown(RUN_ID, dict(JOB_HANDLE), {"status": "done"}, None)
     )

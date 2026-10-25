@@ -2,9 +2,14 @@
 test doubles, the anyio backend, the Temporal time-skipping environment,
 and a factory for gateway doubles."""
 
+import asyncio
 import contextlib
+import inspect
+from collections.abc import Callable
+from typing import Any
 
 import pytest
+from temporalio.client import WorkflowHandle
 from temporalio.testing import WorkflowEnvironment
 
 from common.topology import PLATFORM_NAMESPACE
@@ -91,6 +96,26 @@ async def own_env():
     other test may wait on."""
     async with _time_skipping() as environment:
         yield environment
+
+
+async def until(condition: Callable[[], Any], what: str) -> None:
+    """Poll `condition` — plain or async — until it holds. Queries and
+    signals do not advance the time-skipping clock, so this waits in real
+    time, for at most ten seconds: a run that never gets there fails here,
+    by name, instead of hanging the suite."""
+    for _ in range(200):
+        held = condition()
+        if inspect.isawaitable(held):
+            held = await held
+        if held:
+            return
+        await asyncio.sleep(0.05)
+    raise AssertionError(f"timed out waiting until {what}")
+
+
+async def state_is(handle: WorkflowHandle, state: str) -> bool:
+    """Whether the workflow's `state` query answers `state`."""
+    return await handle.query("state") == state
 
 
 @pytest.fixture

@@ -303,7 +303,7 @@ def test_observe_counts_every_running_run_and_todays_spend(
     ledger.record(
         company=COMPANY,
         run_id="run-a",
-        agent_id="fd-implementer-1",
+        agent_id="feature-delivery-implementer-run-a",
         parent_agent_id="pm-1",
         role="implementer",
         model="mock",

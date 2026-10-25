@@ -12,16 +12,14 @@ that chains ticks without sending a wake is also a reconcile-backstop
 test: the full wait between those ticks ended by timer, not by signal."""
 
 import asyncio
-import inspect
 import uuid
-from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
 import pytest
-from conftest import heartbeat_spec
+from conftest import heartbeat_spec, state_is, until
 from temporalio import activity, workflow
-from temporalio.client import Client, WorkflowHandle
+from temporalio.client import Client
 from temporalio.exceptions import ApplicationError
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
@@ -202,25 +200,6 @@ async def run_heartbeat(client: Client, harness: Harness) -> dict[str, Any]:
             task_queue=task_queue,
         )
         return await handle.result()
-
-
-async def until(condition: Callable[[], Any], what: str) -> None:
-    """Poll `condition` — plain or async — until it holds. Queries and
-    signals do not advance the time-skipping clock, so this waits in real
-    time, for at most ten seconds: a loop that never gets there fails
-    here, by name, instead of hanging the suite."""
-    for _ in range(200):
-        held = condition()
-        if inspect.isawaitable(held):
-            held = await held
-        if held:
-            return
-        await asyncio.sleep(0.05)
-    raise AssertionError(f"the heartbeat never got there: {what}")
-
-
-async def state_is(handle: WorkflowHandle, state: str) -> bool:
-    return await handle.query("state") == state
 
 
 async def test_started_tick_authorizes_then_spawns_the_chosen_child(env):
