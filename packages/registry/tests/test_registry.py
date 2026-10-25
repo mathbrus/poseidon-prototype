@@ -31,6 +31,9 @@ RUN_ID = "run-01REGISTRYTEST"
 # The ephemeral implementer of RUN_ID's crew, and the rule its sandbox
 # calls are allowed under.
 IMPLEMENTER = f"feature-delivery-implementer-{RUN_ID}"
+# Its per-run ServiceAccount: named after it, lowercased for Kubernetes, so
+# not the agent id itself.
+IMPLEMENTER_ACCOUNT = f"ephemeral-{IMPLEMENTER}".lower()
 SANDBOX_EXEC_RULE = "crew_feature_delivery_implementer_sandbox_exec"
 
 
@@ -425,27 +428,111 @@ def test_agent_instance_lookup_carries_namespace(registry: Registry):
     assert instances.get("nobody") is None
 
 
-def test_participant_active_goes_dark_on_termination(registry: Registry):
-    """Revocation-before-TTL rides on this row disappearing from `active`."""
-    Runs(registry).start(RUN_ID, "task")
-    registry.execute(
-        """
-        INSERT INTO registry.run_participants
-            (agent_id, run_id, parent_agent_id, crew_template, role)
-        VALUES (%s, %s, %s, %s, %s)
-        """,
-        ("fd-implementer-01X", RUN_ID, "pm-1", "feature-delivery", "implementer"),
+def bind(participants: RunParticipants, agent_id: str, role: str) -> None:
+    """An ephemeral agent of RUN_ID's crew, bound as the orchestrator binds
+    it: under the conductor, in the company namespace, to its own
+    ServiceAccount."""
+    participants.add(
+        agent_id,
+        RUN_ID,
+        "pm-1",
+        "feature-delivery",
+        role,
+        company="hello-saas",
+        namespace=COMPANY_NAMESPACE,
+        service_account=f"ephemeral-{agent_id}".lower(),
     )
-    participants = RunParticipants(registry)
-    assert participants.active("fd-implementer-01X")["run_id"] == RUN_ID
 
-    registry.execute(
-        "UPDATE registry.run_participants"
-        " SET status = 'terminated', terminated_at = now()"
-        " WHERE agent_id = %s",
-        ("fd-implementer-01X",),
-    )
-    assert participants.active("fd-implementer-01X") is None
+
+def test_a_crew_token_resolves_to_its_live_binding_by_service_account(
+    registry: Registry,
+):
+    """The read that authenticates every ephemeral token: the verified
+    ServiceAccount resolves to the live row bound to it — the identity the
+    gateway builds the caller from — and to nothing for a ServiceAccount
+    nobody bound, or once the row is terminated."""
+    Runs(registry).start(RUN_ID, "implement issue #1", company="hello-saas")
+    participants = RunParticipants(registry)
+    bind(participants, IMPLEMENTER, "implementer")
+    bind(participants, f"feature-delivery-second-{RUN_ID}", "second")
+    assert participants.by_service_account(IMPLEMENTER_ACCOUNT) == {
+        "agent_id": IMPLEMENTER,
+        "run_id": RUN_ID,
+        "parent_agent_id": "pm-1",
+        "crew_template": "feature-delivery",
+        "role": "implementer",
+        "company": "hello-saas",
+        "namespace": COMPANY_NAMESPACE,
+        "service_account": IMPLEMENTER_ACCOUNT,
+        "status": "active",
+    }
+    assert participants.by_service_account(IMPLEMENTER) is None  # the agent id
+    assert participants.by_service_account("ephemeral-nobody") is None
+
+    participants.terminate_for_run(RUN_ID)
+    assert participants.by_service_account(IMPLEMENTER_ACCOUNT) is None
+
+
+def test_terminating_a_participant_revokes_that_identity_alone(registry: Registry):
+    """Revocation-before-TTL rides on this row leaving the live reads: from
+    the write on, neither `active` nor the ServiceAccount read finds it.
+    The run's other agents stay live, the row stays in the run's lineage,
+    and a second termination leaves the first one's time standing."""
+    Runs(registry).start(RUN_ID, "implement issue #1", company="hello-saas")
+    participants = RunParticipants(registry)
+    second = f"feature-delivery-second-{RUN_ID}"
+    bind(participants, IMPLEMENTER, "implementer")
+    bind(participants, second, "second")
+    assert participants.active(IMPLEMENTER)["run_id"] == RUN_ID
+
+    participants.terminate(IMPLEMENTER)
+    assert participants.active(IMPLEMENTER) is None
+    assert participants.by_service_account(IMPLEMENTER_ACCOUNT) is None
+    assert participants.active(second)["run_id"] == RUN_ID
+    assert {(r["agent_id"], r["status"]) for r in participants.for_run(RUN_ID)} == {
+        (IMPLEMENTER, "terminated"),
+        (second, "active"),
+    }
+
+    def terminated_at() -> object:
+        rows = registry.query(
+            "SELECT terminated_at FROM registry.run_participants WHERE agent_id = %s",
+            (IMPLEMENTER,),
+        )
+        return rows[0]["terminated_at"]
+
+    revoked = terminated_at()
+    participants.terminate(IMPLEMENTER)
+    assert terminated_at() == revoked
+
+
+def test_the_standing_roster_is_the_companys_and_a_fired_agent_leaves_it(
+    registry: Registry,
+):
+    """`for_company` is the company's standing agents, by standing name;
+    `delete`, the firing half of hire and fire, removes exactly the one
+    agent named, and deleting it again is nothing."""
+    instances = AgentInstances(registry)
+    instances.upsert("pm-1", "hello-saas", "pm", "pm", namespace=COMPANY_NAMESPACE)
+    instances.upsert("scout-1", "hello-saas", "scout", "pm", namespace=COMPANY_NAMESPACE)
+    instances.upsert("other-1", "other-corp", "pm", "pm", namespace="o")
+    roster = instances.for_company("hello-saas")
+    assert [r["agent_id"] for r in roster] == ["pm-1", "scout-1"]
+    assert roster[0] == {
+        "agent_id": "pm-1",
+        "company": "hello-saas",
+        "standing_name": "pm",
+        "role": "pm",
+        "namespace": COMPANY_NAMESPACE,
+        "status": "converged",
+    }
+
+    instances.delete("scout-1")
+    assert [r["agent_id"] for r in instances.for_company("hello-saas")] == ["pm-1"]
+    assert instances.get("scout-1") is None
+    assert instances.get("other-1") is not None
+    instances.delete("scout-1")
+    assert [r["agent_id"] for r in instances.for_company("other-corp")] == ["other-1"]
 
 
 def test_sandbox_registration_active_row(registry: Registry):
@@ -471,6 +558,20 @@ def test_company_spec_reads(registry: Registry):
     assert companies.by_namespace(COMPANY_NAMESPACE)["namespace"] == COMPANY_NAMESPACE
     assert companies.get("nobody") is None
     assert companies.by_namespace("nowhere") is None
+
+
+def test_a_platform_hosts_one_applied_company(registry: Registry):
+    """The console and the worker read which company is applied; a second
+    row is a fault the read raises, never one it picks from. A re-apply
+    of the same company is still one."""
+    companies = Companies(registry)
+    assert companies.applied() is None
+    companies.upsert("hello-saas", {"namespace": COMPANY_NAMESPACE})
+    companies.upsert("hello-saas", {"namespace": COMPANY_NAMESPACE, "vision": "v2"})
+    assert companies.applied() == "hello-saas"
+    companies.upsert("other-corp", {"namespace": COMPANY_NAMESPACE})
+    with pytest.raises(RuntimeError, match="more than one company"):
+        companies.applied()
 
 
 def test_the_pause_is_a_company_fact_that_survives_a_re_apply(registry: Registry):
@@ -593,6 +694,22 @@ def test_active_count_counts_every_running_run_of_the_company(registry: Registry
     runs.start("run-ac-5", "implement issue #9", "implement", None, "hello-saas")
     runs.finish("run-ac-5", "done")
     assert Runs(registry).active_count("hello-saas") == 3
+
+
+def test_the_running_runs_are_the_companys_and_not_its_heartbeat(registry: Registry):
+    """What a delete cancels: the company's runs still running, oldest
+    first. The heartbeat's decision rows are not runs, and a finished run
+    or another company's is not the company's to cancel."""
+    runs = Runs(registry)
+    runs.start("run-rn-1", "implement issue #1", "implement", None, "hello-saas")
+    runs.start(
+        "auto-rn", "heartbeat decision", "heartbeat", "heartbeat-hello-saas", "hello-saas"
+    )
+    runs.start("run-rn-2", "review pull request #2", "review", None, "hello-saas")
+    runs.start("run-rn-3", "implement issue #3", "implement", None, "hello-saas")
+    runs.finish("run-rn-3", "done")
+    runs.start("run-rn-4", "implement issue #4", "implement", None, "other-co")
+    assert [r.run_id for r in runs.running("hello-saas")] == ["run-rn-1", "run-rn-2"]
 
 
 def test_a_vacated_run_holds_no_place_until_it_starts_again(registry: Registry):
