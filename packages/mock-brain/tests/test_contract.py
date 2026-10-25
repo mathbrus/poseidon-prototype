@@ -10,6 +10,7 @@ server runs on a loopback port because the SDK's LLM transport is litellm —
 a real HTTP client, not an injectable ASGI transport.
 """
 
+import ast
 import asyncio
 import re
 import socket
@@ -27,14 +28,18 @@ import uvicorn
 import agent_host.procedures as procedures
 from agent_host.config import AgentSettings
 from agent_host.gateway_client import ToolCallError
+from agent_host.hands import DELIVER_TOOLS, IMPLEMENT_TOOLS, REVIEW_TOOLS, SCOPE_TOOLS
 from agent_host.procedures import (
     run_deliver,
     run_implement,
     run_review,
 )
 from agent_host.prompting import PROCEDURE_HEADER as HOST_HEADER
+from mock_brain import brain
 from mock_brain.app import create_app
 from mock_brain.brain import PROCEDURE_HEADER as MOCK_HEADER
+from orchestrator.workflows.implement import delivery_feedback, verify_feedback
+from orchestrator.workflows.review import review_task
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 # The scripted ticket bodies the e2e suite files; the same texts drive
@@ -51,16 +56,30 @@ BOUNDS = (
 
 
 @pytest.fixture(scope="module")
-def mock_llm_url():
-    """The mock brain served over real HTTP on a loopback port."""
-    probe = socket.socket()
-    probe.bind(("127.0.0.1", 0))
-    port = probe.getsockname()[1]
-    probe.close()
-    server = uvicorn.Server(
-        uvicorn.Config(create_app(), host="127.0.0.1", port=port, log_level="warning")
+def served_paths() -> list[str]:
+    """The request paths the mock served, in order."""
+    return []
+
+
+@pytest.fixture(scope="module")
+def mock_llm_url(served_paths):
+    """The mock brain served over real HTTP on a loopback port. The server
+    listens on the socket bound here, so no other process can take the
+    port between choosing it and serving on it."""
+    app = create_app()
+
+    @app.middleware("http")
+    async def record_path(request, call_next):
+        served_paths.append(request.url.path)
+        return await call_next(request)
+
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", 0))
+    port = listener.getsockname()[1]
+    server = uvicorn.Server(uvicorn.Config(app, log_level="warning"))
+    thread = threading.Thread(
+        target=server.run, kwargs={"sockets": [listener]}, daemon=True
     )
-    thread = threading.Thread(target=server.run, daemon=True)
     thread.start()
     base = f"http://127.0.0.1:{port}"
     deadline = time.monotonic() + 10
@@ -181,15 +200,58 @@ def test_the_mock_reads_the_header_the_host_writes():
     assert MOCK_HEADER == HOST_HEADER
 
 
-def test_happy_task_claims_then_delivers_on_the_feature_branch(mock_llm_url):
-    """The two-dispatch shape: the implement dispatch ends at
-    the completion claim with the files in place; the separate deliver
-    dispatch opens the PR on the constrained branch."""
+def tool_names_in_the_scripts() -> set[str]:
+    """Every tool name `brain.py` scripts a call to or counts in a history,
+    read from its source: the first argument of each `MockToolCall` and
+    the name each `_made_calls` counts."""
+    tree = ast.parse(Path(brain.__file__).read_text())
+    names = set()
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)):
+            continue
+        position = {"MockToolCall": 0, "_made_calls": 1}.get(node.func.id)
+        if position is None:
+            continue
+        name = node.args[position]
+        assert isinstance(name, ast.Constant), f"not a literal: {ast.unparse(node)}"
+        names.add(name.value)
+    return names
+
+
+def test_every_tool_the_mock_calls_is_on_a_host_surface():
+    """The mock spells the host's model-facing tool names on its own; a
+    name no procedure offers would come back tool-not-found on a cluster,
+    so every name the scripts use is pinned to the host's surfaces here."""
+    surfaces = {*IMPLEMENT_TOOLS, *DELIVER_TOOLS, *SCOPE_TOOLS, *REVIEW_TOOLS}
+    scripted = tool_names_in_the_scripts()
+    assert "open_pr" in scripted and "verdict" in scripted  # the scan found them
+    assert scripted <= surfaces, scripted - surfaces
+
+
+@pytest.mark.parametrize(
+    ("model", "surface", "branch"),
+    [
+        ("mock-brain", "/chat/completions", "feature/slugify-c0ffee"),
+        ("gpt-5.6-luna", "/responses", "feature/slugify-re5p0nse"),
+    ],
+    ids=["chat", "responses"],
+)
+def test_happy_task_claims_then_delivers_on_the_feature_branch(
+    mock_llm_url, served_paths, model, surface, branch
+):
+    """The two-dispatch shape, over both wire surfaces: the implement
+    dispatch ends at the completion claim with the files in place; the
+    separate deliver dispatch opens the PR on the constrained branch. A
+    GPT-5 family name makes the model table pick the OpenAI Responses API,
+    so its case drives the same litellm `/responses` transport a paid
+    GPT-5.6 Luna deployment uses — against the mock, spending nothing, so
+    a missing `/responses` route fails here rather than on a paid run."""
     task_text = (TICKETS / "happy.md").read_text() + (
-        "\n\nDeliver your work on the branch `feature/slugify-c0ffee`.\n"
+        f"\n\nDeliver your work on the branch `{branch}`.\n"
     )
-    cfg = settings(mock_llm_url)
+    cfg = settings(mock_llm_url, model=model)
     gateway = FakeGateway()
+    served_paths.clear()
     with bridged(gateway):
         claim = run_implement(cfg, "run-mock-e1", task_text, BOUNDS)
     assert claim.error is None
@@ -202,32 +264,8 @@ def test_happy_task_claims_then_delivers_on_the_feature_branch(mock_llm_url):
     assert delivered.error is None
     assert delivered.pr_url == PR_URL
     opened = [args for tool, args in gateway.calls if tool == "git.open_pr"]
-    assert [o["branch"] for o in opened] == ["feature/slugify-c0ffee"]
-
-
-def test_happy_task_over_the_responses_surface(mock_llm_url):
-    """The real-LLM wire shape, rehearsed for free: a GPT-5 family name
-    makes the model table pick the OpenAI Responses API, so this drives
-    the same litellm `/responses` transport a paid GPT-5.6 Luna deployment
-    uses — against the mock, spending nothing, so a missing `/responses`
-    route fails here rather than on a paid run."""
-    task_text = (TICKETS / "happy.md").read_text() + (
-        "\n\nDeliver your work on the branch `feature/slugify-re5p0nse`.\n"
-    )
-    cfg = settings(mock_llm_url, model="gpt-5.6-luna")
-    gateway = FakeGateway()
-    with bridged(gateway):
-        claim = run_implement(cfg, "run-mock-resp", task_text, BOUNDS)
-    assert claim.error is None
-    assert claim.pr_url is None
-    assert set(gateway.files) == {"slugify.py", "tests/unit/test_slugify.py"}
-
-    with bridged(gateway):
-        delivered = run_deliver(cfg, "run-mock-resp", task_text, BOUNDS)
-    assert delivered.error is None
-    assert delivered.pr_url == PR_URL
-    opened = [args for tool, args in gateway.calls if tool == "git.open_pr"]
-    assert [o["branch"] for o in opened] == ["feature/slugify-re5p0nse"]
+    assert [o["branch"] for o in opened] == [branch]
+    assert served_paths and set(served_paths) == {surface}
 
 
 def test_injected_task_is_denied_on_main_and_recovers(mock_llm_url):
@@ -302,15 +340,9 @@ def test_verify_red_scenario_recovers_on_the_feedback_dispatch(mock_llm_url):
     platform_red = asyncio.run(gateway.call("sandbox.run_tests", {}))
     assert platform_red["exit_code"] == 1
 
-    # The workflow's red-path re-dispatch: the same text shape
-    # orchestrator.workflows.implement.verify_feedback composes — the mock
-    # keys on the "after your completion claim" phrase (VERIFY_FEEDBACK_MARKER).
-    feedback = (
-        f"{task_text}\n\n"
-        "The platform ran the test suite after your completion claim and it"
-        " FAILED. Fix the failures; do not claim completion until the tests"
-        " pass. Test output (tail):\n1 failed"
-    )
+    # The workflow's red-path re-dispatch, composed by the workflow's own
+    # function: the mock keys on its VERIFY_FEEDBACK_MARKER phrase.
+    feedback = verify_feedback(task_text, platform_red["stdout"])
     with bridged(gateway):
         reclaim = run_implement(cfg, "run-mock-e3", feedback, BOUNDS)
     assert reclaim.error is None
@@ -361,15 +393,9 @@ def test_a_refused_path_goes_back_to_implement_and_is_delivered_without_it(
     assert refused.pr_url is None
     assert "git_open_pr_architecture_path" in (refused.delivery_refusal or "")
 
-    # The same text shape orchestrator.workflows.implement.delivery_feedback
-    # composes — the mock keys on DELIVERY_FEEDBACK_MARKER.
-    feedback = (
-        f"{task_text}\n\n"
-        "The platform verified your work, but policy REFUSED to deliver it:\n"
-        f"{refused.delivery_refusal}\n"
-        "Change the work in the workspace so that it complies, then stop; the"
-        " platform verifies it again and delivers it."
-    )
+    # The workflow's refused-delivery re-dispatch, composed by the
+    # workflow's own function: the mock keys on DELIVERY_FEEDBACK_MARKER.
+    feedback = delivery_feedback(task_text, refused.delivery_refusal)
     with bridged(gateway):
         reclaim = run_implement(cfg, "run-mock-me", feedback, BOUNDS)
         delivered = run_deliver(cfg, "run-mock-me", task_text, BOUNDS)
@@ -381,15 +407,9 @@ def test_a_refused_path_goes_back_to_implement_and_is_delivered_without_it(
 def test_review_dispatch_reads_executes_and_posts_findings(mock_llm_url):
     """The reviewer's script: read the PR diff, run
     the suite in the review sandbox, post exactly one findings comment —
-    driven by the production run_review against the mock brain, with
-    the same task-text shape orchestrator.workflows.review.review_task
-    composes."""
-    task_text = (
-        f"Review pull request #41 ({PR_URL}): Add slugify utility\n\n"
-        "Read the diff with the read_pr tool, run the test suite in your"
-        " sandbox, and post your findings on the pull request as a single"
-        " comment_pr call."
-    )
+    driven by the production run_review against the mock brain, on the
+    task text the review workflow composes."""
+    task_text = review_task(41, "Add slugify utility", PR_URL)
     cfg = settings(mock_llm_url)
     gateway = FakeGateway()
     with bridged(gateway):

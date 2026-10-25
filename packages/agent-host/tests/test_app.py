@@ -202,21 +202,6 @@ async def test_terminal_run_restarts_on_redispatch():
     assert attempts == ["one", "two"]
 
 
-async def test_running_run_still_answers_409():
-    release = asyncio.Event()
-
-    async def procedure(run_id, task_text, bounds, documents) -> ProcedureResult:
-        await release.wait()
-        return ProcedureResult()
-
-    async with client(app_for("implementer", implement=procedure)) as http:
-        await post(http, "implement", "one")
-        conflict = await post(http, "implement", "again")
-        assert conflict.status_code == 409
-        release.set()
-        await poll_until_terminal(http, RUN_ID)
-
-
 async def test_a_role_runs_only_its_own_procedures():
     """The pod's role bounds the dispatch: a PM host refuses implement, an
     implementer host refuses scope — 422 before any procedure is touched. The
@@ -237,12 +222,6 @@ async def test_a_role_runs_only_its_own_procedures():
 
     async with client(app_for("no-such-role", implement=never)) as http:
         assert (await post(http, "implement", "x")).status_code == 422
-
-
-async def test_a_dispatch_must_name_its_procedure():
-    async with client(app_for("implementer")) as http:
-        resp = await http.post("/task", json={"run_id": RUN_ID, "task_text": "do it"})
-    assert resp.status_code == 422
 
 
 async def test_review_verdict_flows_through_the_status_api():

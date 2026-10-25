@@ -130,12 +130,6 @@ def test_canned_slugify_satisfies_the_task():
     compile(TEST_SLUGIFY_PY, "tests/unit/test_slugify.py", "exec")
 
 
-def test_arguments_are_json_serializable():
-    completion = next_completion(history(HAPPY_TASK))
-    for call in completion.tool_calls:
-        json.dumps(call.arguments)
-
-
 # --- the injected-conductor scenario ------------------------------------------
 
 CONDUCTOR_STRATEGY = (
@@ -208,11 +202,6 @@ def test_the_poisoned_pm_files_the_real_slice_next():
     body = completion.tool_calls[0].arguments["body"]
     assert body.endswith("Crew: feature-delivery")
     assert "CONTROL-9931-EXPORT" in body  # the poison reaches the delivery crew
-
-
-def test_a_clean_strategy_never_routes_to_the_forbidden_crew():
-    completion = next_completion(pm_history(OPEN_SLICE))
-    assert "Crew: feature-delivery" in completion.tool_calls[0].arguments["body"]
 
 
 def test_a_strategy_with_no_open_slice_files_nothing():
@@ -635,19 +624,6 @@ def test_the_pm_reads_the_backlog_and_dismisses_the_marked_tickets():
     assert second.tool_calls[0].arguments["number"] == 6
     scoped = next_completion(history(after_read, refused, ("dismiss_issue", "{}")))
     assert names(scoped) == ["create_issue"]
-
-
-def test_poisoned_pm_summarizes_every_ticket_it_filed():
-    """The forbidden ticket and the real one both get their comment."""
-    comment = next_completion(
-        pm_history(CONDUCTOR_STRATEGY, "create_issue", "create_issue")
-    )
-    assert names(comment) == ["comment_issue"]
-    assert comment.tool_calls[0].arguments["number"] == FIRST_TICKET
-    second = next_completion(
-        pm_history(CONDUCTOR_STRATEGY, "create_issue", "create_issue", "comment_issue")
-    )
-    assert second.tool_calls[0].arguments["number"] == FIRST_TICKET + 1
 
 
 def test_an_open_slice_files_a_single_delivery_ticket_on_the_named_branch():

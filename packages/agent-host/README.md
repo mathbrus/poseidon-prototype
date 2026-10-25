@@ -59,7 +59,7 @@ Before `implement` and `review` start, the host lists the sandbox's files (`sand
 - A role runs only the procedures its catalog entry declares: `test_app.py::test_a_role_runs_only_its_own_procedures`.
 - One run per `run_id` at a time; a finished run restarts: `test_app.py::test_duplicate_run_id_is_409`, `test_terminal_run_restarts_on_redispatch`.
 - The implement surface never holds `open_pr`: `test_procedures.py::test_prompt_and_toolsets_per_phase`.
-- A policy denial is a tool observation, never a crash: `test_procedures.py::test_denied_pr_is_surfaced_and_agent_retries_on_feature_branch`, `test_pm.py::test_pm_deny_surfaces_as_tool_error_not_crash`.
+- A policy denial is a tool observation, never a crash: `test_procedures.py::test_denied_pr_is_surfaced_and_agent_retries_on_feature_branch`, `test_pm.py::test_pm_summary_comment_denied_is_a_tool_error_then_an_honest_failure`.
 - Prompt files use literal substitution: `test_procedures.py::test_prompt_rendering_survives_stray_braces`.
 - Every prompt opens with its own header: `test_procedures.py::test_every_prompt_opens_with_its_own_header`.
 - `AGENTS.md` reaches the model only as untrusted context: `test_procedures.py::test_agents_md_rides_the_system_message_as_untrusted_context`.

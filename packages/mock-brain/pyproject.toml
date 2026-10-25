@@ -13,11 +13,13 @@ dev = [
     "agent-host",
     "httpx>=0.27",
     "openai>=1.40",
+    "orchestrator",
     "pytest>=8",
 ]
 
 [tool.uv.sources]
 agent-host = { workspace = true }
+orchestrator = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]

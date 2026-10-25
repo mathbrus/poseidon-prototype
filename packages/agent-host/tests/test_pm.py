@@ -106,11 +106,12 @@ def test_pm_dismisses_a_ticket_with_its_reason(settings, gateway):
     )
 
 
-def test_pm_deny_surfaces_as_tool_error_not_crash(settings, gateway):
-    """Refusal is the gateway's: a PM told to exec sees the refusal as a
-    tool result and can carry on scoping. `exec` is not even on the PM's
-    tool surface — the SDK feeds back tool-not-found without any gateway
-    call."""
+def test_a_tool_off_the_pms_surface_is_not_found_and_reaches_no_gateway(
+    settings, gateway
+):
+    """`exec` is not on the PM's tool surface: a PM that calls it reads the
+    SDK's tool-not-found as the tool result, never a crash, and carries on
+    scoping — and no gateway call is made for it."""
     llm = ScriptedLLM(
         [
             calls(tc("exec", cmd="rm -rf /")),  # not a PM tool at all
@@ -127,7 +128,9 @@ def test_pm_deny_surfaces_as_tool_error_not_crash(settings, gateway):
 
     assert result.error is None
     assert result.ticket_urls == ["https://github.test/i/7"]
-    # The forbidden call never reached the gateway (not on the surface).
+    feedback = text_of(llm.requests[1][0][-1])
+    assert "exec" in feedback and "not found" in feedback
+    # The call off the surface never reached the gateway.
     assert all(tool != "sandbox.exec" for tool, _ in gateway.calls)
 
 

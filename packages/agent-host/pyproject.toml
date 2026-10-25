@@ -19,3 +19,10 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/agent_host"]
+
+[tool.pytest.ini_options]
+# The SDK prices each model call from litellm's table, which has no row for
+# the scripted test model; that one warning says nothing about the host.
+filterwarnings = [
+    "ignore:Cost calculation failed:UserWarning:openhands\\.sdk\\.llm\\.utils\\.telemetry",
+]

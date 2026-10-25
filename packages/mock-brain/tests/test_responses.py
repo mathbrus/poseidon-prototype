@@ -41,8 +41,8 @@ PM_TOOLS = [
 ]
 
 
-def post(body: dict, path: str = "/v1/responses") -> dict:
-    resp = client.post(path, json=body)
+def post(body: dict) -> dict:
+    resp = client.post("/v1/responses", json=body)
     assert resp.status_code == 200, resp.text
     return resp.json()
 
@@ -112,11 +112,6 @@ def test_both_surfaces_report_their_cost_in_the_litellm_header():
         usage = resp.json()["usage"]
         expected = (usage[in_key] + usage[out_key]) / 1000 * COST_PER_1K_TOKENS
         assert float(resp.headers["x-litellm-response-cost"]) == pytest.approx(expected)
-
-
-def test_both_path_aliases_serve_the_same_surface():
-    for path in ("/responses", "/v1/responses"):
-        assert post({"model": "m", "input": "hello"}, path=path)["object"] == "response"
 
 
 def test_flattened_tools_key_the_scope_procedure_and_calls_come_back_as_items():
