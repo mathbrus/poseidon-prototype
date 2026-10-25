@@ -59,6 +59,12 @@ markers = [
 # Excluded by default; an explicit `-m e2e_kind` on the command line
 # overrides this.
 addopts = "-m 'not e2e_kind'"
+# The agent host's SDK prices each model call from litellm's table, which
+# has no row for the scripted test model; that one warning says nothing
+# about the code under test.
+filterwarnings = [
+    "ignore:Cost calculation failed:UserWarning:openhands\\.sdk\\.llm\\.utils\\.telemetry",
+]
 
 [tool.uv.sources]
 common = { workspace = true }
