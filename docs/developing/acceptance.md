@@ -3,7 +3,7 @@
 The acceptance suite runs Poseidon end to end on a live kind cluster. It
 proves every row of [What you get](../index.md#what-you-get), including the
 red-team tests that attack a real sandbox and a real merge gate. A full run
-takes about an hour.
+takes about 50 minutes.
 
 ## Before you start
 
