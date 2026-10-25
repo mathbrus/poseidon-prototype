@@ -47,7 +47,7 @@ from .cluster import (
     psql_json,
     temporal_port_forward,
 )
-from .conftest import github_api, open_world_pr, seed_baseline, target_slug
+from .conftest import file_ticket, github_api, open_world_pr, seed_baseline, target_slug
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -126,19 +126,16 @@ def deleted(stack: None, env: dict) -> dict:
     """One delete, with `purge_remote`, of a company that has a credential
     in use and a repository with something open on it: a pull request and
     an issue the world filed. Everything the assertions read about the
-    company is taken before it goes."""
+    company is taken before it goes. The heartbeat is held first, so the
+    open issue never becomes a run; the issue counts as filed only once the
+    git host lists it, as the purge reads the listing."""
     slug = target_slug(env)
     nonce = secrets.token_hex(3)
+    console(env).pause("delete: nothing new starts before the company goes")
     pr = open_world_pr(
         env, f"feature/purge-{nonce}", {"PURGE.md": "purge me\n"}, f"purge {nonce}"
     )
-    issue = github_api(
-        env,
-        "POST",
-        f"/repos/{slug}/issues",
-        json={"title": f"purge {nonce}", "body": "an open issue the purge closes"},
-    )
-    assert issue.status_code == 201, issue.text
+    issue = file_ticket(env, f"purge {nonce}", "an open issue the purge closes")
     # A credential that provably works before the teardown: the standing
     # PM's projected token, exercised through the gateway (the deny is
     # policy answering — authenticated, no binding for this run id).
@@ -155,11 +152,11 @@ def deleted(stack: None, env: dict) -> dict:
     answer = console(env).delete_company(
         "delete: revocation, erasure and purge proof", purge_remote=True
     )
+    # The env (and its token) stays out of what a failing test prints.
     return {
-        "env": env,
         "slug": slug,
         "pr": pr,
-        "issue": issue.json()["number"],
+        "issue": issue,
         "agent_token": agent_token,
         "mcp": mcp,
         "run_ids": run_ids,
@@ -233,10 +230,10 @@ def test_a_delete_revokes_and_erases_the_company(deleted: dict):
         time.sleep(5)
 
 
-def test_a_purge_resets_the_repository(deleted: dict):
+def test_a_purge_resets_the_repository(deleted: dict, env: dict):
     """`purge_remote`: every open pull request and issue closed, every
     branch but main deleted, and main one commit on the empty tree."""
-    env, slug = deleted["env"], deleted["slug"]
+    slug = deleted["slug"]
     pull = github_api(env, "GET", f"/repos/{slug}/pulls/{deleted['pr']}").json()
     assert pull["state"] == "closed"
     closed = github_api(env, "GET", f"/repos/{slug}/issues/{deleted['issue']}").json()
@@ -255,12 +252,11 @@ def test_a_purge_resets_the_repository(deleted: dict):
     assert commits[0]["commit"]["tree"]["sha"] == EMPTY_TREE
 
 
-def test_the_company_applied_again_starts_with_no_history(deleted: dict):
+def test_the_company_applied_again_starts_with_no_history(deleted: dict, env: dict):
     """A new company under the old name inherits nothing: no run, ticket,
     spend or audit row of it predates the apply, so its day starts at $0
     against the daily cap. What its own first ticks do is its own. The
     purged repository gets its baseline back first."""
-    env = deleted["env"]
     seed_baseline(env)
     fence = db_now()
     restore_pristine()
