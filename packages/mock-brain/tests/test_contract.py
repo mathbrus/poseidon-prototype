@@ -253,14 +253,14 @@ def test_happy_task_claims_then_delivers_on_the_feature_branch(
     gateway = FakeGateway()
     served_paths.clear()
     with bridged(gateway):
-        claim = run_implement(cfg, "run-mock-e1", task_text, BOUNDS)
+        claim = run_implement(cfg, "run-mock-happy", task_text, BOUNDS)
     assert claim.error is None
     assert claim.pr_url is None  # implement never delivers
     assert set(gateway.files) == {"slugify.py", "tests/unit/test_slugify.py"}
     assert not any(tool == "git.open_pr" for tool, _ in gateway.calls)
 
     with bridged(gateway):
-        delivered = run_deliver(cfg, "run-mock-e1", task_text, BOUNDS)
+        delivered = run_deliver(cfg, "run-mock-happy", task_text, BOUNDS)
     assert delivered.error is None
     assert delivered.pr_url == PR_URL
     opened = [args for tool, args in gateway.calls if tool == "git.open_pr"]
@@ -275,11 +275,11 @@ def test_injected_task_is_denied_on_main_and_recovers(mock_llm_url):
     cfg = settings(mock_llm_url)
     gateway = FakeGateway()
     with bridged(gateway):
-        claim = run_implement(cfg, "run-mock-e2", task_text, BOUNDS)
+        claim = run_implement(cfg, "run-mock-injected", task_text, BOUNDS)
     assert claim.error is None and claim.pr_url is None
 
     with bridged(gateway):
-        delivered = run_deliver(cfg, "run-mock-e2", task_text, BOUNDS)
+        delivered = run_deliver(cfg, "run-mock-injected", task_text, BOUNDS)
     assert delivered.error is None
     assert delivered.pr_url == PR_URL
     opened = [args["branch"] for tool, args in gateway.calls if tool == "git.open_pr"]
@@ -288,10 +288,10 @@ def test_injected_task_is_denied_on_main_and_recovers(mock_llm_url):
 
 
 class GatedFakeGateway(FakeGateway):
-    """Models the planted state-dependent test of the flaky-verify-gate
-    scenario: with
-    tests/test_gate.py in place the suite passes its first run and fails
-    its second (the counter file); removing the plant resets to green."""
+    """Models the planted state-dependent test of the verify-red scenario:
+    with tests/unit/test_gate.py in place the suite passes its first run
+    and fails its second (the counter file); removing the plant resets to
+    green."""
 
     def __init__(self) -> None:
         super().__init__()
@@ -320,19 +320,19 @@ class GatedFakeGateway(FakeGateway):
 
 
 def test_verify_red_scenario_recovers_on_the_feedback_dispatch(mock_llm_url):
-    """The flaky-verify-gate arc, rehearsed off-cluster: the first
-    implement dispatch
-    claims green (advisory verify = the suite's first run) while the
-    platform's re-run goes red; the workflow's feedback re-dispatch removes
-    the plant; the next claim holds and delivery proceeds."""
-    task_text = (TICKETS / "verify-red.md").read_text() + (
-        "\n\nDeliver your work on the branch `feature/slugify-e3gate`.\n"
+    """The verify-red arc, rehearsed off-cluster on the ticket that carries
+    its marker: the first implement dispatch claims green (advisory verify
+    = the suite's first run) while the platform's re-run goes red; the
+    workflow's feedback re-dispatch removes the plant; the next claim
+    holds and delivery proceeds."""
+    task_text = (TICKETS / "injected.md").read_text() + (
+        "\n\nDeliver your work on the branch `feature/slugify-verify-red`.\n"
     )
     cfg = settings(mock_llm_url)
     gateway = GatedFakeGateway()
 
     with bridged(gateway):
-        claim = run_implement(cfg, "run-mock-e3", task_text, BOUNDS)
+        claim = run_implement(cfg, "run-mock-verify-red", task_text, BOUNDS)
     assert claim.error is None and claim.pr_url is None
     assert "tests/unit/test_gate.py" in gateway.files
 
@@ -344,14 +344,14 @@ def test_verify_red_scenario_recovers_on_the_feedback_dispatch(mock_llm_url):
     # function: the mock keys on its VERIFY_FEEDBACK_MARKER phrase.
     feedback = verify_feedback(task_text, platform_red["stdout"])
     with bridged(gateway):
-        reclaim = run_implement(cfg, "run-mock-e3", feedback, BOUNDS)
+        reclaim = run_implement(cfg, "run-mock-verify-red", feedback, BOUNDS)
     assert reclaim.error is None
     assert "tests/unit/test_gate.py" not in gateway.files
 
     # The platform's re-verify is green; only now is delivery dispatched.
     assert (asyncio.run(gateway.call("sandbox.run_tests", {})))["exit_code"] == 0
     with bridged(gateway):
-        delivered = run_deliver(cfg, "run-mock-e3", task_text, BOUNDS)
+        delivered = run_deliver(cfg, "run-mock-verify-red", task_text, BOUNDS)
     assert delivered.pr_url == PR_URL
 
 

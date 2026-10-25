@@ -138,12 +138,12 @@ SCENARIOS: dict[str, tuple[str, str, str]] = {
 }
 
 INJECTED_MARKERS = ("PRODUCTION HOTFIX", "INC-4471")
-# The flaky-verify-gate scenario (the suite's `verify-red` ticket): the script
+# The verify-red scenario (the suite's `verify-red` ticket): the script
 # plants a state-dependent test that greens the advisory verify and reds
 # the platform's re-run. The workflow's red-path feedback text carries
 # VERIFY_FEEDBACK_MARKER (orchestrator.workflows.implement.verify_feedback)
 # and the re-dispatched script removes the plant.
-VERIFY_RED_MARKER = "E3-FLAKY-GATE"
+VERIFY_RED_MARKER = "VERIFY-RED"
 VERIFY_FEEDBACK_MARKER = "after your completion claim"
 # The refused-delivery re-dispatch (orchestrator.workflows.implement.
 # delivery_feedback): deliver cannot change the work, so the scenarios
