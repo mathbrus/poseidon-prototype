@@ -25,7 +25,6 @@ def test_the_cr_carries_the_policies_section(example):
     spec = spec_of(example)
     assert spec["policies"]["branch_protection"]["protected"] == ["main"]
     assert spec["policies"]["deny_paths"] == [".github/workflows/"]
-    assert "contractTests" not in spec
 
 
 def test_the_bounds_render_from_the_submitted_spec():

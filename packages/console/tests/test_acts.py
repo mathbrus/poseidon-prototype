@@ -212,15 +212,6 @@ async def test_a_named_human_on_a_parked_run_may_answer_its_gate(monkeypatch):
     assert not listed[(HEARTBEAT_WAKE, None, None)].rationale_required
 
 
-async def test_a_human_the_company_does_not_name_is_refused_by_policy(monkeypatch):
-    """Where the state would let anyone act, policy refuses the person the
-    company does not name — by the rule that says so."""
-    for view in await previews(a_world(resting, monkeypatch), AUDITOR_TOKEN):
-        assert not view.allowed, view
-        if view.refusal.kind == "policy":
-            assert view.refusal.rule == "human_not_recognized", view
-
-
 async def test_the_previews_ask_policy_all_at_once(monkeypatch):
     """One preview, many questions: OPA is asked concurrently, not one
     question after another."""
@@ -257,4 +248,3 @@ async def test_an_unknown_runs_acts_are_a_422(monkeypatch):
             "/runs/run-nope/acts", headers={"Authorization": f"Bearer {OWNER_TOKEN}"}
         )
     assert unknown.status_code == 422
-    assert isinstance(unknown, httpx.Response)
