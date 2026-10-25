@@ -209,27 +209,39 @@ async def test_a_human_is_refused_at_the_gateway(gateway, audit):
     assert audit.events[0].decision == "deny"
 
 
-class Unreachable:
-    """A TokenReview that never answers: the API server is down, or the
-    verifier lost its way to it."""
+class Outage:
+    """A TokenReview behind an API server that is down until `down` is
+    cleared, then answers as `reviewer` does; every attempt is counted."""
+
+    def __init__(self, reviewer: Reviewer) -> None:
+        self.reviewer = reviewer
+        self.down = True
+        self.attempts = 0
 
     async def review(self, token: str, audience: str) -> Principal | None:
-        raise ConnectionError("kube-apiserver unreachable")
+        self.attempts += 1
+        if self.down:
+            raise ConnectionError("kube-apiserver unreachable")
+        return await self.reviewer.review(token, audience)
 
 
 async def test_an_unreachable_token_review_refuses_the_caller(settings, audit, reviewer):
     """When TokenReview cannot answer, the token is refused and audited as
     `authn_review_unavailable`: an API server that is down never widens
-    who the verifier trusts. The same token verifies once it answers."""
-    down = Authenticator(
-        settings, audit, Instances(), Participants(), reviewer=Unreachable()
-    )
-    assert await down.authenticate("Bearer t-agent", "/mcp") is None
+    who the verifier trusts. Nor is the outage remembered as a refusal:
+    once the review answers, the same verifier asks again and accepts the
+    same token."""
+    outage = Outage(reviewer)
+    gateway = Authenticator(settings, audit, Instances(), Participants(), reviewer=outage)
+    assert await gateway.authenticate("Bearer t-agent", "/mcp") is None
     assert audit.rules == [("authn_review_unavailable", "unknown")]
     assert audit.events[0].decision == "deny"
 
-    up = Authenticator(settings, audit, Instances(), Participants(), reviewer=reviewer)
-    assert await up.authenticate("Bearer t-agent", "/mcp") is not None
+    outage.down = False
+    identity = await gateway.authenticate("Bearer t-agent", "/mcp")
+    assert identity is not None and identity.agent_id == CONDUCTOR
+    assert outage.attempts == 2
+    assert len(audit.events) == 1
 
 
 async def test_an_identity_providers_user_is_refused_at_the_gateway(gateway, audit):
