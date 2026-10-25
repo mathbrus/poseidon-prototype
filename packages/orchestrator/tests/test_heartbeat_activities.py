@@ -14,7 +14,7 @@ import orchestrator.clients as clients
 from common.audit import HEARTBEAT_BOOTSTRAP, HEARTBEAT_DECIDE, HEARTBEAT_TICK
 from common.policy import HEARTBEAT_START
 from common.tasks import issue_run_task
-from common.topology import PLATFORM_NAMESPACE
+from common.topology import COMPANY_NAMESPACE, PLATFORM_NAMESPACE
 from common.workflows import TICK_IDLE, TICK_STARTED, tick_rule
 from orchestrator.activities.bootstrap import BootstrapActivities
 from orchestrator.activities.heartbeat import HeartbeatActivities
@@ -95,7 +95,7 @@ def audit(companies) -> InMemoryAuditStore:
 def instances() -> InMemoryAgentInstances:
     """The converged PM the heartbeat's conductor name resolves to."""
     store = InMemoryAgentInstances()
-    store.upsert("pm-1", COMPANY, "pm", "pm", namespace=COMPANY)
+    store.upsert("pm-1", COMPANY, "pm", "pm", namespace=COMPANY_NAMESPACE)
     return store
 
 
@@ -911,7 +911,7 @@ def test_decide_dispatches_the_observation_and_journals(
     assert bounds.startswith("Repository: github.com/example/repo, base ref main.")
     # Dispatched at the conductor's Service, derived from the converged
     # instance — never a configured address.
-    assert agent.url == f"http://pm.{COMPANY}.svc.cluster.local:8000"
+    assert agent.url == f"http://pm.{COMPANY_NAMESPACE}.svc.cluster.local:8000"
     # The composed observation carries the contract's section headers.
     assert "Open tickets:" in prompt and "#5 — Add slugify" in prompt
     assert "Delivered pull requests awaiting review:" in prompt and "#4 —" in prompt

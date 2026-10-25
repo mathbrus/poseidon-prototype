@@ -14,6 +14,7 @@ import pytest
 from blueprint.bounds import render_bounds
 from common.audit import LIFECYCLE_REVOKE, gate_event
 from common.tasks import issue_run_task
+from common.topology import COMPANY_NAMESPACE
 from common.workflows import ATTEMPTS_GATE, MERGE_GATE
 from orchestrator.activities.crew import CrewActivities
 from orchestrator.activities.run import RunActivities, attempts_exhausted_comment
@@ -33,7 +34,7 @@ RUN_ID = "run-test-0001"
 JOB_HANDLE = {
     "run_id": RUN_ID,
     "url": "http://192.168.0.9:8000",
-    "namespace": "hello-saas",
+    "namespace": COMPANY_NAMESPACE,
     "job_name": "poseidon-sbx-run-test-0001",
     "pod_name": "poseidon-sbx-run-test-0001-abcde",
 }
@@ -41,7 +42,7 @@ JOB_HANDLE = {
 # What an applied hello-saas blueprint records: the three run-shaped
 # workflows, a declared contract tree, and a heartbeat attempt bound.
 APPLIED_SPEC = {
-    "namespace": "hello-saas",
+    "namespace": COMPANY_NAMESPACE,
     "repo": {"url": "github.com/example/repo", "base_ref": "main"},
     "documents": {"strategy": "docs/STRATEGY.md", "architecture": "docs/ARCHITECTURE.md"},
     "budgets": {"per_run_usd": 5.0, "deadline_minutes": 60},
@@ -65,7 +66,7 @@ APPLIED_SPEC = {
 PM = {
     "agent_id": "pm-1",
     "role": "pm",
-    "url": "http://pm.hello-saas.svc.cluster.local:8000",
+    "url": f"http://pm.{COMPANY_NAMESPACE}.svc.cluster.local:8000",
 }
 
 
@@ -102,7 +103,7 @@ def companies() -> InMemoryCompanies:
 @pytest.fixture
 def instances() -> InMemoryAgentInstances:
     store = InMemoryAgentInstances()
-    store.upsert("pm-1", "hello-saas", "pm", "pm", namespace="hello-saas")
+    store.upsert("pm-1", "hello-saas", "pm", "pm", namespace=COMPANY_NAMESPACE)
     return store
 
 

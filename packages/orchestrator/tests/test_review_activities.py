@@ -18,7 +18,7 @@ from common.audit import (
     gate_event,
 )
 from common.policy import GATE_RESOLVE, MERGE_RESOLVE
-from common.topology import PLATFORM_NAMESPACE
+from common.topology import COMPANY_NAMESPACE, PLATFORM_NAMESPACE
 from common.workflows import MERGE_GATE
 from orchestrator.activities.review import ReviewActivities
 from orchestrator.config import WorkerSettings
@@ -32,7 +32,7 @@ from registry.memory import (
 RUN_ID = "run-review-0001"
 
 REVIEW_SPEC = {
-    "namespace": "hello-saas",
+    "namespace": COMPANY_NAMESPACE,
     "repo": {"url": "github.com/example/repo", "base_ref": "main"},
     "heartbeat": {"conductor": "pm", "max_attempts": 2},
     "workflows": [
@@ -50,7 +50,7 @@ PM_ROW = {
     "company": "hello-saas",
     "standing_name": "pm",
     "role": "pm",
-    "namespace": "hello-saas",
+    "namespace": COMPANY_NAMESPACE,
 }
 
 

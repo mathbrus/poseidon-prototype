@@ -14,7 +14,12 @@ from common.audit import (
     LIFECYCLE_RECORD_REQUEST,
 )
 from common.policy import CREW_REQUEST
-from common.topology import EPHEMERAL_KIND, PLATFORM_NAMESPACE, TOKEN_MOUNT_DIR
+from common.topology import (
+    COMPANY_NAMESPACE,
+    EPHEMERAL_KIND,
+    PLATFORM_NAMESPACE,
+    TOKEN_MOUNT_DIR,
+)
 from orchestrator.activities.crew import CrewActivities
 from orchestrator.config import WorkerSettings
 from orchestrator.ephemeral_pods import (
@@ -250,7 +255,7 @@ def _companies() -> "InMemoryCompanies":
 
 def _company(agents: list[dict]) -> dict:
     return {
-        "namespace": "hello-saas",
+        "namespace": COMPANY_NAMESPACE,
         "repo": {"url": "github.com/example/repo", "base_ref": "main"},
         "vision": "ship it",
         "ephemeralAgents": agents,

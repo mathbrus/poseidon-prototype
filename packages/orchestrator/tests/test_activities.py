@@ -10,7 +10,7 @@ from typing import Any
 import pytest
 
 from common.tasks import issue_run_task
-from common.topology import PLATFORM_NAMESPACE
+from common.topology import COMPANY_NAMESPACE, PLATFORM_NAMESPACE
 from orchestrator.activities.implement import ImplementActivities
 from orchestrator.config import WorkerSettings
 from registry.memory import (
@@ -24,7 +24,7 @@ RUN_ID = "run-test-0001"
 # What an applied hello-saas blueprint records (the Company CR spec's infra
 # section) — the SandboxPolicy source.
 APPLIED_SPEC = {
-    "namespace": "hello-saas",
+    "namespace": COMPANY_NAMESPACE,
     "repo": {"url": "github.com/example/repo", "base_ref": "main"},
     "vision": "ship it",
     "infra": {
@@ -54,7 +54,7 @@ class FakeBackend:
         return SandboxHandle(
             run_id=run_id,
             url="http://192.168.0.9:8000",
-            namespace="hello-saas",
+            namespace=COMPANY_NAMESPACE,
             job_name="poseidon-sbx-run-test-0001",
             pod_name="poseidon-sbx-run-test-0001-abcde",
         )
