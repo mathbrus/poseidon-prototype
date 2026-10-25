@@ -26,9 +26,12 @@ from reconciler.opa import activated_revision
 from registry import AgentInstances, Companies, CompanySweep, PolicyBundles, open_registry
 
 # How long a handler waits before asking OPA again whether it has
-# activated a stored bundle. OPA polls the bundle server every few
-# seconds; asking more often than that buys nothing.
-ACTIVATION_POLL_S = 5
+# activated a stored bundle. OPA polls the bundle server every one to
+# three seconds and activates what it fetched on that poll; asking every
+# second keeps the re-check from being the slower of the two, so a
+# company converges, and a tombstone is seen served, within a second of
+# OPA activating it.
+ACTIVATION_POLL_S = 1
 # How long the teardown waits before asking again whether the company
 # namespace is gone: its pods get their grace period first.
 NAMESPACE_POLL_S = 5

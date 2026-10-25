@@ -49,9 +49,10 @@ on the next one.
    exists.
 
 Until then the handler sets `phase: activating` and raises
-`kopf.TemporaryError`, and kopf retries five seconds later. Then it sets
-`phase: converged`. `observedGeneration` says which apply a phase
-answers for.
+`kopf.TemporaryError`, and kopf retries a second later: OPA polls every
+one to three seconds, and the re-check is never the slower of the two.
+Then it sets `phase: converged`. `observedGeneration` says which apply a
+phase answers for.
 
 `reconcile_instance` creates the agent's ServiceAccount (named by
 `agentId`), then its Deployment and Service (named by `standingName`),
