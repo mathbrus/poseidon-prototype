@@ -49,16 +49,18 @@ def heartbeat_spec(**overrides) -> dict:
     }
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def anyio_backend() -> str:
+    """Module-scoped: anyio needs it at least as wide as `env`."""
     return "asyncio"
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 async def env():
-    """Temporal's time-skipping test environment. It fetches the test
-    server binary on first use; a machine that cannot skips rather than
-    failing, like the compiler's OPA decision tests."""
+    """Temporal's time-skipping test environment, one server per module:
+    its tests share it, each on its own uuid task queue and workflow id.
+    It fetches the test server binary on first use; a machine that cannot
+    skips rather than failing, like the compiler's OPA decision tests."""
     try:
         environment = await WorkflowEnvironment.start_time_skipping()
     except Exception as exc:
