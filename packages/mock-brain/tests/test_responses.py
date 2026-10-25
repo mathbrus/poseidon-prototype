@@ -168,8 +168,10 @@ def test_function_call_history_advances_the_script():
     assert item["name"] == "comment_issue"
 
 
-def test_chat_completions_surface_is_unchanged():
-    """The e2e default path must not regress: mock-brain still speaks chat."""
+def test_the_chat_surface_answers_without_the_v1_prefix():
+    """The host's litellm transport posts chat completions to
+    `/chat/completions`, without the `/v1` prefix; the mock answers there
+    with a chat completion."""
     resp = client.post(
         "/chat/completions",
         json={

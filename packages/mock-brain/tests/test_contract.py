@@ -255,7 +255,7 @@ def test_happy_task_claims_then_delivers_on_the_feature_branch(
     with bridged(gateway):
         claim = run_implement(cfg, "run-mock-e1", task_text, BOUNDS)
     assert claim.error is None
-    assert claim.pr_url is None  # the brain never self-delivers
+    assert claim.pr_url is None  # implement never delivers
     assert set(gateway.files) == {"slugify.py", "tests/unit/test_slugify.py"}
     assert not any(tool == "git.open_pr" for tool, _ in gateway.calls)
 

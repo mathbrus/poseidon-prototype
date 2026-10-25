@@ -90,8 +90,8 @@ def test_bridge_surfaces_tool_errors_as_toolcallerror(mcp_server_url):
 
 
 def test_bridge_reenters_cleanly(mcp_server_url):
-    """Two sequential dispatch lifetimes on one process
-    (plan → implement → deliver each open their own bridge)."""
+    """Two sequential dispatch lifetimes on one process (implement, then
+    deliver, each opening its own bridge)."""
     for round_ in ("a", "b"):
         with GatewayBridge(mcp_server_url, "test-token") as bridge:
             result = bridge.call("sandbox.echo", {"run_id": "r-2", "value": round_})

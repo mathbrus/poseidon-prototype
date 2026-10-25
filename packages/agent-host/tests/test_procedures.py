@@ -52,7 +52,7 @@ def test_happy_path_ends_in_a_completion_claim(settings, gateway):
         result = run_implement(settings, RUN_ID, TASK, BOUNDS)
 
     assert result.error is None
-    assert result.pr_url is None  # the brain never self-delivers
+    assert result.pr_url is None  # implement never delivers
     assert result.iterations == 1
     assert llm.script == []
     assert gateway.tools_called() == [
@@ -260,8 +260,8 @@ def test_review_without_a_verdict_fails_the_dispatch(settings, gateway):
 
 
 def test_prompt_and_toolsets_per_procedure(settings, gateway):
-    """The implement dispatch never offers delivery tools: the
-    act surface is the read/write set and the loop ends at the claim —
+    """The implement dispatch never offers delivery tools: its surface
+    is the read/write set and the loop ends at the claim —
     open_pr exists only in the separate deliver dispatch, and the implement
     prompt does not even mention it."""
     llm = ScriptedLLM([says("nothing to do")])
@@ -349,7 +349,7 @@ def test_out_of_scope_tool_call_feeds_back_and_loop_recovers(settings, gateway):
 
 def test_failing_tests_loop_back_with_report_until_iteration_cap(settings, gateway):
     gateway.default_test_result = TESTS_FAIL
-    # One act turn per verify cycle; tests never pass, so the run fails
+    # One model turn per verify cycle; tests never pass, so the run fails
     # after the three verify cycles the conftest allows.
     llm = ScriptedLLM([says("try 1"), says("try 2"), says("try 3")])
 

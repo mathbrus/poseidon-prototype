@@ -254,7 +254,7 @@ class FakeBridge:
 
 @contextmanager
 def scripted(gateway: FakeGateway, llm: ScriptedLLM):
-    """Run a brain dispatch against the doubles: the fake bridge replaces
+    """Run a dispatch against the doubles: the fake bridge replaces
     the MCP session, the scripted responses replace the LLM transport —
     everything in between is the production loop."""
     with patch.object(

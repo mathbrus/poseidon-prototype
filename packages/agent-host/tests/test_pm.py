@@ -72,7 +72,7 @@ def test_pm_files_ticket_and_posts_its_summary(settings, gateway):
         "body": SUMMARY,
     }
     assert "comment_issue" in llm.offered(0)
-    # The PM prompt is the PM's — the mock brain keys on it.
+    # The system prompt is the scope procedure's: the product manager's.
     messages, _ = llm.requests[0]
     assert "product manager" in text_of(messages[0])
 

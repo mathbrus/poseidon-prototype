@@ -1029,7 +1029,7 @@ def _steward_completion(
 
 
 def _write_once(messages: list[dict[str, Any]], *calls: MockToolCall) -> MockCompletion:
-    """The act step every scenario shares: one batch of writes on
+    """The implement step every scenario shares: one batch of writes on
     the first turn, then a text turn that hands the host its verify."""
     if _made_calls(messages, "write_file") == 0:
         return _calls(*calls)
@@ -1037,16 +1037,19 @@ def _write_once(messages: list[dict[str, Any]], *calls: MockToolCall) -> MockCom
 
 
 def _undo_once(messages: list[dict[str, Any]], cmd: str, reply: str) -> MockCompletion:
-    """The act step after a refused delivery came back: undo the refused
-    edit in one command, then a text turn that hands the host its verify."""
+    """The implement step after a refused delivery came back: undo the
+    refused edit in one command, then a text turn that hands the host its
+    verify."""
     if _made_calls(messages, "exec") == 0:
         return _calls(MockToolCall("exec", {"cmd": cmd}))
     return _text(reply)
 
 
-def _act_completion(messages: list[dict[str, Any]], task_text: str) -> MockCompletion:
-    """The implementer's act step, by scenario marker; the honest delivery
-    is the default."""
+def _implement_completion(
+    messages: list[dict[str, Any]], task_text: str
+) -> MockCompletion:
+    """The implementer's implement dispatch, by scenario marker; the
+    honest delivery is the default."""
     if ARCH_REQUEST_MARKER in task_text:
         if _made_calls(messages, "request_architecture") == 0:
             return _calls(
@@ -1287,5 +1290,5 @@ def next_completion(
     if STEWARDSHIP_CREW_LINE in task_text:
         return _steward_completion(messages, procedure, task_text)
     if procedure == "implement":
-        return _act_completion(messages, task_text)
+        return _implement_completion(messages, task_text)
     return _deliver_completion(messages, task_text)
