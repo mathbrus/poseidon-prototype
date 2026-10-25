@@ -201,23 +201,30 @@ def test_a_delete_revokes_and_erases_the_company(stack: None, env: dict):
 
 
 def test_the_company_applied_again_starts_with_no_history(stack: None, env: dict):
-    """A new company under the old name: no runs, no tickets, no spend
-    against today's cap, and no tick but its own."""
+    """A new company under the old name inherits nothing: no run, ticket,
+    spend or audit row of it predates the apply, so its day starts at $0
+    against the daily cap. What its own first ticks do is its own."""
     fence = db_now()
     restore_pristine()
-    assert console(env).runs().runs == []
-    assert console(env).tickets().tickets == []
-    company = console(env).company()
-    assert company.paused is None
-    assert company.limits is not None and company.limits.spent_today_usd == 0
-    story = psql_json(
-        "SELECT COALESCE(json_agg(e), '[]'::json) FROM ("
-        " SELECT ts FROM registry.audit_events WHERE run_id = :'run_id'"
-        "   AND ts < :'fence') e",
-        run_id=heartbeat_run_id(COMPANY),
+    assert console(env).company().paused is None
+    older = psql(
+        "SELECT json_build_object("
+        "'runs', (SELECT count(*) FROM registry.runs"
+        "  WHERE company = :'company' AND created_at < :'fence'),"
+        "'filed_tickets', (SELECT count(*) FROM registry.filed_tickets"
+        "  WHERE repo = :'repo' AND filed_at < :'fence'),"
+        "'budget_ledger', (SELECT count(*) FROM registry.budget_ledger"
+        "  WHERE company = :'company' AND ts < :'fence'),"
+        "'audit_events', (SELECT count(*) FROM registry.audit_events"
+        "  WHERE (company = :'company' OR run_id = :'heartbeat') AND ts < :'fence'))",
+        company=COMPANY,
+        repo=harness_repo_or_fail(),
+        heartbeat=heartbeat_run_id(COMPANY),
         fence=fence,
     )
-    assert story == [], "the new heartbeat inherited the old one's rows"
+    assert json.loads(older) == dict.fromkeys(
+        ("runs", "filed_tickets", "budget_ledger", "audit_events"), 0
+    )
 
 
 def test_a_purge_resets_the_repository(stack: None, env: dict):
