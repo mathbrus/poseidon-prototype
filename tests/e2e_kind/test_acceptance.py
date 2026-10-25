@@ -9,66 +9,68 @@ What the suite proves, and where:
 
   1 declarative   test_reconciler_lifecycle (apply / edit), test_delete
                   (teardown with the failed post-teardown call, no row and
-                  no workflow history of the company left, a company
-                  applied again with no history, the repository purged);
+                  no workflow history of the company left, the repository
+                  purged, a company applied again with no history);
                   HERE: compile and preview as scripted e2e steps, and
                   compile-is-what's-live (the local compile's
                   content-addressed revision == the served one)
-  2 durable       test_happy_path (kill-worker resume),
-                  test_registry_durability, test_crew_fulfillment
-                  (worker-kill crew sweep); HERE: the killed happy-path run itself
-                  leaked no identity row, no ephemeral pod, no registration
+  2 durable       test_happy_path (kill-worker resume with the crew up,
+                  and the crew swept by the replayed compensation),
+                  test_registry_durability; HERE: the killed happy-path
+                  run itself leaked no identity row, no ephemeral pod, no
+                  registration
   3 SDLC          test_scope + test_review_gate (the strategy scoped into
-                  a ticket, a human's `poseidon start implement <number>`, review
-                  with parked gate, escalation, API approval, platform
-                  merge); test_verify_gate (the platform's own test run, not
-                  the implementer's claim, is the gate of record);
-                  test_audit_story (one run_id reconstructs a run's whole story)
+                  a ticket, implemented, reviewed with a parked gate, a
+                  verdict through the console, platform merge — every run
+                  the heartbeat's); test_verify_gate (the platform's own
+                  test run, not the implementer's claim, is the gate of
+                  record); test_audit_story (one run_id reconstructs a
+                  run's whole story)
   4 governance    test_injection (injection vs compiled policy), test_governance,
                   test_injected_conductor, test_redteam (sandbox containment +
-                  egress), test_containment (agents reach only the gateways;
-                  the Temporal frontend is fenced from every platform pod but
-                  the worker and the console), test_sandbox_k8s (the deadline
-                  kills a runaway); HERE: all six audit sources are real in
-                  this suite execution — nothing seeded
-  5 budgets       test_budgets (refusal at the cap, API-visible park, process-gate
-                  escalation, full {run, parent, agent, role} tuple)
-  6 one standing test_reconciler_lifecycle (exactly one AgentInstance),
-                  test_scope, test_ephemeral_identity, test_ephemeral_pods,
-                  test_workload_identity; HERE: the registry's standing agents
-                  agrees, and a live minted implementer is denied outside its
-                  compiled allow-list at the gateway
+                  egress, the deadline on every Job), test_containment
+                  (agents reach only the gateways; the Temporal frontend is
+                  fenced from every platform pod but the worker and the
+                  console); HERE: all six audit sources are real in this
+                  suite execution — nothing seeded
+  5 budgets       test_budgets (refusal at the cap, API-visible park, the
+                  person's verdict either way, full {run, parent, agent,
+                  role} tuple)
+  6 one standing  test_reconciler_lifecycle (exactly one AgentInstance),
+                  test_scope, test_ephemeral_identity (a live minted
+                  implementer is denied outside its compiled allow-list),
+                  test_ephemeral_pods, test_workload_identity; HERE: the
+                  registry's standing agents agree
   7 cluster-      by construction, not by a module: `cluster.py` reaches
     neutral       the cluster through the kubectl context and .env alone,
                   and the kind-specific piece is deploy/kind/kind-up.sh.
-  8 unattended    test_heartbeat_redteam (an attacker-filed issue consumed by
-                  the heartbeat dies at the gates; a review that dies
-                  without a verdict is retried once under max_attempts,
-                  then its PR refused and its ticket delivered again,
-                  until the ticket's attempts are spent and it closes as
-                  not planned), test_injected_conductor
-                  (a poisoned strategy cannot route work to a crew outside
-                  may_spawn nor exfiltrate) and test_overnight (the whole
-                  arc — scope, implement, review — with one human act: the
-                  merge approval out; nothing in).
-  9 automation    test_automated (passing work on the automated paths is
-                  scoped, implemented, reviewed and merged with no human
-                  act at all — the arc runs through the merge) and
-                  test_split_oracle_redteam (a steered reviewer smuggling
-                  a carve-out change is refused by the compiled decision,
-                  not the model).
- 10 split oracle  test_split_oracle_redteam (the implementer cannot PR the
+  8 unattended    test_heartbeat_redteam (an issue filed on the repository
+                  is consumed by the heartbeat within its cap; a PR merged
+                  by hand is never reviewed and closes its ticket; a review
+                  that dies without a verdict spends the last attempt,
+                  refuses its PR, and the ticket closes as not planned),
+                  test_injected_conductor (a poisoned strategy cannot route
+                  work to a crew outside may_spawn nor exfiltrate) and
+                  test_review_gate (the whole arc — scope, implement,
+                  review — with one human act: the merge verdict; nothing
+                  in).
+  9 automation    test_automated (the contract-first arc: passing work on
+                  the automated paths is scoped, implemented, reviewed and
+                  merged with no person — the one human act is the
+                  contract's verdict) and test_split_oracle_redteam (a
+                  steered reviewer smuggling a carve-out change is refused
+                  by the compiled decision, not the model).
+ 10 contract tree test_split_oracle_redteam (the implementer cannot PR the
                   contract tree, cannot launder a red baseline to green
                   through a committed collect-ignore, and a steered contract
                   author's gutted spec parks on a human with its deletions
-                  counted) and test_automated's contract arc (the PM files
-                  contract-then-implement, the contract PR parks for one human
-                  merge, then automated work merges on a green base-ref
-                  contract).
+                  counted) and test_automated (the PM files
+                  contract-then-implement, the contract PR parks for one
+                  human verdict, then automated work merges on a green
+                  base-ref contract).
  11 documents     test_documents (a vision-only repository bootstraps both
                   documents through the steward; an architecture request
-                  becomes a stewardship ticket the loop implements; an
-                  implementer cannot deliver into the masterplan and the
+                  becomes a stewardship ticket the platform shapes; the
                   strategy is written once, for the steward too);
                   test_scope (the strategy becomes the company's own
                   ticket; scoping is refused by name at max_open_tickets).
@@ -77,14 +79,14 @@ What the suite proves, and where:
                   cluster issued for the console's audience and refused at
                   the gateways; an agent is refused at the console; a human
                   the company did not name is refused by name; no platform
-                  identity can mint a human's token) and
-                  test_console_redteam (a merge signal delivered straight to
-                  the workflow engine, past the console, releases nothing —
-                  the run fails on `merge_resolve_no_human_verdict` and the
-                  PR is refused, never merged — while the same verdict through the console
-                  merges and names the person); test_review_gate (the release
-                  read the recorded verdict); HERE: the console's rows are
-                  among the six sources.
+                  identity can mint a human's token), test_console_redteam
+                  (a merge signal delivered straight to the workflow
+                  engine, past the console, releases nothing — the run
+                  fails on `merge_resolve_no_human_verdict` and the PR is
+                  refused, never merged) and test_review_gate (the same
+                  verdict through the console merges, names the person,
+                  and the release read the recorded verdict); HERE: the
+                  console's rows are among the six sources.
  13 the pause    test_pause (`poseidon pause` holds the heartbeat and
                   nothing else: a paused tick on a startable backlog starts
                   nothing and names the person, a wake leaves it paused, a
@@ -94,19 +96,20 @@ What the suite proves, and where:
                   sandbox and no place, so a one-place company implements
                   the next ticket while it waits; a person's rejection
                   refuses the delivery with their words on it and the
-                  ticket comes back to be implemented again; a moved base
-                  is verified before the merge — clean, it merges;
-                  conflicting, the delivery is refused and its ticket comes
-                  back; a moved head is refused); test_scope (the PM
+                  ticket comes back to be implemented again; a merge
+                  conflicting with a moved base is refused and its ticket
+                  comes back; a moved head is refused); test_scope (the PM
                   dismisses a planted ticket as not planned, and a
                   bootstrap ticket is refused by name);
                   test_heartbeat_redteam (an abandoned ticket closes as not
-                  planned).
+                  planned); test_split_oracle_redteam (an unanswered park
+                  escalates at half its deadline and expires).
 
 The suite's own discipline is proved too: test_brain_guard (the session
-refuses a paid brain without the explicit opt-in) and test_quiet (the exit
-contract, ordered last: only the standing heartbeat running, asleep on an
-empty backlog; no run non-terminal).
+read the brain the cluster deploys; the refusal rule itself is pinned in
+tests/test_brain_guard.py, without a cluster) and test_quiet (the exit
+contract, ordered last: only the heartbeat running, asleep on an empty
+backlog; no run non-terminal).
 
 The conftest orders this module after every module whose runs it reads:
 the six-source assertion reads what the whole suite really produced.

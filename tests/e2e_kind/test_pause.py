@@ -13,10 +13,10 @@ lifts the hold and the next tick starts the work the pause held. A run
 in flight when the pause lands is not the loop's: it finishes, and its
 end wakes a loop that stays paused.
 
-The module arrives on the example with `may_start: [implement]` so the
-delivered PR waits for the world instead of being reviewed on the next
-wake, and the pristine blueprint is restored after. Every pause the module
-takes it lifts; the session sweeper lifts one a failure path left.
+The module runs on the pristine blueprint — reviews are off the loop's
+own initiative, so the delivered PR waits for the world instead of being
+reviewed on the next wake. Every pause the module takes it lifts; the
+session sweeper lifts one a failure path left.
 """
 
 import secrets
@@ -28,13 +28,9 @@ from common.tasks import issue_run_task
 from common.workflows import TICK_PAUSED, TICK_STARTED, parse_tick_rule, tick_rule
 from poseidon_cli import PolicyDenied
 
-from .blueprints import (
-    may_start,
-    restore_pristine,
-)
+from .blueprints import pristine_blueprint
 from .cluster import (
     HEARTBEAT_ID,
-    HELLO_SAAS,
     await_heartbeat_asleep,
     await_new_ticks,
     await_run,
@@ -57,14 +53,14 @@ HUMAN = "owner"
 
 
 @pytest.fixture(scope="module")
-def implement_only(stack: None, baseline_env: dict):
-    apply_and_settle(may_start(HELLO_SAAS, "implement"), baseline_env)
-    yield
-    restore_pristine()
+def settled(stack: None, baseline_env: dict):
+    """The pristine blueprint, swept and asleep: it already keeps reviews
+    off the loop's own initiative, so a delivered PR waits for the world."""
+    apply_and_settle(pristine_blueprint(), baseline_env)
 
 
 @pytest.fixture(scope="module")
-def held(implement_only, env: dict) -> dict:
+def held(settled, env: dict) -> dict:
     """A startable backlog (one ticket), then the pause: the act itself
     wakes the loop, so the tick that follows is the module's own and is
     the one that reads the pause."""

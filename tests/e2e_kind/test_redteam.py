@@ -378,8 +378,8 @@ def test_resource_caps_and_deadline_are_declared_on_the_live_job(
 ) -> None:
     """The compiled policy reaches the cluster object, not just the
     manifest builder: CPU, memory and ephemeral-storage limits on the
-    container, and a wall-clock deadline on the Job (whose enforcement is
-    proven by test_sandbox_k8s's runaway test)."""
+    container, and a wall-clock deadline on the Job — which Kubernetes'
+    Job controller enforces."""
     spec = json.loads(
         kubectl("-n", COMPANY_NS, "get", "job", job_name(target.run_id), "-o", "json")
     )

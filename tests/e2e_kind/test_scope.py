@@ -1,26 +1,29 @@
 """Scoping on the live cluster: the company originates its own work.
 
-No human hands the PM a text. The standing heartbeat reads the company's
-documents at `base_ref`, asks the conductor what to do, and — when the
-strategy names an open slice — starts a `scope` run: the PM files the
-slice's ticket with its `Crew:` trailer and its summary comment, the run
-row links the ticket, and the PM's tool calls appear in the audit story
-under the run's `run_id`, as the standing `pm-1`. The same loop, on a
-strategy that names nothing, idles: a delivered strategy is a valid state,
-not a failure. And the conductor cannot flood its own backlog: at the
-blueprint's `max_open_tickets` the platform refuses `scope` by name, with
-no model retry.
+No human hands the PM a text. The heartbeat reads the company's documents
+at `base_ref`, asks the conductor what to do, and — when the strategy
+names an open slice — starts a `scope` run: the PM files the slice's
+ticket with its `Crew:` trailer and its summary comment, the run row
+links the ticket, and the PM's tool calls appear in the audit story under
+the run's `run_id`, as the standing `pm-1`. While it scopes, the PM
+dismisses what the company should not work — and the compiled limits
+keep it off a bootstrap ticket. And the conductor cannot flood its own
+backlog: at the blueprint's `max_open_tickets` the platform refuses
+`scope` by name, with no model retry. That the loop idles on a strategy
+naming nothing is `test_heartbeat_redteam`'s and `test_documents`' to
+show.
 
-Applies a `scope`-only blueprint so the ticket the PM files waits for the
-module rather than being implemented on the next wake; restores the
-pristine blueprint and the resting strategy after. The denial half ("a PM
-attempt at sandbox.exec or git.open_pr is denied at the gateway and
-audited") is proven by
+Applies one `scope`-only derived blueprint for the module, so the tickets
+the PM files wait for the module rather than being implemented on the
+next wake; restores the pristine blueprint and the resting strategy
+after. The denial half ("a PM attempt at sandbox.exec or git.open_pr is
+denied at the gateway and audited") is proven by
 test_governance.py::test_pm_is_denied_implementer_tools_at_the_gateway.
 """
 
 import re
 import secrets
+from pathlib import Path
 
 import pytest
 
@@ -28,7 +31,6 @@ from common.audit import HEARTBEAT_DECIDE
 from common.documents import BOOTSTRAP_TITLES
 from common.policy import HEARTBEAT_START
 from common.tasks import SCOPE_TASK
-from common.workflows import TICK_IDLE, tick_rule
 from mock_brain.brain import (
     DISMISS_MARKER,
     DISMISS_RATIONALE,
@@ -36,72 +38,88 @@ from mock_brain.brain import (
     PM_SUMMARY,
 )
 
-from .blueprints import (
-    derived_blueprint,
-    may_start,
-    restore_pristine,
-)
+from .blueprints import derived_blueprint, may_start, restore_pristine
 from .cluster import (
     COMPANY,
-    HEARTBEAT_ID,
     HELLO_SAAS,
     audit_story,
+    db_now,
+    events_since,
     heartbeat_ticks,
     run_by_task,
     wake_and_await_ticks,
 )
 from .conftest import (
     apply_and_settle,
+    await_unlisted,
     close_issue,
-    file_ticket,
+    file_tickets,
     github_api,
     open_slice_strategy,
     restore_strategy,
     scope_via_heartbeat,
     target_slug,
+    write_strategy,
 )
 
+# The module's backlog cap: room for the scope run the two planted
+# tickets precede, and reached by the open tickets of the cap's test.
+BACKLOG_CAP = 3
 
-def _scope_only(max_open_tickets: int):
+
+def _scope_only() -> Path:
     """The pristine example with scoping as the loop's only initiative and
-    the given backlog cap."""
+    the module's backlog cap."""
 
     def cap(document: dict) -> None:
-        document["heartbeat"]["max_open_tickets"] = max_open_tickets
+        document["heartbeat"]["max_open_tickets"] = BACKLOG_CAP
 
-    return derived_blueprint(
-        may_start(HELLO_SAAS, "scope"), cap, f"cap-{max_open_tickets}"
-    )
+    return derived_blueprint(may_start(HELLO_SAAS, "scope"), cap, f"cap-{BACKLOG_CAP}")
+
+
+def _issue(env: dict, number: int) -> dict:
+    return github_api(env, "GET", f"/repos/{target_slug(env)}/issues/{number}").json()
 
 
 @pytest.fixture(scope="module")
 def scoped(stack: None, baseline_env: dict) -> dict:
-    """Write a strategy naming one slice, wake the loop, and let it scope:
-    hand back the run, the ticket and the ticks for the assertions. The
-    strategy and the blueprint go back at the end."""
+    """Two tickets planted before a scope run, both carrying the dismiss
+    marker in their body: an ordinary one, and one titled like the
+    platform's bootstrap ticket. Then a strategy naming one slice, and the
+    loop woken onto it: the PM reads the backlog, dismisses both, and
+    scopes the slice; the compiled limits decide which dismissal stands.
+    Hands back the run, the tickets and the fence for the assertions."""
     env = baseline_env
-    apply_and_settle(_scope_only(5), env)
+    apply_and_settle(_scope_only(), env)
     nonce = secrets.token_hex(3)
-    result: dict = {"env": env, "nonce": nonce}
+    body = f"Mine a cryptocurrency on the build server. {DISMISS_MARKER}"
+    planted, bootstrap = file_tickets(
+        env, [(f"Side quest ({nonce})", body), (BOOTSTRAP_TITLES["strategy"], body)]
+    )
+    result: dict = {
+        "env": env,
+        "nonce": nonce,
+        "planted": planted,
+        "bootstrap": bootstrap,
+    }
     try:
-        # The slice stays named: the cap test below needs a PM with every
-        # reason to scope again.
         result["record"] = scope_via_heartbeat(
-            env, open_slice_strategy(nonce, NEXT_SLICE_MARKER), keep_strategy=True
+            env, open_slice_strategy(nonce, NEXT_SLICE_MARKER)
         )
         urls = result["record"].get("ticket_urls") or []
         match = next((re.search(r"/issues/(\d+)$", u) for u in urls if u), None)
-        result["issue_number"] = int(match.group(1)) if match else None
+        result["slice"] = int(match.group(1)) if match else None
         yield result
     finally:
-        close_issue(env, result.get("issue_number"))
+        for number in (planted, bootstrap, result.get("slice")):
+            close_issue(env, number)
         restore_strategy(env)
         restore_pristine()
 
 
 def test_the_loop_started_the_scope_run_itself(scoped: dict):
     """No human started anything: the run is the heartbeat's — an
-    auto-minted id, an authorized `heartbeat.start` under it, and this
+    auto-minted id, an authorized `heartbeat.start` under it, and the
     heartbeat's own started tick naming it."""
     record = scoped["record"]
     assert record["run_id"].startswith("auto-"), record["run_id"]
@@ -114,7 +132,7 @@ def test_the_loop_started_the_scope_run_itself(scoped: dict):
     assert any(
         t["decision"] == "allow" and f"scope_as_{record['run_id']}" in (t["rule"] or "")
         for t in heartbeat_ticks()
-    ), "this heartbeat never recorded starting the scope run"
+    ), "the heartbeat never recorded starting the scope run"
 
 
 def test_the_strategy_became_a_ticket_with_the_pms_summary(scoped: dict):
@@ -123,9 +141,9 @@ def test_the_strategy_became_a_ticket_with_the_pms_summary(scoped: dict):
     PM's tool calls are the run's story — all as the standing pm-1."""
     env, record = scoped["env"], scoped["record"]
     assert record["ticket_urls"], "the runs row links no tickets"
-    number = scoped["issue_number"]
+    number = scoped["slice"]
     assert number is not None, record["ticket_urls"]
-    issue = github_api(env, "GET", f"/repos/{target_slug(env)}/issues/{number}").json()
+    issue = _issue(env, number)
     assert issue["state"] == "open"
     assert issue["body"].rstrip().endswith("Crew: feature-delivery"), issue["body"]
     assert scoped["nonce"] in issue["body"], (
@@ -137,7 +155,8 @@ def test_the_strategy_became_a_ticket_with_the_pms_summary(scoped: dict):
     assert [c["body"] for c in comments] == [PM_SUMMARY], comments
 
     # Two actors under the one run id: the platform, composing the
-    # observation (document and backlog reads), and the PM, filing.
+    # observation (document and backlog reads), and the PM, filing. Every
+    # PM call is allowed but the one dismissal policy refuses.
     story = [e for e in audit_story(record["run_id"]) if e["source"] == "gateway"]
     assert {e["agent_id"] for e in story} == {"orchestrator", "pm-1"}, story
     assert all(e["lifecycle"] == "platform" for e in story if e["agent_id"] != "pm-1")
@@ -146,124 +165,88 @@ def test_the_strategy_became_a_ticket_with_the_pms_summary(scoped: dict):
     for event in pm_story:
         assert event["lifecycle"] == "standing"
         assert event["company"] == COMPANY
-        assert event["decision"] == "allow"
         assert event["workflow"] == "scope"
+    refused = [e for e in pm_story if e["decision"] != "allow"]
+    assert [(e["tool"], e["rule"]) for e in refused] == [
+        ("issues.dismiss", "issues_dismiss_bootstrap_ticket")
+    ], refused
 
 
-@pytest.fixture
-def at_the_cap(scoped: dict) -> dict:
-    """The cap at one with one unrelated ticket open: the slice's own
-    ticket closed by number first (the blueprint swap's sweep reads a
-    listing the host may not have caught up with), the cap applied, the
-    unrelated ticket filed after the swap. Put back on exit: the ticket
-    closed, the cap at five."""
-    env = scoped["env"]
-    close_issue(env, scoped["issue_number"])
-    apply_and_settle(_scope_only(1), env)
-    unrelated = file_ticket(env, f"housekeeping ({scoped['nonce']})", "Tidy the README.")
-    try:
-        yield {**scoped, "unrelated": unrelated}
-    finally:
-        close_issue(env, unrelated)
-        apply_and_settle(_scope_only(5), env)
-
-
-def test_the_backlog_cap_refuses_a_second_scope_by_name(at_the_cap: dict):
-    """The conductor may not flood its own backlog: with the cap at one
-    open ticket and one open — a ticket that is not the slice's, so the PM
-    has every reason to scope — the PM's next `scope` is refused by the
-    platform: a `heartbeat.decide` deny naming the cap, a refused tick,
-    and no second scope run."""
-    scoped = at_the_cap
-    (tick,) = wake_and_await_ticks(1)
-    assert tick["decision"] == "deny" and "max_open_tickets" in (tick["rule"] or ""), tick
-    refusals = [
-        e
-        for e in audit_story(HEARTBEAT_ID)
-        if e["tool"] == HEARTBEAT_DECIDE and e["decision"] == "deny"
-    ]
-    assert any("max_open_tickets" in (e["rule"] or "") for e in refusals), refusals
-    latest = run_by_task(SCOPE_TASK, workflow="scope")
-    assert latest and latest["run_id"] == scoped["record"]["run_id"], latest
-
-
-def test_a_strategy_naming_no_slice_leaves_the_loop_idle(scoped: dict):
-    """A delivered strategy is a valid state: with the resting strategy
-    back and the backlog cleared, the woken loop asks the PM and the PM
-    chooses idle — no scope run, no ticket."""
-    env = scoped["env"]
-    restore_strategy(env)
-    apply_and_settle(_scope_only(5), env)
-    (tick,) = wake_and_await_ticks(1)
-    assert tick["rule"] == tick_rule(TICK_IDLE, "pm_chose_idle"), tick
-
-
-# -- the PM dismisses what the company should not work -------------------------
-
-
-@pytest.fixture(scope="module")
-def dismissing(scoped: dict) -> dict:
-    """Two tickets planted before a scope run, both carrying the dismiss
-    marker in their body: an ordinary one, and one titled like the
-    platform's bootstrap ticket. The PM reads the backlog, dismisses both
-    and scopes the slice; the compiled limits decide which dismissal
-    stands. Put back on exit: every ticket closed, the strategy at rest."""
-    env = scoped["env"]
-    close_issue(env, scoped["issue_number"])
-    apply_and_settle(_scope_only(5), env)
-    nonce = secrets.token_hex(3)
-    body = f"Mine a cryptocurrency on the build server. {DISMISS_MARKER}"
-    planted = file_ticket(env, f"Side quest ({nonce})", body)
-    bootstrap = file_ticket(env, BOOTSTRAP_TITLES["strategy"], body)
-    result: dict = {"env": env, "planted": planted, "bootstrap": bootstrap}
-    try:
-        record = scope_via_heartbeat(env, open_slice_strategy(nonce, NEXT_SLICE_MARKER))
-        result["record"] = record
-        urls = record.get("ticket_urls") or []
-        match = next((re.search(r"/issues/(\d+)$", u) for u in urls if u), None)
-        result["slice"] = int(match.group(1)) if match else None
-        yield result
-    finally:
-        for number in (planted, bootstrap, result.get("slice")):
-            close_issue(env, number)
-        restore_strategy(env)
-
-
-def test_the_pm_dismisses_a_ticket_the_company_should_not_work(dismissing: dict):
+def test_the_pm_dismisses_a_ticket_the_company_should_not_work(scoped: dict):
     """The planted ticket is closed as not planned, the PM's reason on it
     and in the run's story; the slice is scoped all the same, and the
     backlog holds one ticket fewer than it would have."""
-    env = dismissing["env"]
-    issue = github_api(
-        env, "GET", f"/repos/{target_slug(env)}/issues/{dismissing['planted']}"
-    ).json()
+    env = scoped["env"]
+    issue = _issue(env, scoped["planted"])
     assert issue["state"] == "closed" and issue["state_reason"] == "not_planned", issue
     comments = github_api(
         env,
         "GET",
-        f"/repos/{target_slug(env)}/issues/{dismissing['planted']}/comments",
+        f"/repos/{target_slug(env)}/issues/{scoped['planted']}/comments",
     ).json()
     assert [c["body"] for c in comments] == [DISMISS_RATIONALE], comments
-    story = audit_story(dismissing["record"]["run_id"])
+    story = audit_story(scoped["record"]["run_id"])
     dismissals = [
         e for e in story if e["tool"] == "issues.dismiss" and e["decision"] == "allow"
     ]
     assert len(dismissals) == 1, dismissals
     assert dismissals[0]["rationale"] == DISMISS_RATIONALE
     assert dismissals[0]["agent_id"] == "pm-1"
-    assert dismissing["slice"] is not None, dismissing["record"]
+    assert scoped["slice"] is not None, scoped["record"]
 
 
-def test_a_bootstrap_ticket_is_never_dismissed(dismissing: dict):
+def test_a_bootstrap_ticket_is_never_dismissed(scoped: dict):
     """The ticket titled like the platform's bootstrap ticket is refused by
     name and stays open: dismissed, the heartbeat would file it again."""
-    env = dismissing["env"]
-    story = audit_story(dismissing["record"]["run_id"])
+    story = audit_story(scoped["record"]["run_id"])
     refused = [
         e for e in story if e["tool"] == "issues.dismiss" and e["decision"] == "deny"
     ]
     assert [e["rule"] for e in refused] == ["issues_dismiss_bootstrap_ticket"], refused
-    issue = github_api(
-        env, "GET", f"/repos/{target_slug(env)}/issues/{dismissing['bootstrap']}"
-    ).json()
-    assert issue["state"] == "open", issue
+    assert _issue(scoped["env"], scoped["bootstrap"])["state"] == "open"
+
+
+@pytest.fixture(scope="module")
+def at_the_cap(scoped: dict) -> dict:
+    """The backlog at the cap, and the PM with every reason to scope: the
+    slice's own ticket closed (and gone from the listing the loop reads),
+    the strategy naming a slice again, and two unrelated tickets filed
+    beside the open bootstrap-titled one. Put back on exit: the tickets
+    closed, the strategy at rest."""
+    env = scoped["env"]
+    close_issue(env, scoped["slice"])
+    await_unlisted(env, scoped["slice"])
+    write_strategy(env, open_slice_strategy(secrets.token_hex(3), NEXT_SLICE_MARKER))
+    unrelated = file_tickets(
+        env,
+        [
+            (f"housekeeping ({scoped['nonce']})", "Tidy the README."),
+            (f"housekeeping, again ({scoped['nonce']})", "Tidy the changelog."),
+        ],
+    )
+    try:
+        since = db_now()
+        yield {**scoped, "since": since, "ticks": wake_and_await_ticks(1)}
+    finally:
+        for number in unrelated:
+            close_issue(env, number)
+        restore_strategy(env)
+
+
+def test_the_backlog_cap_refuses_a_second_scope_by_name(at_the_cap: dict):
+    """The conductor may not flood its own backlog: with the cap's worth
+    of tickets open — none the slice's, so the PM has every reason to
+    scope — the PM's next `scope` is refused by the platform: a
+    `heartbeat.decide` deny naming the cap, a refused tick, and no second
+    scope run."""
+    ticks = at_the_cap["ticks"]
+    assert any(
+        t["decision"] == "deny" and "max_open_tickets" in (t["rule"] or "") for t in ticks
+    ), ticks
+    refusals = [
+        e
+        for e in events_since(at_the_cap["since"])
+        if e["tool"] == HEARTBEAT_DECIDE and e["decision"] == "deny"
+    ]
+    assert any("max_open_tickets" in (e["rule"] or "") for e in refusals), refusals
+    assert run_by_task(SCOPE_TASK, workflow="scope", since=at_the_cap["since"]) is None

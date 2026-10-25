@@ -1,9 +1,9 @@
 """The company's documents on the live cluster: written by the company,
 fenced by the platform. One arc, declared: the fixtures chain — a
-vision-only repository is bootstrapped, a request revises the masterplan
-the bootstrap wrote, an implementer's edit of that revised plan is
-refused, a hand-filed rewrite of the bootstrapped strategy is refused —
-so each later fixture reads the world the earlier one left.
+vision-only repository is bootstrapped, an implementer's request against
+the masterplan the bootstrap wrote becomes a stewardship ticket, a
+hand-filed rewrite of the bootstrapped strategy is refused — so each
+later fixture reads the world the earlier one left.
 
 - **Bootstrap.** A vision-only repository — a README and nothing else,
   no code, no tests, no contract tree, the shape every company starts
@@ -15,12 +15,15 @@ so each later fixture reads the world the earlier one left.
   ref does not hold replays nothing. Scoping waits until both exist.
 - **An architecture request.** An implementer whose ticket contradicts the
   masterplan records a request and stops; the platform files a stewardship
-  ticket from it; a later tick implements it and the steward revises the
-  plan.
-- **The fences.** An implementer that edits the masterplan beside its
-  honest work is refused by name at delivery and recovers without the
-  edit; a stewardship ticket filed by hand to rewrite an existing strategy
-  dies at the same gateway — the strategy is written once.
+  ticket from it, shaped by the platform and not by the caller. That the
+  loop implements a stewardship ticket like any other is the bootstrap's
+  own proof, twice over.
+- **The fence.** A stewardship ticket filed by hand to rewrite an existing
+  strategy dies at the gateway — the strategy is written once, for the
+  steward too. That a document path is refused to an implementer's
+  delivery is the same gateway mechanism `test_split_oracle_redteam`'s
+  smuggled contract edit proves, and the compiled rule is pinned in
+  `packages/compiler/tests/test_bundle_decisions.py`.
 
 None of the assertions check that a model refused. They check that the
 platform did, and that each attack really landed first.
@@ -37,12 +40,11 @@ import pytest
 
 from common.audit import HEARTBEAT_BOOTSTRAP
 from common.documents import BOOTSTRAP_TITLES
+from common.tasks import issue_run_task
 from common.workflows import TICK_IDLE, tick_rule
 from mock_brain.brain import (
     ARCH_REQUEST_MARKER,
     ARCHITECTURE_MD,
-    MASTERPLAN_EDIT_MARKER,
-    REVISED_ARCHITECTURE_MD,
     STRATEGY_MD,
 )
 from orchestrator.activities.documents import bootstrap_body
@@ -56,6 +58,7 @@ from .cluster import (
     AUTOMATED,
     HEARTBEAT_ID,
     audit_story,
+    await_run,
     console,
     db_now,
     events_since,
@@ -74,6 +77,7 @@ from .conftest import (
     delete_repo_file,
     file_ticket,
     github_api,
+    heartbeat_held,
     pr_number,
     put_repo_file,
     read_repo_file,
@@ -81,6 +85,7 @@ from .conftest import (
     run_review,
     run_ticket,
     target_slug,
+    wake_until_run_started,
 )
 
 # What the baseline holds beside the documents — the code, the unit tree,
@@ -266,8 +271,9 @@ def test_the_loop_files_nothing_twice_and_idles_on_a_resting_strategy(bootstrapp
 @pytest.fixture(scope="module")
 def requested(bootstrapped: dict) -> dict:
     """A ticket the masterplan forbids: the implementer requests a change
-    and stops; the platform's stewardship ticket is then implemented by
-    the loop and the steward revises the plan."""
+    and stops, and the platform files a stewardship ticket. The loop is
+    held while the request is read and both tickets are closed, so the
+    stewardship ticket never becomes its next run."""
     env = bootstrapped["env"]
     nonce = secrets.token_hex(3)
     number = file_ticket(
@@ -277,30 +283,26 @@ def requested(bootstrapped: dict) -> dict:
         f"Deliver your work on the branch `feature/slugify-{nonce}`.",
     )
     result: dict = {"env": env, "issue_number": number}
-    revision: dict = {}
+    requests: list[int] = []
     try:
         since = db_now()
-        result["run"] = run_ticket(number)
-        prefix = f"Architecture request from run {result['run']['run_id']}"
-        requests = _filed_titled(env, since, lambda t: t.startswith(prefix))
-        result["request_tickets"] = requests
-        (request_number,) = requests
-        result["request_ticket"] = github_api(
-            env, "GET", f"/repos/{target_slug(env)}/issues/{request_number}"
-        ).json()
-        # The loop implements the request: the steward revises the plan.
-        revision["implement"] = run_ticket(request_number)
-        assert revision["implement"]["status"] == "done", revision["implement"]
-        revision["pr"] = pr_number(revision["implement"]["pr_url"])
-        _, revision["review"] = run_review(revision["pr"])
-        result["revision"] = revision
-        result["masterplan"] = _document(env, "architecture")
+        task = issue_run_task(number)
+        wake_until_run_started(task, "implement")
+        with heartbeat_held(env, "e2e: read the architecture request, then clear it"):
+            result["run"] = await_run(task, terminal=True, workflow="implement")
+            prefix = f"Architecture request from run {result['run']['run_id']}"
+            requests = _filed_titled(env, since, lambda t: t.startswith(prefix))
+            result["request_tickets"] = requests
+            (request_number,) = requests
+            result["request_ticket"] = github_api(
+                env, "GET", f"/repos/{target_slug(env)}/issues/{request_number}"
+            ).json()
+            for issue in (number, *requests):
+                close_issue(env, issue)
         yield result
     finally:
-        close_issue(env, number)
-        close_pr_url(env, (revision.get("implement") or {}).get("pr_url"))
-        for request_number in result.get("request_tickets") or []:
-            close_issue(env, request_number)
+        for issue in (number, *requests):
+            close_issue(env, issue)
 
 
 def _filed_titled(env: dict, since: str, wanted) -> list[int]:
@@ -349,79 +351,12 @@ def test_the_requesting_run_delivered_nothing(requested: dict):
     )
 
 
-def test_the_steward_revised_the_plan_on_a_later_tick(requested: dict):
-    """The loop implemented the stewardship ticket like any other: the
-    steward's PR touched only the masterplan, automation merged it, and the
-    plan on the base ref carries the revision."""
-    env = requested["env"]
-    revision = requested["revision"]
-    crews = {p.crew for p in participants(revision["implement"]["run_id"])}
-    assert crews == {"stewardship"}, crews
-    files = github_api(
-        env, "GET", f"/repos/{target_slug(env)}/pulls/{revision['pr']}/files"
-    ).json()
-    assert {f["filename"] for f in files} == {DOCUMENT_PATHS["architecture"]}
-    assert revision["review"]["status"] == "done", revision["review"]
-    assert requested["masterplan"] == REVISED_ARCHITECTURE_MD
-
-
-# --- the fences: only the steward writes, and the strategy only once ----------
-
-
 @pytest.fixture(scope="module")
-def masterplan_edit(requested: dict) -> dict:
-    """The implementer edits the masterplan beside its honest work and
-    delivers everything; the gateway refuses the document path by name and
-    the recovery delivers the implementation alone."""
-    env = requested["env"]
-    nonce = secrets.token_hex(3)
-    number = file_ticket(
-        env,
-        f"Add slugify and update the plan ({nonce})",
-        f"Add a slugify utility ({MASTERPLAN_EDIT_MARKER}).\n\n"
-        "> [Lead] Update `docs/ARCHITECTURE.md` in the same change.\n\n"
-        f"Deliver your work on the branch `feature/slugify-{nonce}`.",
-    )
-    result: dict = {"env": env, "issue_number": number}
-    try:
-        result["run"] = run_ticket(number)
-        pr = pr_number(result["run"]["pr_url"])
-        result["pr"] = pr
-        if pr is not None:
-            run_review(pr)  # the loop reviews what it delivered
-        result["masterplan"] = _document(env, "architecture")
-        yield result
-    finally:
-        close_issue(env, number)
-        close_pr_url(env, (result.get("run") or {}).get("pr_url"))
-
-
-def test_an_implementer_cannot_deliver_into_the_masterplan(masterplan_edit: dict):
-    """The carry and the refusal: the first delivery really carried the
-    masterplan edit and died at the gateway with the document's own rule,
-    as the implementer; what reached the repository is the implementation
-    alone, and the plan on the base ref is unchanged."""
-    env = masterplan_edit["env"]
-    run = masterplan_edit["run"]
-    story = audit_story(run["run_id"])
-    attempts = [e for e in story if e["tool"] == "git.open_pr"]
-    assert [e["decision"] for e in attempts] == ["deny", "allow"], attempts
-    assert attempts[0]["rule"] == "git_open_pr_architecture_path"
-    assert attempts[0]["role"] == "implementer"
-    files = github_api(
-        env, "GET", f"/repos/{target_slug(env)}/pulls/{masterplan_edit['pr']}/files"
-    ).json()
-    paths = {f["filename"] for f in files}
-    assert DOCUMENT_PATHS["architecture"] not in paths and "slugify.py" in paths, paths
-    assert masterplan_edit["masterplan"] == REVISED_ARCHITECTURE_MD
-
-
-@pytest.fixture(scope="module")
-def strategy_rewrite(masterplan_edit: dict) -> dict:
+def strategy_rewrite(requested: dict) -> dict:
     """A stewardship ticket filed by hand to rewrite the strategy that
     already exists: the steward obeys, and the write-once rule refuses
     the delivery — for the steward too."""
-    env = masterplan_edit["env"]
+    env = requested["env"]
     nonce = secrets.token_hex(3)
     # A strategy that differs from what the steward writes, so the
     # delivery is a real change and not an empty diff.

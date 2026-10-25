@@ -22,18 +22,17 @@ the platform did:
 - the loop observes the world, not its own ledger: once a human merges the
   delivered PR by hand, the next tick is idle on an empty backlog — it
   never starts a review doomed to die at a deleted branch;
-- an aborted run is not the company's last word: a review that dies
-  without a verdict leaves its PR for one more try under the blueprint's
-  `max_attempts`, the run that spends the last attempt records the
-  exhaustion and refuses the PR, the ticket comes back for one more
-  delivery, and once its attempts are spent it closes as not planned — no
-  third attempt is ever started.
+- a review that dies without a verdict spends an attempt: the run that
+  spends the last one records the exhaustion and refuses the PR, the
+  refusal spends the ticket's last attempt, and the ticket closes as not
+  planned — no further attempt is ever started. That an attempt short of
+  the last leaves the work for one more try is the heartbeat's own tests'.
 
 The module arrives on the example with `may_start: [implement]` — a
 delivered PR waits for the world instead of being reviewed on the next
-wake, which the merged-by-hand arc needs — and the example as shipped
-(review startable again) is applied mid-module for the aborted-review
-arc. The pristine blueprint is restored after.
+wake, which the merged-by-hand arc needs — and the one-shot example
+(review startable again, `max_attempts: 1`) is applied mid-module for the
+aborted-review arc. The pristine blueprint is restored after.
 """
 
 import secrets
@@ -44,13 +43,14 @@ import pytest
 from common.audit import gate_event
 from common.policy import HEARTBEAT_START
 from common.tasks import issue_run_task, review_run_task
-from common.workflows import ATTEMPTS_GATE, TICK_IDLE, TICK_STARTED, tick_rule
+from common.workflows import ATTEMPTS_GATE, TICK_IDLE, tick_rule
 from mock_brain.brain import REVIEW_ABORT_MARKER
 
 from .blueprints import (
     apply_blueprint,
     may_start,
     restore_pristine,
+    single_attempt,
     wait_for_convergence,
 )
 from .cluster import (
@@ -265,20 +265,18 @@ def _terminal_runs(task: str, workflow: str, count: int) -> list[dict]:
 
 @pytest.fixture(scope="module")
 def abandoned_review(merged_by_hand: dict, env: dict) -> dict:
-    """A reviewer that dies without a verdict, on the mock: an issue whose title carries
-    `REVIEW_ABORT_MARKER` is implemented unattended, its PR delivered with
-    the marker in the title, and every review of that PR posts findings
+    """A reviewer that dies without a verdict, on the mock: an issue whose
+    title carries `REVIEW_ABORT_MARKER` is implemented unattended, its PR
+    delivered with the marker in the title, and its review posts findings
     but never reaches a verdict — the shape of a paid reviewer dying of a
-    timed-out model call. Under the blueprint's `max_attempts: 2` the
-    heartbeat tries the review twice and stops, the exhaustion on the
-    record and the PR refused; the ticket comes back for a second
-    delivery, whose reviews die the same way, and the ticket, its attempts
-    spent, closes as not planned. Reviews are startable again here: the
-    fixture re-applies the example as shipped — grant-by-diff, the same
-    reviewable edit as any other — and the standing workflow reads the
-    new section on its next tick. Requested after `merged_by_hand`,
-    so the world is settled: the earlier PR is merged, the earlier issue
-    consumed, and the heartbeat has one candidate at a time."""
+    timed-out model call. Under the one-shot blueprint (`max_attempts: 1`)
+    that review spends the PR's one attempt and refuses it, and the refusal
+    spends the ticket's one attempt. Reviews are startable again here: the
+    fixture applies the one-shot example — grant-by-diff, the same
+    reviewable edit as any other — and the heartbeat reads the new section
+    on its next tick. Requested after `merged_by_hand`, so the world is
+    settled: the earlier PR is merged, the earlier issue consumed, and the
+    heartbeat has one candidate at a time."""
     nonce = secrets.token_hex(3)
     issue_number = file_ticket(
         env,
@@ -288,7 +286,7 @@ def abandoned_review(merged_by_hand: dict, env: dict) -> dict:
     )
     result: dict = {"issue_number": issue_number}
 
-    apply_blueprint(HELLO_SAAS)
+    apply_blueprint(single_attempt(HELLO_SAAS))
     wait_for_convergence()
 
     implement = run_ticket(issue_number)
@@ -297,19 +295,9 @@ def abandoned_review(merged_by_hand: dict, env: dict) -> dict:
     assert number is not None, f"not a PR url: {implement['pr_url']!r}"
     result["implement"] = implement
     result["pr_number"] = number
-    result["reviews"] = _terminal_runs(review_run_task(number), "review", 2)
-    # The PR is refused and its ticket comes back: a second delivery, and
-    # its two reviews, die the same way.
-    implements = _terminal_runs(issue_run_task(issue_number), "implement", 2)
-    second = implements[1]
-    assert second["status"] == "done", f"the second delivery: {second}"
-    second_number = pr_number(second["pr_url"])
-    assert second_number not in (None, number), second
-    result["implements"] = implements
-    result["second_pr_number"] = second_number
-    result["second_reviews"] = _terminal_runs(review_run_task(second_number), "review", 2)
-    # The last review's finishing nudge yields the first post-exhaustion
-    # tick; wait for it, then compress two reconcile looks into now.
+    _terminal_runs(review_run_task(number), "review", 1)
+    # The review's finishing nudge yields the first tick after the
+    # exhaustion; wait for it, then compress two reconcile looks into now.
     deadline = time.monotonic() + 300
     while time.monotonic() < deadline:
         ticks = heartbeat_ticks()
@@ -320,9 +308,6 @@ def abandoned_review(merged_by_hand: dict, env: dict) -> dict:
     for _ in range(2):
         wake_and_await_ticks(1)
     result["reviews"] = runs_by_task(review_run_task(number), workflow="review")
-    result["second_reviews"] = runs_by_task(
-        review_run_task(second_number), workflow="review"
-    )
     result["implements"] = runs_by_task(
         issue_run_task(issue_number), workflow="implement"
     )
@@ -347,50 +332,23 @@ def _comments(env: dict, number: int) -> list[str]:
     ]
 
 
-def test_an_aborted_review_is_offered_again(abandoned_review: dict):
-    """The first review died without a verdict. That is no conclusion, so
-    the PR stayed on the backlog and the next tick started a second review
-    of the same PR — this heartbeat's own started tick names it — under a
-    fresh run id. The marker makes the verdict-less abort reproducible,
-    but *why* a run aborted is incidental to the rule: a reviewer that
-    could not even post its findings (the git host unreachable for a
-    moment) reached no verdict either, and is treated the same."""
-    first, second = abandoned_review["reviews"][:2]
-    assert first["status"] == "failed", first
-    assert first["verdict"] is None, first
-    assert second["run_id"] != first["run_id"]
-    number = abandoned_review["pr_number"]
-    started = [
-        t
-        for t in abandoned_review["ticks"]
-        if t["decision"] == "allow" and f"review_{number}_as_" in (t["rule"] or "")
-    ]
-    assert [t["rule"] for t in started] == [
-        tick_rule(TICK_STARTED, f"review_{number}_as_{first['run_id']}"),
-        tick_rule(TICK_STARTED, f"review_{number}_as_{second['run_id']}"),
-    ]
-
-
-def test_the_run_that_spent_the_last_attempt_recorded_it_and_refused_the_pr(
+def test_the_review_that_spent_the_last_attempt_recorded_it_and_refused_the_pr(
     abandoned_review: dict, env: dict
 ):
-    """The second review died the same way and was the last the blueprint
-    allows: its story carries `gate.heartbeat_attempts` / `gate_exhausted`
-    (the first's does not — it left an attempt), and the PR is refused —
-    closed, the notice on it under the platform identity."""
-    first, second = abandoned_review["reviews"][:2]
-    assert second["status"] == "failed" and second["verdict"] is None, second
+    """The review died without a verdict and was the last the blueprint
+    allows: its story carries `gate.heartbeat_attempts` / `gate_exhausted`,
+    and the PR is refused — closed, the notice on it under the platform
+    identity."""
+    (review,) = abandoned_review["reviews"]
+    assert review["status"] == "failed" and review["verdict"] is None, review
     exhausted = [
         e
-        for e in audit_story(second["run_id"])
+        for e in audit_story(review["run_id"])
         if e["tool"] == gate_event(ATTEMPTS_GATE) and e["rule"] == "gate_exhausted"
     ]
     assert exhausted, "no exhaustion event under the last attempt's run id"
     assert all(
         e["source"] == "process-gate" and e["decision"] == "deny" for e in exhausted
-    )
-    assert not any(
-        e["tool"] == gate_event(ATTEMPTS_GATE) for e in audit_story(first["run_id"])
     )
     number = abandoned_review["pr_number"]
     assert any("max_attempts" in body for body in _comments(env, number)), (
@@ -400,27 +358,14 @@ def test_the_run_that_spent_the_last_attempt_recorded_it_and_refused_the_pr(
     assert pull["state"] == "closed" and pull["merged"] is False
 
 
-def test_the_refused_pr_gave_its_ticket_back_for_one_more_delivery(
-    abandoned_review: dict, env: dict
-):
-    """The refusal spent one of the ticket's two attempts and gave it back:
-    the ticket says so, and the loop delivered it a second time on its
-    own."""
-    first, second = abandoned_review["implements"][:2]
-    assert first["pr_settled"] == "refused", first
-    assert second["run_id"] != first["run_id"] and second["pr_url"] != first["pr_url"]
-    assert any(
-        "back on the backlog: attempt 1 of 2" in body
-        for body in _comments(env, abandoned_review["issue_number"])
-    )
-
-
 def test_a_ticket_with_its_attempts_spent_closes_as_not_planned(
     abandoned_review: dict, env: dict
 ):
-    """The second delivery's reviews died too: that refusal spent the
-    ticket's last attempt, and the ticket closed as not planned, the
+    """The refused PR spent the ticket's last attempt: the delivery is on
+    the record as refused, and the ticket closed as not planned, the
     notice on it."""
+    (delivery,) = abandoned_review["implements"]
+    assert delivery["pr_settled"] == "refused", delivery
     issue = abandoned_review["issue"]
     assert issue["state"] == "closed", issue
     assert issue.get("state_reason") == "not_planned", issue
@@ -430,17 +375,14 @@ def test_a_ticket_with_its_attempts_spent_closes_as_not_planned(
     )
 
 
-def test_no_third_attempt_and_the_loop_goes_idle(abandoned_review: dict):
-    """`max_attempts: 2` is a bound, not a retry loop: two reviews of each
-    delivery, two deliveries of the ticket, and the ticks after the last
-    start are idle — the company has stopped trying without a human. With
-    scoping startable the idle is the PM's: asked whether to scope, it
-    finds nothing in the resting strategy."""
-    assert len(abandoned_review["reviews"]) == 2, abandoned_review["reviews"]
-    assert len(abandoned_review["second_reviews"]) == 2, abandoned_review[
-        "second_reviews"
-    ]
-    assert len(abandoned_review["implements"]) == 2, abandoned_review["implements"]
+def test_no_second_attempt_and_the_loop_goes_idle(abandoned_review: dict):
+    """`max_attempts: 1` is a bound, not a retry loop: one review, one
+    delivery, and the ticks after the last start are idle — the company
+    has stopped trying without a human. With scoping startable the idle is
+    the PM's: asked whether to scope, it finds nothing in the resting
+    strategy."""
+    assert len(abandoned_review["reviews"]) == 1, abandoned_review["reviews"]
+    assert len(abandoned_review["implements"]) == 1, abandoned_review["implements"]
     ticks = abandoned_review["ticks"]
     last_start = max(i for i, t in enumerate(ticks) if t["decision"] == "allow")
     after = [t["rule"] for t in ticks[last_start + 1 :]]

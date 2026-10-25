@@ -93,7 +93,7 @@ import os
 import re
 import secrets
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -153,13 +153,12 @@ DOCUMENT_PATHS: dict[str, str] = yaml.safe_load(HELLO_SAAS.read_text())["company
 ]
 
 # The modules that must run after everything else, in this order: the
-# acceptance capstone reads what the whole suite produced; the two
-# autonomy capstones add runs of their own; the delete erases every row
-# and history the session made, so nothing after it may read them; the
-# quiet check comes last.
+# acceptance capstone reads what the whole suite produced; the autonomy
+# capstone adds runs of its own; the delete erases every row and history
+# the session made, so nothing after it may read them; the quiet check
+# comes last.
 ORDERED_LAST = [
     "test_acceptance.py",
-    "test_overnight.py",
     "test_automated.py",
     "test_delete.py",
     "test_quiet.py",
@@ -298,27 +297,48 @@ def ticket_body(name: str, nonce: str) -> str:
 
 def file_ticket(env: dict, title: str, body: str) -> int:
     """File one issue on the disposable repo — the backlog entry the
-    standing heartbeat will find — and return its number once the git
-    host lists it. GitHub lists a new issue up to a minute after creating
+    heartbeat will find — and return its number once the git host lists
+    it (see `file_tickets`)."""
+    (number,) = file_tickets(env, [(title, body)])
+    return number
+
+
+def file_tickets(env: dict, tickets: list[tuple[str, str]]) -> list[int]:
+    """File each `(title, body)` and return the numbers once the git host
+    lists them all. GitHub lists a new issue up to a minute after creating
     it, and the loop reads the listing: a ticket the world filed is only
-    filed once the world can see it."""
-    created = github_api(
-        env,
-        "POST",
-        f"/repos/{target_slug(env)}/issues",
-        json={"title": title, "body": body},
-    )
-    assert created.status_code == 201, f"could not file issue: {created.text}"
-    number = int(created.json()["number"])
+    filed once the world can see it. One wait covers the batch."""
+    numbers = []
+    for title, body in tickets:
+        created = github_api(
+            env,
+            "POST",
+            f"/repos/{target_slug(env)}/issues",
+            json={"title": title, "body": body},
+        )
+        assert created.status_code == 201, f"could not file issue: {created.text}"
+        numbers.append(int(created.json()["number"]))
+    _await_listing(env, lambda listed: set(numbers) <= listed, f"issues {numbers}")
+    return numbers
+
+
+def await_unlisted(env: dict, number: int) -> None:
+    """Block until the git host's open listing no longer shows issue
+    `number` — what the loop reads, which lags a close the way it lags a
+    creation."""
+    _await_listing(env, lambda listed: number not in listed, f"issue #{number} closed")
+
+
+def _await_listing(env: dict, done: Callable[[set[int]], bool], what: str) -> None:
     deadline = time.monotonic() + 180
     while time.monotonic() < deadline:
         listed = github_api(
             env, "GET", f"/repos/{target_slug(env)}/issues?state=open&per_page=100"
         ).json()
-        if any(int(i["number"]) == number for i in listed):
-            return number
+        if done({int(i["number"]) for i in listed}):
+            return
         time.sleep(5)
-    raise AssertionError(f"the git host never listed issue #{number}")
+    raise AssertionError(f"the git host's listing never showed {what}")
 
 
 def _kill_worker_when(run_id: str, kill_after: str) -> None:
@@ -793,6 +813,20 @@ def apply_and_settle(path: Path, env: dict, gate_minutes: int = E2E_GATE_MINUTES
     await_heartbeat_asleep()
 
 
+@contextlib.contextmanager
+def heartbeat_held(env: dict, rationale: str) -> Iterator[None]:
+    """Hold the heartbeat for a stretch of a module — a pause through the
+    console, as the owner, lifted on the way out whatever happens. A run in
+    flight finishes; what it leaves behind (a delivered PR, a ticket the
+    platform filed) waits for the module to read and clear it instead of
+    becoming the loop's next run."""
+    console(env).pause(rationale)
+    try:
+        yield
+    finally:
+        lift_pause(env)
+
+
 def lift_pause(env: dict) -> None:
     """Resume a heartbeat a module left paused — through the console, as
     the owner, so the resume is on the record like any other. A loop
@@ -899,7 +933,9 @@ def repo_sweeper(env: dict[str, str]):
 
 @pytest.fixture(scope="session")
 def implement_run(stack: None, env: dict[str, str]) -> dict:
-    """The happy-path run, with the worker killed mid-run: the company's
+    """The happy-path run, with the worker killed mid-run — once the run's
+    crew has its own pod, so the replay on the replacement worker inherits
+    a live sandbox and live ephemeral agents to compensate: the company's
     own implement run on the ticket the suite filed.
 
     The PR's openness-at-birth is verified here, then the PR and the
@@ -909,7 +945,7 @@ def implement_run(stack: None, env: dict[str, str]) -> dict:
     backlog — reviews that race whichever module comes next. The ticket
     closes before the PR: a delivered PR found closed is refused, and an
     open ticket would come back to the loop."""
-    record = run_implement("happy", env, kill_after="sandbox")
+    record = run_implement("happy", env, kill_after="crew")
     record["pr_state_at_birth"] = pr_state(env, record.get("pr_url"))
     # What the delivery carried, read before the branch goes.
     number = pr_number(record.get("pr_url"))
@@ -927,8 +963,11 @@ def implement_run(stack: None, env: dict[str, str]) -> dict:
 @pytest.fixture(scope="session")
 def injected_run(stack: None, env: dict[str, str]) -> dict:
     """The injected ticket — the planted 'hotfix runbook' steers delivery
-    onto `main`, the gateway denies it, the brain recovers onto feature/*.
-    Openness verified at birth, then closed — see `implement_run`."""
+    onto `main`, the gateway denies it, the brain recovers onto feature/*;
+    and, earlier in the same run, the verify-red scenario: the platform's
+    own verify goes red where the implementer's advisory one was green,
+    and a re-dispatch fixes it before delivery is released. Openness
+    verified at birth, then closed — see `implement_run`."""
     record = run_implement("injected", env)
     record["pr_state_at_birth"] = pr_state(env, record.get("pr_url"))
     close_issue(env, record["issue_number"])

@@ -1,34 +1,38 @@
-"""Review on the live cluster: the full chain — the strategy scoped into a
-ticket, a person's `poseidon start implement <number>` implementing it by hand (the
-repro command: no human retypes the spec, and the loop yields the ticket
-to the human), reviewer findings posted, merge gate parked, timer
-escalation observable, API approval, gateway merge — every step correlated
-by run_id in one audit story.
+"""Review on the live cluster, and how a merge gate ends.
 
-The chain runs its own runs (never the shared session fixtures: this
-module *merges* its PR into the disposable repo's main, and nothing else in
-the suite may inherit that side effect). The merge gate leg is timed by
-the gate's `deadline_minutes`: the gate parks, escalates at half of it with
-a real `process-gate` audit event, and only then does the test approve —
-so the escalation path is proven on every run, not just when someone
-forgets to answer.
+The overnight arc, one verdict out: nothing goes in but a strategy naming
+the next slice. The heartbeat scopes it into a ticket, implements the
+ticket (a PR appears), sees the delivered-but-unreviewed PR, reviews it —
+the reviewer's findings posted, its crew fulfilled under the conductor's
+authority — and parks the review on the human merge gate. The one human
+act is the verdict, through the real `poseidon verdict` CLI; the console
+records it under the person's name, the release reads the record, and the
+gateway merges. Every step is correlated by run_id in one audit story.
 
-Applies the example with `may_start: [scope, review]`: the company scopes
-and reviews on its own, and implementing is a human's act here —
-which is what makes `poseidon start implement <number>` a repro rather than a race.
+The concurrency cap does real sequencing work here: `max_concurrent_runs:
+1` is why the review waits for the implement run to finish rather than
+racing it — the company does one thing at a time because the blueprint
+said so.
+
+The arc runs its own runs (never the shared session fixtures: this module
+*merges* its PR into the disposable repo's main, and nothing else in the
+suite may inherit that side effect), under the example as shipped — every
+workflow startable — with merge gates that wait for the person, so the
+gate's outcomes are the park and the verdict; escalation and expiry are
+`test_split_oracle_redteam`'s laundered scenario's.
 
 The merge names the head the review read. A second arc proves it on the
-git host: a pull request the world opened is reviewed by a person's start
-and parks; someone pushes to its branch; the person approves; GitHub
-refuses the pinned merge, the run fails, and the delivery is refused: the
-PR closes with the host's refusal on it.
+git host: a pull request the world opened is reviewed by a person's
+`poseidon start review` and parks; someone pushes to its branch; the
+person approves; GitHub refuses the pinned merge, the run fails, and the
+delivery is refused: the PR closes with the host's refusal on it.
 """
 
 import json
 import re
 import secrets
 import subprocess
-import time
+from collections import Counter
 
 import pytest
 
@@ -40,13 +44,12 @@ from common.audit import (
     LIFECYCLE_REVOKE,
     gate_event,
 )
-from common.policy import GATE_RESOLVE, MERGE_RESOLVE
+from common.policy import GATE_RESOLVE, HEARTBEAT_START, HEARTBEAT_WAKE, MERGE_RESOLVE
 from common.tasks import issue_run_task, review_run_task
 from common.workflows import MERGE_GATE
 from mock_brain.brain import NEXT_SLICE_MARKER
 
 from .blueprints import (
-    E2E_GATE_MINUTES,
     E2E_PATIENT_GATE_MINUTES,
     apply_blueprint,
     may_start,
@@ -62,6 +65,8 @@ from .cluster import (
     console,
     console_env,
     db_now,
+    heartbeat_ticks,
+    human_acts_since,
     kubectl,
     participants,
     run_by_task,
@@ -83,7 +88,7 @@ from .conftest import (
     open_world_pr,
     pr_number,
     put_branch_file,
-    restore_strategy,
+    run_ticket,
     scope_via_heartbeat,
     target_slug,
     ticket_body,
@@ -97,7 +102,7 @@ def _reviewer_id(run_id: str) -> str:
     return ephemeral_agent_id("feature-review", "reviewer", run_id)
 
 
-def _poseidon(env: dict, *args: str, timeout: int = 1800) -> subprocess.CompletedProcess:
+def _poseidon(env: dict, *args: str, timeout: int = 300) -> subprocess.CompletedProcess:
     """The real CLI, as the human `owner` against the cluster's console."""
     proc = subprocess.run(
         ["uv", "run", "poseidon", *args],
@@ -111,59 +116,27 @@ def _poseidon(env: dict, *args: str, timeout: int = 1800) -> subprocess.Complete
     return proc
 
 
-def _poseidon_run(env: dict, issue_number: int) -> dict:
-    """A run by hand: `poseidon start implement <number>` through the real
-    CLI, blocking until the run record prints."""
-    return json.loads(
-        _poseidon(env, "start", "implement", str(issue_number), "--json").stdout
+def _merge_verdict(env: dict, run_id: str):
+    """The run's preview of the approving merge verdict — what a web
+    client's button reads."""
+    return next(
+        view
+        for view in console(env).acts(run_id).acts
+        if view.act == GATE_RESOLVE
+        and view.args.get("gate") == "merge"
+        and view.args.get("approved") is True
     )
-
-
-def _watch_review_gate(env: dict, run_id: str, pr_number: int) -> dict:
-    """Watch the loop's review park on the merge gate, wait for the
-    escalation to land in the audit store, then approve through the real
-    CLI — the exact HITL sequence `poseidon verdict <run> merge approve`
-    answers —
-    and read the run to its end."""
-    await_gate(run_id, "parked-merge_gate")
-
-    # Nobody answers: the timer escalates at half the declared deadline and
-    # the escalation is a real process-gate row — observable, not a log line.
-    deadline = time.monotonic() + E2E_GATE_MINUTES * 60
-    while time.monotonic() < deadline:
-        if any(
-            e["source"] == "process-gate" and e["rule"] == "gate_escalated"
-            for e in audit_story(run_id)
-        ):
-            break
-        time.sleep(2)
-    else:
-        raise AssertionError("no process-gate escalation event before the deadline")
-
-    # The human answers through the console: the verdict is recorded under
-    # their name, then delivered — and the release reads the record.
-    _poseidon(
-        env,
-        "verdict",
-        run_id,
-        "merge",
-        "approve",
-        "--reason",
-        "reviewed: findings are clean",
-        timeout=120,
-    )
-    return await_run(review_run_task(pr_number), terminal=True, workflow="review")
 
 
 @pytest.fixture(scope="module")
 def review_chain(stack: None, baseline_env: dict) -> dict:
-    """The whole arc: the strategy becomes a ticket (the loop's scope run),
-    the ticket becomes a PR (a human's `poseidon start implement`), the PR becomes
-    reviewer findings, a parked gate, an escalation, an approval, and a
-    gateway merge (the loop's review run)."""
+    """The whole arc and every artifact the assertions read: the strategy
+    becomes a ticket, the ticket a PR, the PR reviewer findings and a
+    parked gate — each step the heartbeat's — then the one verdict, through
+    the real CLI, and a gateway merge."""
     env = baseline_env
-    apply_and_settle(may_start(HELLO_SAAS, "scope", "review"), env)
-    chain: dict = {"env": env}
+    apply_and_settle(HELLO_SAAS, env, gate_minutes=E2E_PATIENT_GATE_MINUTES)
+    chain: dict = {"env": env, "since": db_now()}
     nonce = secrets.token_hex(3)
     try:
         # 1. Scope: the strategy names the slice, the loop files the ticket.
@@ -176,25 +149,45 @@ def review_chain(stack: None, baseline_env: dict) -> dict:
         chain["ticket_url"] = ticket_url
         chain["issue_number"] = int(issue_match.group(1))
 
-        # 2. Implement, by hand: a human's repro on the company's own
-        # ticket. The loop may not implement under this blueprint, so the ticket
-        # is a human's to start — and the company's spec, not a
-        # second, human-written one.
-        chain["implement"] = _poseidon_run(env, chain["issue_number"])
+        # 2. Implement: the scope run's finishing nudge wakes the loop onto
+        # the ticket it filed.
+        chain["implement"] = run_ticket(chain["issue_number"])
         pr_url = chain["implement"]["pr_url"]
-        match = re.search(r"/pull/(\d+)$", pr_url or "")
-        assert match, f"implement produced no usable PR: {chain['implement']}"
-        chain["pr_number"] = int(match.group(1))
+        number = pr_number(pr_url)
+        assert number is not None, (
+            f"implement produced no usable PR: {chain['implement']}"
+        )
+        chain["pr_number"] = number
         chain["pr_url"] = pr_url
 
-        # 3. Review, the loop's: findings -> parked gate -> escalation ->
-        # approval -> merge.
-        wake_until_run_started(review_run_task(chain["pr_number"]), "review")
-        review_run = run_by_task(review_run_task(chain["pr_number"]), workflow="review")
-        chain["review_run_id"] = review_run["run_id"]
-        chain["review"] = _watch_review_gate(
-            env, chain["review_run_id"], chain["pr_number"]
+        # 3. Review: the implement's finishing nudge wakes the loop onto the
+        # delivered PR; the review parks on the person.
+        wake_until_run_started(review_run_task(number), "review")
+        run_id = run_by_task(review_run_task(number), workflow="review")["run_id"]
+        chain["review_run_id"] = run_id
+        await_gate(run_id, "parked-merge_gate")
+        chain["parked_pr"] = github_api(
+            env, "GET", f"/repos/{target_slug(env)}/pulls/{number}"
+        ).json()
+
+        # 4. The one human act: the verdict, through the real CLI. The
+        # preview a web client reads says what the act will do, before and
+        # after.
+        chain["preview_before"] = _merge_verdict(env, run_id)
+        _poseidon(
+            env,
+            "verdict",
+            run_id,
+            "merge",
+            "approve",
+            "--reason",
+            "reviewed: findings are clean",
         )
+        chain["preview_after"] = _merge_verdict(env, run_id)
+        chain["review"] = await_run(
+            review_run_task(number), terminal=True, workflow="review"
+        )
+        chain["human_acts"] = human_acts_since(chain["since"])
         yield chain
     finally:
         # The merged PR's branch goes too; the merge itself is what the
@@ -202,12 +195,31 @@ def review_chain(stack: None, baseline_env: dict) -> dict:
         close_issue(env, chain.get("issue_number"))
         if chain.get("pr_number"):
             close_pr(env, chain["pr_number"])
-        restore_strategy(env)
         restore_pristine()
 
 
+def test_the_heartbeat_started_every_run_of_the_arc(review_chain: dict) -> None:
+    """No human started anything: scope, implement and review each ran
+    under an auto-minted id, with an authorized `heartbeat.start` under it
+    and the heartbeat's own started tick naming it."""
+    ticks = heartbeat_ticks()
+    for run_id in (
+        review_chain["scope"]["run_id"],
+        review_chain["implement"]["run_id"],
+        review_chain["review_run_id"],
+    ):
+        assert run_id.startswith("auto-"), run_id
+        assert any(
+            e["tool"] == HEARTBEAT_START and e["decision"] == "allow"
+            for e in audit_story(run_id)
+        ), run_id
+        assert any(
+            t["decision"] == "allow" and run_id in (t["rule"] or "") for t in ticks
+        ), f"the heartbeat never recorded starting {run_id}"
+
+
 def test_the_full_chain_lands_a_human_gated_merge(review_chain: dict) -> None:
-    """The full chain, end to end: ticket, PR, findings, approval,
+    """The full chain, end to end: ticket, PR, findings, verdict,
     merge — and the PR really is merged on GitHub."""
     assert review_chain["scope"]["status"] == "done"
     assert review_chain["scope"]["ticket_urls"], "the scope run filed no tickets"
@@ -233,6 +245,13 @@ def test_the_full_chain_lands_a_human_gated_merge(review_chain: dict) -> None:
     assert pr.json()["merged"] is True, "the gateway merge never landed"
 
 
+def test_nothing_merged_before_the_human_verdict(review_chain: dict) -> None:
+    """The PR read at the moment the gate parked was open and unmerged:
+    the autonomy stops exactly at the merge."""
+    assert review_chain["parked_pr"]["merged"] is False
+    assert review_chain["parked_pr"]["state"] == "open"
+
+
 def test_the_merge_closed_the_ticket_it_fulfilled(review_chain: dict) -> None:
     """The company's own ticket does not outlive its merged work: the
     platform closed it right after the merge, the merge named as the
@@ -245,19 +264,30 @@ def test_the_merge_closed_the_ticket_it_fulfilled(review_chain: dict) -> None:
     )
 
 
-def test_the_run_by_hand_was_the_only_implement(review_chain: dict) -> None:
-    """The loop yielded the ticket: the one implement run on it is the
-    person's (not an auto- id), and no second run raced it."""
-    run = run_by_task(issue_run_task(review_chain["issue_number"]), workflow="implement")
-    assert run and run["run_id"] == review_chain["implement"]["run_id"]
-    assert not run["run_id"].startswith("auto-"), run
-    assert review_chain["review_run_id"].startswith("auto-")
+def test_the_arc_had_exactly_one_human_act(review_chain: dict) -> None:
+    """The claim as an invariant, counted at the console: a person did one
+    thing across the whole arc — the merge verdict. The rest of the
+    console's record is the harness's wakes, standing in for the looks the
+    loop would take on its own."""
+    acts = Counter(review_chain["human_acts"])
+    assert acts.pop(GATE_RESOLVE, 0) == 1, review_chain["human_acts"]
+    assert set(acts) <= {HEARTBEAT_WAKE}, review_chain["human_acts"]
+
+
+def test_the_verdict_preview_says_what_the_act_will(review_chain: dict) -> None:
+    """While the run is parked, the preview allows the person's merge
+    verdict; once answered, the question is no longer asked — refused by
+    the run's state, not by policy."""
+    before, after = review_chain["preview_before"], review_chain["preview_after"]
+    assert before.allowed, before
+    assert not after.allowed and after.refusal.kind == "state", after
+    assert "not parked" in after.refusal.detail or "no workflow" in after.refusal.detail
 
 
 def test_findings_are_posted_by_the_ephemeral_reviewer(review_chain: dict) -> None:
-    """The reviewer is an ephemeral feature-review ephemeral agent under
-    the PM's authority — it reads the diff, executes the suite in its own
-    sandbox (provisioned from the PR ref), and comments on the PR."""
+    """The reviewer is an ephemeral feature-review agent under the PM's
+    authority — it reads the diff, executes the suite in its own sandbox
+    (provisioned from the PR ref), and comments on the PR."""
     run_id = review_chain["review_run_id"]
     reviewer = _reviewer_id(run_id)
     story = audit_story(run_id)
@@ -296,18 +326,18 @@ def test_the_crew_was_fulfilled_under_conductor_authority(review_chain: dict) ->
     assert recorded[0]["lifecycle"] == "standing"
 
 
-def test_gate_escalates_then_records_the_approval(review_chain: dict) -> None:
-    """The park, the escalation, then the verdict: every transition is a
-    process-gate audit event carrying the workflow id, in order."""
+def test_the_gate_parks_then_records_the_verdict(review_chain: dict) -> None:
+    """The park, then the verdict: each transition is a process-gate audit
+    event carrying the workflow id, in order."""
     run_id = review_chain["review_run_id"]
     gate_events = [e for e in audit_story(run_id) if e["source"] == "process-gate"]
     rules = [e["rule"] for e in gate_events]
-    assert rules == ["gate_parked", "gate_escalated", "gate_approved"]
+    assert rules == ["gate_parked", "gate_approved"]
     for event in gate_events:
         assert event["tool"] == gate_event(MERGE_GATE)
         assert event["workflow"] == f"review-{run_id}"
-    parked, escalated, approved = gate_events
-    assert parked["decision"] == escalated["decision"] == "deny"
+    parked, approved = gate_events
+    assert parked["decision"] == "deny"
     assert approved["decision"] == "allow"
 
 
@@ -393,8 +423,8 @@ def test_one_story_spans_every_review_source(review_chain: dict) -> None:
 def moved_head(stack: None, baseline_env: dict) -> dict:
     """A pull request the world opened — the heartbeat observes only the
     PRs the company delivered, so it starts nothing on this one — reviewed
-    by a person's start and parked on the human gate. While it waits, a
-    push moves its branch; then the person approves."""
+    by a person's `poseidon start review` and parked on the human gate.
+    While it waits, a push moves its branch; then the person approves."""
     env = baseline_env
     nonce = secrets.token_hex(3)
     branch = f"feature/moved-{nonce}"
@@ -405,7 +435,8 @@ def moved_head(stack: None, baseline_env: dict) -> dict:
             env, branch, {path: "# Notes\n\nReviewed text.\n"}, f"Add notes ({nonce})"
         )
         result["pr_number"] = number
-        run_id = console().start_run("review", number).run_id
+        started = _poseidon(env, "start", "review", str(number), "--no-wait", "--json")
+        run_id = json.loads(started.stdout)["run_id"]
         result["run_id"] = run_id
         # The workflow writes the run's row; the console knows the run
         # only from then on.
@@ -427,7 +458,7 @@ def moved_head(stack: None, baseline_env: dict) -> dict:
         close_pr(env, result.get("pr_number") or 0)
 
 
-def test_an_approval_of_a_moved_head_merges_nothing(moved_head: dict) -> None:
+def test_an_approving_verdict_on_a_moved_head_merges_nothing(moved_head: dict) -> None:
     """The verdict was recorded and released, the merge named the head the
     run reviewed, and the git host refused it: the run failed by name and
     the PR is refused — closed unmerged, at the commit nobody reviewed,
@@ -458,9 +489,10 @@ def test_an_approval_of_a_moved_head_merges_nothing(moved_head: dict) -> None:
 # One arc on a one-place company whose gates wait for the person: a parked
 # review holds nothing, so the loop takes on the next ticket while it
 # waits; a rejection refuses the delivery and its ticket comes back for
-# another try; and approvals that land after another merge are verified
-# on the moved base — a clean one merges, a conflicting one is refused and
-# its ticket comes back.
+# another try; and an approving verdict that lands after another merge is
+# verified on the moved base — a conflicting one is refused and its ticket
+# comes back. A clean merge onto a moved base is the git backend's own
+# test (`packages/mcp-gateway/tests/test_git_tools.py`).
 
 REJECTION = "e2e: the slug must keep its unicode letters"
 
@@ -551,29 +583,15 @@ def gate_endings(stack: None, baseline_env: dict) -> dict:
         result["a1"], result["a2"], result["b1"] = a1, a2, b1
         a2_review = _parked(a2)
 
-        # The world opens a pull request that merges cleanly anywhere; a
-        # person starts its review. Then the loop may implement no more, so
-        # a ticket that comes back stays on the backlog to be read.
-        w = open_world_pr(
-            env,
-            f"feature/notes-{nonce}",
-            {f"docs/notes-{nonce}.md": "# Notes\n"},
-            f"Add notes ({nonce})",
-        )
-        result["prs"].append(w)
-        result["w"] = w
-        w_review = console().start_run("review", w).run_id
-        await_run(review_run_task(w), terminal=False, workflow="review")
-        await_gate(w_review, "parked-merge_gate")
+        # Then the loop may implement no more, so a ticket that comes back
+        # stays on the backlog to be read.
         apply_blueprint(may_start(HELLO_SAAS, "review"), E2E_PATIENT_GATE_MINUTES)
         wait_for_convergence()
 
-        # Three approvals in turn: the first merges as reviewed; each later
-        # one finds the base moved and is verified on it first.
+        # Two approving verdicts in turn: the first merges as reviewed; the
+        # second finds the base moved and is verified on it first.
         result["a2_record"] = _decided(a2, a2_review, True, "e2e: approve")
         result["a2_story"] = audit_story(a2_review)
-        result["w_record"] = _decided(w, w_review, True, "e2e: approve")
-        result["w_story"] = audit_story(w_review)
         result["b1_record"] = _decided(b1, b1_review, True, "e2e: approve")
         yield result
     finally:
@@ -644,7 +662,7 @@ def test_a_rejection_refuses_the_delivery_and_its_ticket_comes_back(
     assert REJECTION in (attempts[0]["pr_settled_reason"] or "")
 
 
-def test_the_first_approval_merges_as_reviewed(gate_endings: dict) -> None:
+def test_the_first_approving_verdict_merges_as_reviewed(gate_endings: dict) -> None:
     """Nothing merged since its review: the redelivery merges with no
     verify on a moved base, and closes its ticket."""
     env = gate_endings["env"]
@@ -652,26 +670,6 @@ def test_the_first_approval_merges_as_reviewed(gate_endings: dict) -> None:
     assert _pull(env, gate_endings["a2"])["merged"] is True
     assert len(_archives(gate_endings["a2_story"])) == 1
     assert issue_state(env, gate_endings["tickets"][0]) == "closed"
-
-
-def test_a_clean_merge_onto_a_moved_base_is_verified_then_merged(
-    gate_endings: dict,
-) -> None:
-    """The base moved under the world's pull request: the platform built
-    the head merged onto it — a second archive — ran the suite there, and
-    merged on green."""
-    env = gate_endings["env"]
-    assert gate_endings["w_record"]["status"] == "done", gate_endings["w_record"]
-    assert _pull(env, gate_endings["w"])["merged"] is True
-    story = gate_endings["w_story"]
-    assert len(_archives(story)) == 2, _archives(story)
-    approved = next(i for i, e in enumerate(story) if e["rule"] == "gate_approved")
-    verifies = [
-        e
-        for e in story[approved:]
-        if e["tool"] == "sandbox.run_tests" and e["lifecycle"] == "platform"
-    ]
-    assert verifies, "no verify of the merge onto the moved base"
 
 
 def test_a_conflicting_merge_onto_a_moved_base_is_refused(gate_endings: dict) -> None:

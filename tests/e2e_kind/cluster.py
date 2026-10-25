@@ -433,6 +433,21 @@ def events_since(fence: str) -> list[dict[str, Any]]:
     )
 
 
+def human_acts_since(fence: str) -> list[str]:
+    """The acts people performed through the console since `fence` (a
+    `db_now()` value), by act name — what a claim about human acts counts.
+    The harness's own acts are among them: its wakes stand in for a world
+    the loop would look at on its own, its applies for the person who sets
+    the company up."""
+    return [
+        e["tool"]
+        for e in events_since(fence)
+        if e["source"] == "console"
+        and e["lifecycle"] == "human"
+        and e["decision"] == "allow"
+    ]
+
+
 def authn_denies(
     rule: str, principal: str, source: str, since: str
 ) -> list[dict[str, Any]]:

@@ -8,9 +8,11 @@ pod. The happy-path suite passing on this cluster is the full-system proof;
 these tests isolate the credential path.
 
 Negative half: a token with the wrong audience is rejected *and audited*
-— the audit store shows the `authn_*` deny this test caused. The wrong
-ServiceAccount and the wrong namespace are the gateway's own unit tests
-(`packages/mcp-gateway/tests/test_authn.py`).
+— the audit store shows the `authn_*` deny this test caused. A
+ServiceAccount the registry does not know and one named like an agent in
+another namespace are the authentication's own tests
+(`packages/common/tests/test_authn.py`,
+`packages/mcp-gateway/tests/test_authn.py`).
 """
 
 import time
