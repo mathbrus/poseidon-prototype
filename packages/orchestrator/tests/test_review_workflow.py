@@ -524,15 +524,15 @@ async def start_review(client: Client, harness: Harness) -> tuple[Worker, Workfl
     return worker, handle
 
 
-async def wait_for_park(handle: WorkflowHandle) -> None:
+async def wait_for_park(handle: WorkflowHandle, state: str = "parked-merge_gate") -> None:
     """Queries and signals do not advance the time-skipping clock, so the
     park is reached in real time and the gate timers stay unfired until
     the test awaits the result."""
     for _ in range(200):
-        if await handle.query("state") == "parked-merge_gate":
+        if await handle.query("state") == state:
             return
         await asyncio.sleep(0.05)
-    raise AssertionError("the review workflow never parked on the merge gate")
+    raise AssertionError(f"the review workflow never reached {state}")
 
 
 # -- both layers required ---------------------------------------------------
@@ -989,12 +989,7 @@ async def test_a_budget_park_gives_nothing_back(env):
     harness = Harness(merge_gate=None, budget_capped=True)
     worker, handle = await start_review(env.client, harness)
     try:
-        for _ in range(200):
-            if await handle.query("state") == "parked-budget_exhausted":
-                break
-            await asyncio.sleep(0.05)
-        else:
-            raise AssertionError("the review never parked on its budget")
+        await wait_for_park(handle, "parked-budget_exhausted")
         await handle.signal("budget", args=[True])
         record = await handle.result()
     finally:
@@ -1004,6 +999,35 @@ async def test_a_budget_park_gives_nothing_back(env):
     assert harness.vacated == []
     assert harness.torn_down_handles == [{"sandbox": "sbx-1"}]
     assert record["status"] == "done"
+
+
+@pytest.mark.parametrize(
+    ("verdict", "outcomes"),
+    [(False, ["parked", "rejected"]), (None, ["parked", "escalated", "expired"])],
+)
+async def test_a_budget_park_not_approved_ends_the_review_at_its_cap(
+    env, verdict, outcomes
+):
+    """Rejected, or unanswered until the blueprint's deadline, a budget
+    park is never dispatched again: the review reaches no verdict and no
+    merge gate, the run finalizes failed on the cap, and the attempt
+    accounting runs."""
+    harness = Harness(merge_gate=HUMAN_GATE, budget_capped=True)
+    worker, handle = await start_review(env.client, harness)
+    try:
+        await wait_for_park(handle, "parked-budget_exhausted")
+        if verdict is not None:
+            await handle.signal("budget", args=[verdict])
+        record = await handle.result()
+    finally:
+        await worker.__aexit__(None, None, None)
+
+    assert harness.gate_events == outcomes
+    assert harness.dispatches == 1
+    assert harness.verdicts == [] and harness.merges == []
+    assert record["status"] == "failed"
+    assert record["error"] == "budget_exhausted: cap reached"
+    assert harness.attempts_recorded == [RUN_ID]
 
 
 async def test_a_close_that_keeps_failing_ends_the_run_with_the_merge_recorded(env):

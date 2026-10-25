@@ -329,7 +329,7 @@ def test_unknown_gate_outcome_is_refused_before_it_is_written(activities, audit)
     assert [e for e in audit.events if e.run_id == RUN_ID] == []
 
 
-# -- teardown -----------------------------------------------------------------
+# -- vacate and teardown ------------------------------------------------------
 
 
 @pytest.fixture
@@ -347,6 +347,52 @@ def unregistered(monkeypatch, fake_gateway) -> list[str]:
         module, "GatewayClient", fake_gateway(unregister_sandbox=unregister_sandbox)
     )
     return retired
+
+
+@pytest.mark.parametrize("keep_slot", [True, False])
+def test_vacate_gives_back_the_crew_the_sandbox_and_the_place_unless_kept(
+    settings,
+    backend,
+    runs,
+    companies,
+    instances,
+    ledger,
+    audit,
+    unregistered,
+    keep_slot,
+):
+    """A run about to wait on a person gives back what it holds: its
+    crew's identities, its sandbox and the sandbox's registration — and
+    its place under `max_concurrent_runs`, unless it keeps it. The run
+    stays running: only teardown finalizes it."""
+    participants = InMemoryRunParticipants()
+    crew = CrewActivities(settings, participants, audit, companies, ledger, runs)
+    activities = RunActivities(
+        settings, backend, runs, companies, instances, ledger, audit, crew
+    )
+    asyncio.run(activities.create_run(RUN_ID, "review", "review pull request #41"))
+    reviewer = "feature-review-reviewer-" + RUN_ID
+    participants.add(reviewer, RUN_ID, "pm-1", "feature-review", "reviewer")
+
+    asyncio.run(activities.vacate(RUN_ID, dict(JOB_HANDLE), keep_slot))
+
+    assert participants.active(reviewer) is None
+    assert backend.destroyed == [JOB_HANDLE["job_name"]]
+    assert unregistered == [RUN_ID]
+    run = runs.get(RUN_ID)
+    assert (run.status, run.occupies) == ("running", keep_slot)
+
+
+def test_a_vacate_that_fails_keeps_the_place_and_says_so(
+    activities, backend, runs, unregistered
+):
+    """A give-back that failed frees nothing more: the activity raises,
+    the workflow keeps the handle, and teardown tries again."""
+    asyncio.run(activities.create_run(RUN_ID, "review", "review pull request #41"))
+    backend.destroy_error = RuntimeError("apiserver gone")
+    with pytest.raises(RuntimeError, match="apiserver gone"):
+        asyncio.run(activities.vacate(RUN_ID, dict(JOB_HANDLE), False))
+    assert runs.get(RUN_ID).occupies is True
 
 
 def test_teardown_destroys_and_finalizes_done(activities, backend, runs, unregistered):

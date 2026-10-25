@@ -55,6 +55,7 @@ class Harness:
         default_factory=list
     )
     attempts_recorded: list[str] = field(default_factory=list)
+    gate_events: list[str] = field(default_factory=list)
     wakes: int = 0
     verifies: int = 0
     # Scripted verify outcomes, consumed in order; green once exhausted.
@@ -161,6 +162,12 @@ class Harness:
             harness.attempts_recorded.append(run_id)
             return {"exhausted": False}
 
+        @activity.defn(name="record_gate_outcome")
+        async def record_gate_outcome(
+            run_id: str, gate: str, kind: str, workflow_id: str
+        ) -> None:
+            harness.gate_events.append(kind)
+
         @activity.defn(name="teardown")
         async def teardown(
             run_id: str,
@@ -193,6 +200,7 @@ class Harness:
             dispatch_agent,
             platform_verify,
             abandon_exhausted,
+            record_gate_outcome,
             teardown,
             wake_heartbeat,
         ]
@@ -344,6 +352,47 @@ async def test_refused_deliveries_share_the_verify_bound(env):
     assert harness.dispatches == ["implement", "implement", "deliver"]
     assert record["status"] == "failed"
     assert record["error"].startswith(f"delivery refused: {REFUSAL} after 2 attempt(s)")
+    assert harness.attempts_recorded == [RUN_ID]
+
+
+@pytest.mark.parametrize(
+    ("verdict", "outcomes"),
+    [(False, ["parked", "rejected"]), (None, ["parked", "escalated", "expired"])],
+)
+async def test_a_budget_park_not_approved_ends_the_run_at_its_cap(env, verdict, outcomes):
+    """A dispatch that hit the run's cap parks on `budget`. Rejected, or
+    unanswered until the blueprint's deadline, it is never dispatched
+    again: nothing is verified or delivered, the run finalizes failed on
+    the cap, and the attempt accounting runs."""
+    harness = Harness(
+        implement_outcomes=[{"status": "failed", "error": "budget_exhausted: at cap"}]
+    )
+    worker, task_queue = implement_worker(env.client, harness)
+    async with worker:
+        handle = await env.client.start_workflow(
+            "implement",
+            ImplementInput(run_id=RUN_ID, issue_number=ISSUE),
+            id=f"implement-{uuid.uuid4().hex[:8]}",
+            task_queue=task_queue,
+        )
+        # Queries do not advance the time-skipping clock: the park is
+        # reached in real time, its timers unfired until the result is
+        # awaited.
+        for _ in range(200):
+            if await handle.query("state") == "parked-budget_exhausted":
+                break
+            await asyncio.sleep(0.05)
+        else:
+            raise AssertionError("the run never parked on its budget")
+        if verdict is not None:
+            await handle.signal("budget", args=[verdict])
+        record = await handle.result()
+
+    assert harness.gate_events == outcomes
+    assert harness.dispatches == ["implement"]
+    assert harness.verifies == 0
+    assert record["status"] == "failed"
+    assert record["error"] == "budget_exhausted: at cap"
     assert harness.attempts_recorded == [RUN_ID]
 
 

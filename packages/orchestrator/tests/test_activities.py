@@ -44,14 +44,14 @@ APPLIED_SPEC = {
 
 class FakeBackend:
     def __init__(self) -> None:
-        self.provisioned: list[tuple[str, SandboxPolicy]] = []
+        self.provisioned: list[tuple[str, bytes, SandboxPolicy]] = []
         self.destroyed: list[str] = []
         self.destroy_error: Exception | None = None
 
     def provision(
         self, run_id: str, workspace_tar: bytes, policy: SandboxPolicy
     ) -> SandboxHandle:
-        self.provisioned.append((run_id, policy))
+        self.provisioned.append((run_id, workspace_tar, policy))
         return SandboxHandle(
             run_id=run_id,
             url="http://192.168.0.9:8000",
@@ -224,6 +224,47 @@ def test_provision_without_an_applied_blueprint_fails_closed(settings, backend, 
     lone = ImplementActivities(settings, backend, runs, InMemoryCompanies())
     with pytest.raises(RuntimeError, match="no company is applied"):
         lone._sandbox_policy(RUN_ID)
+
+
+def test_provision_sandbox_provisions_under_the_policy_then_registers_it(
+    activities, backend, monkeypatch, fake_gateway
+):
+    """The sandbox is provisioned from the run's workspace under the
+    compiled policy, then registered at the gateway — its address,
+    namespace and Job — so the run's sandbox calls reach it; the handle
+    is what the workflow keeps for teardown."""
+    import orchestrator.activities.implement as module
+
+    registered: list[tuple[Any, ...]] = []
+
+    async def register_sandbox(self, run_id, url, namespace, job_name):
+        registered.append((run_id, url, namespace, job_name, len(backend.provisioned)))
+
+    monkeypatch.setattr(
+        module, "GatewayClient", fake_gateway(register_sandbox=register_sandbox)
+    )
+    handle = asyncio.run(activities.provision_sandbox(RUN_ID, b"workspace-tar"))
+
+    ((run_id, workspace_tar, policy),) = backend.provisioned
+    assert (run_id, workspace_tar) == (RUN_ID, b"workspace-tar")
+    assert policy == activities._sandbox_policy(RUN_ID)
+    # Registered after the sandbox exists, under the address it answers on.
+    assert registered == [
+        (
+            RUN_ID,
+            "http://192.168.0.9:8000",
+            COMPANY_NAMESPACE,
+            "poseidon-sbx-run-test-0001",
+            1,
+        )
+    ]
+    assert handle == {
+        "run_id": RUN_ID,
+        "url": "http://192.168.0.9:8000",
+        "namespace": COMPANY_NAMESPACE,
+        "job_name": "poseidon-sbx-run-test-0001",
+        "pod_name": "poseidon-sbx-run-test-0001-abcde",
+    }
 
 
 @pytest.fixture

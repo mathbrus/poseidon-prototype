@@ -3,6 +3,7 @@ the audit trail, against fakes. The tick's sequencing, the sleep cadence
 and the child start are workflow concerns, proven live by the kind e2e."""
 
 import asyncio
+import contextlib
 from dataclasses import asdict
 from typing import Any
 
@@ -17,7 +18,7 @@ from common.tasks import issue_run_task
 from common.topology import COMPANY_NAMESPACE, PLATFORM_NAMESPACE
 from common.workflows import TICK_IDLE, TICK_STARTED, tick_rule
 from orchestrator.activities.bootstrap import BootstrapActivities
-from orchestrator.activities.heartbeat import HeartbeatActivities
+from orchestrator.activities.heartbeat import DECIDE_TASK, HeartbeatActivities
 from orchestrator.activities.observation import (
     ObservationActivities,
     consumed,
@@ -881,6 +882,46 @@ def test_decide_failed_dispatch_is_nonretryable(activities, companies, monkeypat
         asyncio.run(activities.heartbeat_decide("auto-5", OBSERVED, ["implement"], 5))
     assert caught.value.non_retryable
     assert "broke the contract" in str(caught.value)
+
+
+@pytest.mark.parametrize(
+    ("decided", "status", "error"),
+    [
+        (_decided("implement", 5, "oldest first"), "done", None),
+        (_decided("implement", 99, "pick #99"), "failed", "decision refused"),
+    ],
+)
+def test_the_decision_runs_on_its_own_row_opened_before_the_pm_speaks(
+    activities, companies, runs, monkeypatch, decided, status, error
+):
+    """The LLM gateway binds every model call to a registry run, so the
+    decide dispatch has its own row — under the run id the tick would
+    start, open before the PM is dispatched, named for the heartbeat so
+    the observation never counts it — and the row is finished on every
+    exit, a refused decision failed with its reason."""
+    companies.upsert(COMPANY, applied(heartbeat_spec()))
+    agent = _pm(monkeypatch, decided)
+    at_dispatch = []
+    dispatch = agent.dispatch
+
+    async def dispatch_seeing_the_row(self, run_id, *args, **kwargs):
+        row = runs.get(run_id)
+        at_dispatch.append(
+            row and (row.status, row.task, row.workflow, row.workflow_id, row.company)
+        )
+        return await dispatch(self, run_id, *args, **kwargs)
+
+    monkeypatch.setattr(agent, "dispatch", dispatch_seeing_the_row)
+    with contextlib.suppress(ApplicationError):
+        asyncio.run(activities.heartbeat_decide("auto-9", OBSERVED, ["implement"], 5))
+
+    assert at_dispatch == [
+        ("running", DECIDE_TASK, "heartbeat", f"heartbeat-{COMPANY}", COMPANY)
+    ]
+    finished = runs.get("auto-9")
+    assert finished.status == status and finished.finished_at is not None
+    assert (finished.error is None) == (error is None)
+    assert error is None or error in finished.error
 
 
 def test_decide_refuses_scope_while_a_document_is_absent(
