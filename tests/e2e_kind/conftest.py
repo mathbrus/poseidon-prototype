@@ -137,7 +137,6 @@ from .cluster import (
     kubectl,
     run_by_task,
     run_kubectl,
-    sandbox_pods,
     timed,
     wake_heartbeat,
 )
@@ -357,15 +356,13 @@ def _await_listing(env: dict, done: Callable[[set[int]], bool], what: str) -> No
     raise AssertionError(f"the git host's listing never showed {what}")
 
 
-def _kill_worker_when(run_id: str, kill_after: str) -> None:
-    """The crash-resume proof's staging: kill the worker once the run has
-    its sandbox (`"sandbox"`) or its crew's own pod (`"crew"`), so the
-    replay on the replacement worker inherits live state to compensate."""
+def _kill_worker_once_the_crew_is_up(run_id: str) -> None:
+    """The crash-resume proof's staging: kill the worker once the run's
+    crew has its own pod — the sandbox is up by then too — so the replay
+    on the replacement worker inherits live state to compensate."""
     deadline = time.monotonic() + 300
     while time.monotonic() < deadline:
-        if kill_after == "sandbox" and sandbox_pods(run_id):
-            break
-        if kill_after == "crew" and kubectl(
+        if kubectl(
             "-n",
             COMPANY_NS,
             "get",
@@ -379,36 +376,33 @@ def _kill_worker_when(run_id: str, kill_after: str) -> None:
             break
         time.sleep(2)
     else:
-        raise AssertionError(
-            f"the run never reached its {kill_after}; cannot stage the kill"
-        )
+        raise AssertionError("the run's crew never came up; cannot stage the kill")
     kill_worker_pod()
 
 
-def run_ticket(
-    number: int, *, kill_after: str | None = None, deadline_s: int = 1800
-) -> dict:
-    """The implement run the standing heartbeat starts on ticket `number`:
-    wake the loop onto it (the platform's own signal, standing in for the
-    world the loop watches), optionally kill the worker mid-run, and wait
+def run_ticket(number: int, *, kill_worker: bool = False, deadline_s: int = 1800) -> dict:
+    """The implement run the heartbeat starts on ticket `number`: wake the
+    loop onto it (the platform's own signal, standing in for the world the
+    loop watches), with `kill_worker` kill the worker mid-run, and wait
     for the run's terminal registry row — the record every other helper
     and assertion reads. `implement` must be startable in the applied
     blueprint."""
     task = issue_run_task(number)
     wake_until_run_started(task, "implement")
-    if kill_after:
-        run = run_by_task(task, workflow="implement")
-        _kill_worker_when(run["run_id"], kill_after)
+    if kill_worker:
+        _kill_worker_once_the_crew_is_up(
+            run_by_task(task, workflow="implement")["run_id"]
+        )
     record = await_run(task, terminal=True, deadline_s=deadline_s, workflow="implement")
     return {**record, "issue_number": number}
 
 
-def run_implement(name: str, env: dict, *, kill_after: str | None = None) -> dict:
+def run_implement(name: str, env: dict, *, kill_worker: bool = False) -> dict:
     """File the scripted ticket `tickets/<name>.md` and let the heartbeat
     implement it. The ticket number rides the record for cleanup."""
     nonce = secrets.token_hex(3)
     number = file_ticket(env, f"{name} ({nonce})", ticket_body(name, nonce))
-    return run_ticket(number, kill_after=kill_after)
+    return run_ticket(number, kill_worker=kill_worker)
 
 
 def run_review(
@@ -490,9 +484,7 @@ def wake_until_run_started(
     raise AssertionError(f"the heartbeat never started {task!r}")
 
 
-def scope_via_heartbeat(
-    env: dict, strategy: str, deadline_s: int = 600, *, keep_strategy: bool = False
-) -> dict:
+def scope_via_heartbeat(env: dict, strategy: str, deadline_s: int = 600) -> dict:
     """Write the strategy, wake the loop onto it, and return the terminal
     record of the scope run it starts. Every scope run works the same task
     text, so the run is the one born after this write — never an earlier
@@ -502,9 +494,7 @@ def scope_via_heartbeat(
     tickets carry the slice and the resting strategy goes back. Left
     naming the slice, it would be scoped again the moment the slice's
     ticket closes with its merged pull request — the platform closes it —
-    and the module's arc would grow a second one nobody asked for.
-    `keep_strategy` keeps it naming the slice, for a module that tests
-    what the loop does while the slice still looks open."""
+    and the module's arc would grow a second one nobody asked for."""
     since = db_now()
     write_strategy(env, strategy)
     try:
@@ -517,8 +507,7 @@ def scope_via_heartbeat(
             since=since,
         )
     finally:
-        if not keep_strategy:
-            restore_strategy(env)
+        restore_strategy(env)
 
 
 # --- the repo-state contract ------------------------------------------------
@@ -966,7 +955,7 @@ def implement_run(stack: None, env: dict[str, str]) -> dict:
     backlog — reviews that race whichever module comes next. The ticket
     closes before the PR: a delivered PR found closed is refused, and an
     open ticket would come back to the loop."""
-    record = run_implement("happy", env, kill_after="crew")
+    record = run_implement("happy", env, kill_worker=True)
     record["pr_state_at_birth"] = pr_state(env, record.get("pr_url"))
     # What the delivery carried, read before the branch goes.
     number = pr_number(record.get("pr_url"))
