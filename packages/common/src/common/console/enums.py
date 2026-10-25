@@ -17,6 +17,7 @@ from common.workflows import (
     GATES,
     HEARTBEAT_STATES,
     HUMAN_STARTABLE,
+    PR_SETTLED,
     RUN_STATES,
     RUN_STATUSES,
     TICK_OUTCOMES,
@@ -35,6 +36,7 @@ HeartbeatState = _closed("HeartbeatState", HEARTBEAT_STATES)
 Gate = _closed("Gate", GATES)
 GateOutcome = _closed("GateOutcome", GATE_OUTCOMES)
 TickOutcome = _closed("TickOutcome", TICK_OUTCOMES)
+PrSettled = _closed("PrSettled", PR_SETTLED)
 Workflow = _closed("Workflow", WORKFLOWS)
 StartableWorkflow = _closed("StartableWorkflow", HUMAN_STARTABLE)
 AuditSource = _closed("AuditSource", SOURCES)

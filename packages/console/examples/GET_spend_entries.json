@@ -1,0 +1,44 @@
+{
+  "request": {
+    "body": null,
+    "path": "/spend/entries",
+    "query": {
+      "after": 0
+    }
+  },
+  "response": {
+    "entries": [
+      {
+        "agent_id": "pm-1",
+        "cached_tokens": 0,
+        "completion_tokens": 96,
+        "id": 1,
+        "model": "mock",
+        "parent_agent_id": "",
+        "prompt_tokens": 2410,
+        "reasoning_tokens": 0,
+        "role": "pm",
+        "run_id": "run-01DECIDE",
+        "ts": "2025-12-31T23:38:40Z",
+        "usd": 0.0018
+      },
+      {
+        "agent_id": "feature-delivery-implementer-run-01implement",
+        "cached_tokens": 1024,
+        "completion_tokens": 212,
+        "id": 2,
+        "model": "mock",
+        "parent_agent_id": "pm-1",
+        "prompt_tokens": 1830,
+        "reasoning_tokens": 0,
+        "role": "implementer",
+        "run_id": "run-01IMPLEMENT",
+        "ts": "2025-12-31T23:41:30Z",
+        "usd": 0.0042
+      }
+    ],
+    "next": 2
+  },
+  "route": "GET /spend/entries",
+  "status": 200
+}

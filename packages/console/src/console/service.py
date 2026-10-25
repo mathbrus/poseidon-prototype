@@ -51,6 +51,7 @@ from common.console import (
     RunList,
     RunSpendView,
     RunStarted,
+    SpendEntriesPage,
     SpendView,
     StoryView,
     TicketList,
@@ -751,6 +752,14 @@ class ConsoleService:
         company = await self._company()
         total = await asyncio.to_thread(self._ledger.spent_since, company, since)
         return views.spend_view(total)
+
+    async def spend_entries(self, after: int, limit: int) -> SpendEntriesPage:
+        """The company's ledger entries above a cursor, in id order: every
+        model call it paid for, a tick's decision run's included, which
+        `GET /runs` does not list."""
+        company = await self._company()
+        rows = await asyncio.to_thread(self._ledger.after, company, after, limit)
+        return views.spend_entries_page(rows, after)
 
     # -- the heartbeat --------------------------------------------------------
 

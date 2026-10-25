@@ -5,9 +5,9 @@
     "query": {}
   },
   "response": {
-    "completion_tokens": 212,
-    "prompt_tokens": 1830,
-    "usd": 0.0042
+    "completion_tokens": 308,
+    "prompt_tokens": 4240,
+    "usd": 0.006
   },
   "route": "GET /spend",
   "status": 200

@@ -35,6 +35,7 @@ from common.console import (
     RunDetail,
     RunSpendView,
     RunView,
+    SpendEntriesPage,
     SpendEntryView,
     SpendView,
     StandingAgentView,
@@ -198,6 +199,8 @@ def run_view(record: RunRecord, parked: ParkedView | None = None) -> RunView:
         task=record.task,
         status=record.status,
         pr_url=record.pr_url,
+        pr_settled=record.pr_settled,
+        pr_settled_reason=record.pr_settled_reason,
         verdict=record.verdict,
         ticket_urls=list(record.ticket_urls),
         iterations=record.iterations,
@@ -322,6 +325,7 @@ def spend_view(total: dict[str, Any]) -> SpendView:
 def spend_entry_view(row: dict[str, Any]) -> SpendEntryView:
     """One `budget_ledger` row; its company is the console's own."""
     return SpendEntryView(
+        id=row["id"],
         ts=row["ts"],
         run_id=row["run_id"] or "",
         agent_id=row["agent_id"] or "",
@@ -341,6 +345,15 @@ def run_spend_view(
 ) -> RunSpendView:
     return RunSpendView(
         run_id=run_id, usd=usd, entries=[spend_entry_view(row) for row in entries]
+    )
+
+
+def spend_entries_page(rows: list[dict[str, Any]], after: int) -> SpendEntriesPage:
+    """A reader's page of the ledger: the cursor moves to the last entry's
+    id, or stays."""
+    return SpendEntriesPage(
+        entries=[spend_entry_view(row) for row in rows],
+        next=rows[-1]["id"] if rows else after,
     )
 
 

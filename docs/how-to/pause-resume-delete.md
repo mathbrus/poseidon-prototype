@@ -82,6 +82,12 @@ done:
    runs, tickets, spend and audit records, your delete's own included, and
    its workflow histories.
 
+To keep the company's records, read them through the
+[console](../reference/console.md) before you delete it. `GET /events`
+pages its audit records and `GET /spend/entries` its ledger entries,
+each after a cursor. `GET /runs` lists its runs, with what became of
+each pull request, and `GET /tickets` the tickets it filed.
+
 The command's answer is your receipt: nothing else of the company is left
 to read. What stays is the platform's own. The company's policy stays
 revoked, and records that name no company stay, such as a token the

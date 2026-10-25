@@ -97,7 +97,7 @@
     "next": 5,
     "spend": {
       "run_usd": null,
-      "usd": 0.0042
+      "usd": 0.006
     }
   },
   "route": "GET /events",

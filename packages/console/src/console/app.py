@@ -302,6 +302,10 @@ def create_app(
     async def spend_since(since: str | None = None):
         return await service.spend_since(since)
 
+    @serve("GET", "/spend/entries")
+    async def spend_entries(after: int = 0, limit: int = 200):
+        return await service.spend_entries(after, max(1, min(limit, 1000)))
+
     @serve("GET", "/events")
     async def events(after: int = 0, run: str | None = None, limit: int = 200):
         return await service.events(after, run, max(1, min(limit, 1000)))

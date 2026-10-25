@@ -38,6 +38,8 @@ from common.workflows import (
     HEARTBEAT_TICKING,
     HEARTBEAT_WORKFLOW,
     PARKED_PREFIX,
+    PR_MERGED,
+    PR_SUPERSEDED,
     RUN_FINALIZING,
     RUN_STATUS_DONE,
     RUN_STATUS_FAILED,
@@ -55,7 +57,8 @@ ERR = Console(stderr=True, highlight=False, soft_wrap=True)
 # The one vocabulary of colour: a status word carries it, nothing else does.
 STATUS_STYLE = {
     # A run's status and its workflow's state share the word `running`,
-    # and the heartbeat's `paused` state is its tick's outcome word.
+    # the heartbeat's `paused` state is its tick's outcome word, and a
+    # refused tick shares `refused` with a refused delivery.
     RUN_STATUS_RUNNING: "blue",
     RUN_FINALIZING: "blue",
     EXECUTION_RUNNING: "blue",
@@ -71,6 +74,7 @@ STATUS_STYLE = {
     ExecutionStatus.COMPLETED: "green",
     PHASE_CONVERGED: "green",
     GATE_APPROVED: "green",
+    PR_MERGED: "green",
     "allow": "green",
     "pass": "green",
     RUN_STATUS_FAILED: "red",
@@ -83,6 +87,7 @@ STATUS_STYLE = {
     ExecutionStatus.TIMED_OUT: "red",
     TICK_REFUSED: "red",
     EXECUTION_NOT_FOUND: "dim",
+    PR_SUPERSEDED: "dim",
     TICK_IDLE: "dim",
     HEARTBEAT_SLEEPING: "dim",
 }

@@ -128,6 +128,7 @@ def test_the_client_reaches_every_route_of_the_interface(client):
         ("POST", "/heartbeat/pause"): lambda: client.pause("why"),
         ("POST", "/heartbeat/resume"): lambda: client.resume("why"),
         ("GET", "/spend"): client.spend_since,
+        ("GET", "/spend/entries"): client.spend_entries,
         ("GET", "/events"): client.events,
         ("GET", "/now"): client.now,
         ("GET", "/acts"): client.acts,
@@ -291,7 +292,7 @@ def test_spend_is_the_companys_without_a_run_and_a_runs_with_one(runner, console
     assert company.exit_code == 0 and json.loads(company.output) == golden("GET /spend")
     one = runner.invoke(cli.app, ["spend", IMPLEMENT, "--json"])
     assert one.exit_code == 0 and json.loads(one.output)["run_id"] == IMPLEMENT
-    assert "spent $0.0042" in runner.invoke(cli.app, ["spend"]).output
+    assert "spent $0.0060" in runner.invoke(cli.app, ["spend"]).output
     per_run = runner.invoke(cli.app, ["spend", IMPLEMENT]).output
     assert f"run {IMPLEMENT}: $0.0042" in per_run and "23:41:30" in per_run
     assert [p for _, p, _, _ in console.requests][:2] == [
@@ -550,6 +551,22 @@ def test_run_show_is_a_record_and_story_is_lines(runner, console):
     assert "the change does what the ticket asks" in story.output
     raw = runner.invoke(cli.app, ["run", "story", REVIEW, "--json"])
     assert json.loads(raw.output) == golden("GET /runs/{run_id}/story")
+
+
+def test_run_show_says_what_became_of_the_pull_request(runner, console):
+    unsettled = runner.invoke(cli.app, ["run", "show", REVIEW])
+    assert unsettled.exit_code == 0, unsettled.output
+    assert "settled" not in unsettled.output, unsettled.output
+    refused = {
+        **golden("GET /runs/{run_id}"),
+        "pr_url": "https://github.com/acme/hello-saas/pull/12",
+        "pr_settled": "refused",
+        "pr_settled_reason": "its merge gate expired",
+    }
+    console.answers[("GET", f"/runs/{REVIEW}")] = (200, refused)
+    shown = runner.invoke(cli.app, ["run", "show", REVIEW])
+    assert shown.exit_code == 0, shown.output
+    assert "refused (its merge gate expired)" in shown.output, shown.output
 
 
 def test_acts_prints_what_a_human_may_do_now(runner, console):

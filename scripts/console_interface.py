@@ -71,6 +71,9 @@ REVIEWER = "feature-review-reviewer-run-01review"
 IMPLEMENT_RUN = "run-01IMPLEMENT"
 REVIEW_RUN = "run-01REVIEW"
 STARTED_RUN = "run-01STARTED"
+# The tick's decision run: the PM's call is metered under it, and
+# `GET /runs` does not list it.
+DECIDE_RUN = "run-01DECIDE"
 
 
 # -- the seeded world ----------------------------------------------------------
@@ -92,7 +95,7 @@ def seeded() -> World:
     """One company, converged: a delivered implement run, a review run
     parked on its merge gate, a sleeping heartbeat with two ticks, the
     crews, the ticket the company filed, the rows and the spend behind
-    them."""
+    them — the first tick's decision included."""
     world = World()
     world.cr = company_cr(
         COMPANY,
@@ -212,8 +215,24 @@ def seeded() -> World:
         ),
     ):
         world.audit.append(event)
-    world.ledger.entries.append(
+    world.ledger.entries += [
         {
+            "id": 1,
+            "ts": "2025-12-31T23:38:40+00:00",
+            "company": COMPANY,
+            "run_id": DECIDE_RUN,
+            "agent_id": "pm-1",
+            "parent_agent_id": "",
+            "role": "pm",
+            "model": "mock",
+            "prompt_tokens": 2410,
+            "completion_tokens": 96,
+            "cached_tokens": 0,
+            "reasoning_tokens": 0,
+            "usd": 0.0018,
+        },
+        {
+            "id": 2,
             "ts": "2025-12-31T23:41:30+00:00",
             "company": COMPANY,
             "run_id": IMPLEMENT_RUN,
@@ -226,8 +245,8 @@ def seeded() -> World:
             "cached_tokens": 1024,
             "reasoning_tokens": 0,
             "usd": 0.0042,
-        }
-    )
+        },
+    ]
     return world
 
 
@@ -272,6 +291,7 @@ REQUESTS: dict[tuple[str, str], tuple[str, dict[str, Any], dict[str, Any] | None
     ),
     ("POST", "/heartbeat/resume"): ("/heartbeat/resume", {}, {"rationale": "read it"}),
     ("GET", "/spend"): ("/spend", {}, None),
+    ("GET", "/spend/entries"): ("/spend/entries", {"after": 0}, None),
     ("GET", "/events"): ("/events", {"after": 0}, None),
     ("GET", "/now"): ("/now", {}, None),
     ("GET", "/acts"): ("/acts", {}, None),

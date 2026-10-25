@@ -46,6 +46,7 @@ from common.console import (
     RunList,
     RunSpendView,
     RunStarted,
+    SpendEntriesPage,
     SpendView,
     StoryView,
     TicketList,
@@ -66,7 +67,13 @@ from common.policy import (
 )
 from common.text import UNTRUSTED_CLIP, clip_head
 from common.topology import BLUEPRINT_LIMIT_BYTES, PLATFORM_NAMESPACE
-from common.workflows import GATE_PARKED, gate_rule, workflow_id
+from common.workflows import (
+    GATE_PARKED,
+    PR_MERGED,
+    PR_REFUSED,
+    gate_rule,
+    workflow_id,
+)
 from console import fakes
 from console import service as service_module
 from console.config import ConsoleSettings
@@ -854,6 +861,76 @@ async def test_events_are_the_companys_rows_after_a_cursor_with_spend(client, wo
 
     del world.companies.rows[COMPANY]
     assert (await client.get("/events", headers=as_owner())).status_code == 404
+
+
+async def test_a_run_reads_what_became_of_its_pull_request(client, world):
+    """A delivery's settlement, as the platform learned it: null while the
+    pull request is open, the word once it settled, and a refusal's
+    reason beside it."""
+    repo = "https://github.com/acme/hello-saas"
+    for run_id, number in (("run-merged", 11), ("run-refused", 12), ("run-open", 13)):
+        world.runs.start(run_id, f"Implement #{number}", "implement", None, COMPANY)
+        world.runs.record_artifacts(run_id, f"{repo}/pull/{number}", [])
+        world.runs.finish(run_id, "done")
+    world.runs.mark_pr_settled(COMPANY, 11, PR_MERGED)
+    world.runs.mark_pr_settled(COMPANY, 12, PR_REFUSED, "its merge gate expired")
+
+    runs = model(RunList, await client.get("/runs", headers=as_owner()))
+    assert {r.run_id: (r.pr_settled, r.pr_settled_reason) for r in runs.runs} == {
+        "run-merged": ("merged", None),
+        "run-refused": ("refused", "its merge gate expired"),
+        "run-open": (None, None),
+    }
+    refused = model(RunDetail, await client.get("/runs/run-refused", headers=as_owner()))
+    assert (refused.pr_settled, refused.pr_settled_reason) == (
+        "refused",
+        "its merge gate expired",
+    )
+
+
+async def test_spend_entries_are_the_companys_ledger_after_a_cursor(client, world):
+    """Every model call the company paid for, in id order above a cursor —
+    a tick's decision run's too, which no run list shows — and the
+    cursor to continue from; another company's never. Without a company
+    applied there is nothing to read; without a token, nothing at all."""
+
+    def call(run_id: str, company: str = COMPANY, usd: float = 0.25) -> None:
+        world.ledger.record(
+            company=company,
+            run_id=run_id,
+            agent_id="pm-1",
+            parent_agent_id="",
+            role="pm",
+            model="mock",
+            prompt_tokens=10,
+            completion_tokens=5,
+            cached_tokens=0,
+            reasoning_tokens=0,
+            usd=usd,
+        )
+
+    call("run-decide")
+    call("run-elsewhere", company="other-co")
+    call(RUN_ID, usd=0.5)
+    assert (await client.get("/spend/entries")).status_code == 401
+
+    async def page(query: str = "") -> SpendEntriesPage:
+        return model(
+            SpendEntriesPage,
+            await client.get(f"/spend/entries{query}", headers=as_owner()),
+        )
+
+    first = await page("?limit=1")
+    assert [(e.id, e.run_id) for e in first.entries] == [(1, "run-decide")]
+    assert first.next == 1
+    rest = await page(f"?after={first.next}")
+    assert [(e.id, e.run_id, e.usd) for e in rest.entries] == [(3, RUN_ID, 0.5)]
+    nothing = await page(f"?after={rest.next}")
+    assert nothing.entries == [] and nothing.next == 3
+    assert world.audit.events == []  # a read: nothing appended
+
+    del world.companies.rows[COMPANY]
+    assert (await client.get("/spend/entries", headers=as_owner())).status_code == 404
 
 
 async def test_a_decisions_story_is_the_rows_with_a_rationale(client, world):
