@@ -1223,14 +1223,15 @@ async def test_a_pass_the_human_rejected_is_a_conclusion(env):
     assert harness.attempts_recorded == []
 
 
-async def test_a_cancel_on_an_unconcluded_review_still_records_the_attempt(env):
+async def test_a_cancel_on_an_unconcluded_review_still_records_the_attempt(own_env):
     """A review cancelled while its reviewer is dispatched reached no
     verdict either: the cancellation surfaces as the dispatch's, the run
     finalizes failed on it, and the attempt accounting still runs after
     teardown — a cancel that spends the PR's last attempt is not a silent
-    one."""
+    one. The hung dispatch outlives the run on its server, hence a server
+    of its own."""
     harness = Harness(merge_gate=HUMAN_GATE, dispatch_hangs=True)
-    worker, handle = await start_review(env.client, harness)
+    worker, handle = await start_review(own_env.client, harness)
     try:
         for _ in range(200):
             if harness.dispatches:

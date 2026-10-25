@@ -2,6 +2,8 @@
 test doubles, the anyio backend, the Temporal time-skipping environment,
 and a factory for gateway doubles."""
 
+import contextlib
+
 import pytest
 from temporalio.testing import WorkflowEnvironment
 
@@ -55,18 +57,40 @@ def anyio_backend() -> str:
     return "asyncio"
 
 
-@pytest.fixture(scope="module")
-async def env():
-    """Temporal's time-skipping test environment, one server per module:
-    its tests share it, each on its own uuid task queue and workflow id.
-    It fetches the test server binary on first use; a machine that cannot
-    skips rather than failing, like the compiler's OPA decision tests."""
+@contextlib.asynccontextmanager
+async def _time_skipping():
+    """A time-skipping test server. It fetches the test server binary on
+    first use; a machine that cannot skips rather than failing, like the
+    compiler's OPA decision tests."""
     try:
         environment = await WorkflowEnvironment.start_time_skipping()
     except Exception as exc:
         pytest.skip(f"temporal test server unavailable: {exc}")
-    yield environment
-    await environment.shutdown()
+    try:
+        yield environment
+    finally:
+        await environment.shutdown()
+
+
+@pytest.fixture(scope="module")
+async def env():
+    """Temporal's time-skipping test environment, one server per module.
+    Its tests keep apart on their own uuid task queues and workflow ids,
+    but they share its clock: the server skips time only while no
+    activity is in flight, so a test that leaves one behind stalls every
+    test after it until that activity times out. Such a test takes
+    `own_env`."""
+    async with _time_skipping() as environment:
+        yield environment
+
+
+@pytest.fixture
+async def own_env():
+    """A time-skipping server for one test: the one that leaves an
+    activity in flight — a run cancelled mid-dispatch — whose clock no
+    other test may wait on."""
+    async with _time_skipping() as environment:
+        yield environment
 
 
 @pytest.fixture

@@ -382,15 +382,16 @@ async def test_a_budget_park_not_approved_ends_the_run_at_its_cap(env, verdict, 
     assert harness.attempts_recorded == [RUN_ID]
 
 
-async def test_a_cancelled_run_records_its_attempt(env):
+async def test_a_cancelled_run_records_its_attempt(own_env):
     """A run cancelled while its implementer is dispatched opened no PR: the
     cancellation surfaces as the dispatch's, the run finalizes failed on
-    it, and the attempt accounting still runs after teardown."""
+    it, and the attempt accounting still runs after teardown. The hung
+    dispatch outlives the run on its server, hence a server of its own."""
     harness = Harness(dispatch_hangs=True)
-    worker, task_queue = implement_worker(env.client, harness)
+    worker, task_queue = implement_worker(own_env.client, harness)
     await worker.__aenter__()
     try:
-        handle = await env.client.start_workflow(
+        handle = await own_env.client.start_workflow(
             "implement",
             ImplementInput(run_id=RUN_ID, issue_number=ISSUE),
             id=f"implement-{uuid.uuid4().hex[:8]}",
