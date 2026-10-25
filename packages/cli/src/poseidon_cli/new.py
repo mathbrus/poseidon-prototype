@@ -350,7 +350,7 @@ def ask(prompter: Prompter, defaults: Answers | None = None) -> Answers:
             help="an implement crew on one ticket and a review crew on another",
         )
         a.max_attempts = _int(
-            prompter, "Tries per ticket before it is given up", a.max_attempts, 1
+            prompter, "Tries per ticket before it is abandoned", a.max_attempts, 1
         )
         a.max_open_tickets = _int(
             prompter,

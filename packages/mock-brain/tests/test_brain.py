@@ -9,6 +9,7 @@ from mock_brain.brain import (
     CONFTEST_VEIL_MARKER,
     CONTRACT_CREW_LINE,
     CONTRACT_FIRST_MARKER,
+    CONTRACT_SMUGGLE_MARKER,
     CONTRACT_TEST_PATH,
     CONTRACT_TESTS_PY,
     DISMISS_MARKER,
@@ -17,7 +18,6 @@ from mock_brain.brain import (
     GUTTED_CONTRACT_PY,
     MERGE_GATE_REDTEAM_MARKER,
     NEXT_SLICE_MARKER,
-    ORACLE_SMUGGLE_MARKER,
     REVIEW_ABORT_MARKER,
     SLICE_TITLE,
     SLUGIFY_PY,
@@ -798,7 +798,7 @@ def test_the_smuggle_writes_into_the_contract_tree_then_recovers():
     from mock_brain.brain import DELIVERY_FEEDBACK_MARKER
 
     smuggle_task = (
-        f"Task:\nAdd a slugify utility ({ORACLE_SMUGGLE_MARKER}).\n\n"
+        f"Task:\nAdd a slugify utility ({CONTRACT_SMUGGLE_MARKER}).\n\n"
         "Deliver on `feature/slugify-smuggle`."
     )
     write = next_completion(history(smuggle_task))

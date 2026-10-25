@@ -598,7 +598,7 @@ def _automated_rules(
         "\tinput.args.contract_green == true\n" if contract_paths else ""
     )
     contract_deny = (
-        # The oracle never merges with the code it certifies: a changed
+        # The contract tree never merges with the code it grades: a changed
         # path under the contract tree denies the resolve by its own name —
         # the belt under the validate-time refusal to automate it, kept
         # separate from the generic carve-out so the audit row names the
@@ -784,7 +784,7 @@ def _policies_file(
     if deny_paths:
         lines.append(_open_pr_path_deny(GIT_OPEN_PR_DENIED_PATHS, deny_paths))
     if contract_paths:
-        # The contract tree is the oracle: only its declared owner roles
+        # The contract tree grades the code: only its declared owner roles
         # may deliver into it, so the implementer cannot rewrite the spec
         # its own work is graded by.
         lines.append(

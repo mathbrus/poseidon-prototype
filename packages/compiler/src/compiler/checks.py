@@ -16,7 +16,7 @@ the union of every ephemeral agent's scope. Spawn authority is `may_spawn` plus 
 template plus budget and concurrency caps; tool authority is the agent's
 own compiled allow-list.
 
-The strict lean-standing rule: a standing agent with `count > 0` must be a
+Standing agents spawn: a standing agent with `count > 0` must be a
 *spawner* (its catalog role carries `may_spawn`) — standing coders do not
 exist; execution is ephemeral crews, spawned under conductor authority.
 The conductor (`heartbeat.conductor`) is a spawner. `count: 0`
@@ -55,7 +55,7 @@ def check(
     problems += hire_problems(blueprint, roles, crews)
     problems += tool_scope_problems(blueprint, roles, report_unknown_tools=True)
     problems += contract_role_problems(blueprint, roles)
-    problems += _lean_standing(blueprint, roles)
+    problems += _standing_agents_spawn(blueprint, roles)
     problems += _dead_scopes(blueprint)
     problems += _spawn_authority(blueprint, roles)
     problems += _spawnable_crews(blueprint, crews)
@@ -73,7 +73,7 @@ def check(
     return problems
 
 
-def _lean_standing(blueprint: dict[str, Any], roles: dict[str, Any]) -> list[str]:
+def _standing_agents_spawn(blueprint: dict[str, Any], roles: dict[str, Any]) -> list[str]:
     """No standing coder counts — every active (count > 0) hire must be a
     spawner. Coding roles exist only as ephemeral agents under the
     conductor's authority."""

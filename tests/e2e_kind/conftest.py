@@ -146,7 +146,7 @@ ENV_FILE = REPO_ROOT / "deploy" / "kind" / ".env"
 
 E2E_KIND_DIR = Path(__file__).resolve().parent
 # The ticket bodies the suite files: the mock brain's scripted scenarios,
-# as a company's own tickets rather than a human's task files.
+# as the world files them on the company's repository.
 TICKETS_DIR = E2E_KIND_DIR / "tickets"
 # Where the company keeps its documents, as the example declares it — the
 # suite writes strategies there and the baseline puts the resting ones back.

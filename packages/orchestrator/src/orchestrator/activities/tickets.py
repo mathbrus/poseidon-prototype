@@ -225,7 +225,7 @@ async def refuse_delivery(
     it, remember the refusal on the run that delivered it, and tell the
     ticket that run consumed why it is back. The refusal gives the ticket
     back as one spent attempt (`Runs.issue_attempts`), and the next
-    attempt's brief carries the reason (`Runs.refusals`); a refusal that
+    attempt's task carries the reason (`Runs.refusals`); a refusal that
     spends the ticket's last attempt abandons it (`abandon_ticket`). A
     delivery the company made loses its branch with the refusal, so the
     ticket's next delivery may use the name its ticket gives; the closed

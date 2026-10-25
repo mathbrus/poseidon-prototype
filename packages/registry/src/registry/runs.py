@@ -318,7 +318,7 @@ class Runs:
 
     def refusals(self, company: str, issue_number: int) -> list[tuple[str, str]]:
         """The ticket's refused deliveries as `(pr_url, reason)`, oldest
-        first — what the next attempt's brief says went wrong before."""
+        first — what the next attempt's task says went wrong before."""
         rows = self._db.query(
             "SELECT pr_url, pr_settled_reason FROM registry.runs"
             " WHERE company = %s AND workflow = 'implement' AND task = %s"

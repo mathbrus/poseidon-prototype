@@ -195,7 +195,7 @@ def test_concurrency_is_one_question_in_the_main_flow():
 
 def test_the_advanced_settings_are_asked_only_on_request():
     prompter = example_answers(
-        **{ADVANCED: True, "Tries per ticket before it is given up": "3"}
+        **{ADVANCED: True, "Tries per ticket before it is abandoned": "3"}
     )
     built = new.build(new.ask(prompter))
     assert built["heartbeat"]["max_attempts"] == 3

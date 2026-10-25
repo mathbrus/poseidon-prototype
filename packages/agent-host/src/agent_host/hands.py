@@ -11,7 +11,7 @@ Two mechanisms worth stating:
 
 A gateway denial (`ToolCallError`, carrying the OPA rule name) becomes the
 tool observation text (`ERROR: ...`) — denial-as-tool-result, the
-deny-and-recover path. The brain's only effectors are these tools: the OpenHands
+deny-and-recover path. The agent's only effectors are these tools: the OpenHands
 built-ins (bash, file editor, browser) are not installed, and the SDK's own
 defaults are control flow only (finish/think).
 
@@ -453,7 +453,7 @@ class ToolSpec:
     """One model-facing tool: what the model is told, the schema it fills,
     the gateway call it resolves to, and how the result is shown back.
     `read_only` is declared once here and drives both the SDK's locking
-    (a batch of reads may run concurrently — see `brain.OrderedReadsExecutor`)
+    (a batch of reads may run concurrently — see `procedures.OrderedReadsExecutor`)
     and its schema: read-only tools carry no `security_risk` parameter."""
 
     description: str

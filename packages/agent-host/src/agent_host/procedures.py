@@ -416,7 +416,7 @@ def _session(
             _survey(bridge, run_id) if WORKSPACE_TOOLS & set(tools) else Workspace()
         )
         ctx = HandsContext(bridge, settings, run_id, records)
-        with tempfile.TemporaryDirectory(prefix="brain-") as scratch:
+        with tempfile.TemporaryDirectory(prefix="agent-") as scratch:
             convo = _build_conversation(
                 llm,
                 system_prompt(procedure, settings, llm.model, bounds),

@@ -737,15 +737,15 @@ def test_issue_attempts_fold_every_run_on_the_ticket(registry: Registry):
     """One `Attempts` per issue, from the canonical task: the count spans
     every status, `live` is any running run, and `concluded` is a delivered
     PR on any of them — a failed run that delivered still concluded, an
-    aborted one did not. Free-form tasks and other companies are not
-    keyed."""
+    aborted one did not. A review of a pull request with the same number,
+    and another company's runs, are not keyed."""
     runs = Runs(registry)
     runs.start("run-in-1", "implement issue #3", "implement", None, "hello-saas")
     runs.start("run-in-2", "implement issue #12", "implement", None, "hello-saas")
     runs.finish("run-in-2", "failed", error="litellm.Timeout")  # aborted
     runs.start("run-in-3", "implement issue #12", "implement", None, "hello-saas")
     runs.finish("run-in-3", "failed", error="teardown: boom", pr_url="https://p/9")
-    runs.start("run-in-4", "a free-form task file", "implement", None, "hello-saas")
+    runs.start("run-in-4", "review pull request #3", "review", None, "hello-saas")
     runs.start("run-in-5", "implement issue #7", "implement", None, "other-co")
     assert Runs(registry).issue_attempts("hello-saas") == {
         3: Attempts(count=1, live=True, concluded=False),
@@ -876,14 +876,6 @@ def test_one_live_review_run_per_pr(registry: Registry):
     runs.finish("run-rd-1", "failed", error="no verdict")
     runs.start("run-rd-3", "review pull request #7", "review", None, "hello-saas")
     runs.start("run-rd-4", "review pull request #7", "review", None, "other-co")
-
-
-def test_free_form_tasks_are_not_constrained(registry: Registry):
-    """Only the canonical issue-run task is keyed: two runs of the same
-    task file are two deliberate human acts, not a race."""
-    runs = Runs(registry)
-    runs.start("run-ff-1", "the same task file text", "implement", None, "hello-saas")
-    runs.start("run-ff-2", "the same task file text", "implement", None, "hello-saas")
 
 
 def test_implement_run_for_pr_finds_the_lineage(registry: Registry):

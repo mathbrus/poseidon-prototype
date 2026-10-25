@@ -75,7 +75,7 @@ def _catalog_problems(document: Any) -> list[str]:
 
     Kept narrow on purpose: only what a *document* can be wrong about
     regardless of cluster state. Workflow-node binding, budget coverage and
-    the lean-standing stance are compiler checks.
+    the rule that standing agents spawn are compiler checks.
     """
     problems = hire_problems(document, ROLES, CREW_TEMPLATES)
     # Unknown tool names are the schema enum's to report, so the shared

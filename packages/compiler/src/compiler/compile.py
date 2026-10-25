@@ -57,9 +57,9 @@ PLATFORM_SCOPE = sorted(
         # write, attributed to the review run, that the conductor then
         # consumes like any other issue.
         "issues.create",
-        # The oracle-edit warning: when a PR's diff touches the contract
+        # The contract-edit warning: when a PR's diff touches the contract
         # tree, the platform posts the model-free deletion facts on the PR
-        # so the human resolving the merge signal reads them first — a
+        # so the person giving the merge verdict reads them first — a
         # gutted spec must be impossible to approve silently.
         "git.comment",
         # The platform's word on a ticket that stays open: why its delivery

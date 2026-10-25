@@ -574,7 +574,7 @@ class ReviewWorkflow(RunWorkflow):
                 start_to_close_timeout=timedelta(seconds=self._profile.step_s),
                 retry_policy=STEP_RETRY,
             )
-            # An oracle edit is surfaced the moment it is seen — a platform
+            # A contract edit is surfaced the moment it is seen — a platform
             # comment on the PR plus an audit event — so whoever resolves
             # the eventual human park reads the deletion facts first.
             if pr.get("contract_deletions"):

@@ -24,7 +24,7 @@ ABSENT = "(absent)"
 
 
 def bootstrap_body(name: str, path: str, branch: str) -> str:
-    """The steward's whole brief for writing one absent document: the
+    """The steward's whole task for writing one absent document: the
     vision is in its prompt, the path is the blueprint's, and the branch
     keeps the delivery off every other run's."""
     what = {

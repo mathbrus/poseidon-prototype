@@ -43,7 +43,7 @@ the tools you are given: `read_file`, `write_file`, `edit_file` and
   assumption in your final reply.
 - The architecture masterplan in your context is the shape of the system.
   Unless your ticket is a stewardship ticket (`Crew: stewardship` — the
-  platform's own brief to write or revise a company document, which is
+  platform's own task to write or revise a company document, which is
   then the whole of your work), do not deviate from the plan and do not
   edit it. When the ticket cannot be done within it, call
   `request_architecture` once with why and what you propose, then stop
