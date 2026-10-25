@@ -126,11 +126,10 @@ def request_for(view: ActView) -> tuple[str, str, dict[str, Any] | None]:
     }[view.act]()
 
 
-async def previews(world: World, token: str) -> list[ActView]:
+async def read_previews(client: httpx.AsyncClient, token: str) -> list[ActView]:
     headers = {"Authorization": f"Bearer {token}"}
-    async with world.client() as client:
-        company = await client.get("/acts", headers=headers)
-        run = await client.get(f"/runs/{RUN}/acts", headers=headers)
+    company = await client.get("/acts", headers=headers)
+    run = await client.get(f"/runs/{RUN}/acts", headers=headers)
     assert company.status_code == run.status_code == 200, (company.text, run.text)
     return (
         ActList.model_validate(company.json()).acts
@@ -138,39 +137,56 @@ async def previews(world: World, token: str) -> list[ActView]:
     )
 
 
+async def previews(world: World, token: str) -> list[ActView]:
+    async with world.client() as client:
+        return await read_previews(client, token)
+
+
 @pytest.mark.parametrize("scenario", SCENARIOS)
 @pytest.mark.parametrize(
     "token", [OWNER_TOKEN, AUDITOR_TOKEN], ids=["named", "not_named"]
 )
 async def test_every_preview_answers_as_its_act_does(scenario, token, monkeypatch):
-    listed = await previews(a_world(SCENARIOS[scenario], monkeypatch), token)
-    assert {view.act for view in listed} == {
-        BLUEPRINT_APPLY,
-        COMPANY_DELETE,
-        HEARTBEAT_WAKE,
-        HEARTBEAT_PAUSE,
-        HEARTBEAT_RESUME,
-        RUN_START,
-        RUN_CANCEL,
-        GATE_RESOLVE,
-    }
-    for view in listed:
-        # Each act in a world of its own: an act changes what the next sees.
-        world = a_world(SCENARIOS[scenario], monkeypatch)
+    async def act(client: httpx.AsyncClient, view: ActView) -> httpx.Response:
         method, path, body = request_for(view)
-        async with world.client() as client:
-            answer = await client.request(
-                method, path, json=body, headers={"Authorization": f"Bearer {token}"}
-            )
-        what = (scenario, token, view.act, view.args, answer.text)
-        if view.allowed:
-            assert answer.status_code == 200, what
-        elif view.refusal.kind == "policy":
-            assert answer.status_code == 403, what
-            assert answer.json()["rule"] == view.refusal.rule, what
-        else:
-            assert answer.status_code == 422, what
-            assert answer.json()["detail"] == view.refusal.detail, what
+        return await client.request(
+            method, path, json=body, headers={"Authorization": f"Bearer {token}"}
+        )
+
+    shared = a_world(SCENARIOS[scenario], monkeypatch)
+    async with shared.client() as refusals:
+        listed = await read_previews(refusals, token)
+        assert {view.act for view in listed} == {
+            BLUEPRINT_APPLY,
+            COMPANY_DELETE,
+            HEARTBEAT_WAKE,
+            HEARTBEAT_PAUSE,
+            HEARTBEAT_RESUME,
+            RUN_START,
+            RUN_CANCEL,
+            GATE_RESOLVE,
+        }
+        for view in listed:
+            if view.allowed:
+                # An act changes what the next one sees: each allowed act
+                # runs in a world of its own.
+                world = a_world(SCENARIOS[scenario], monkeypatch)
+                async with world.client() as client:
+                    answer = await act(client, view)
+                shared.patch(monkeypatch.setattr)
+            else:
+                # A refused act changes nothing, so the refused ones share
+                # the console the previews were read from.
+                answer = await act(refusals, view)
+            what = (scenario, token, view.act, view.args, answer.text)
+            if view.allowed:
+                assert answer.status_code == 200, what
+            elif view.refusal.kind == "policy":
+                assert answer.status_code == 403, what
+                assert answer.json()["rule"] == view.refusal.rule, what
+            else:
+                assert answer.status_code == 422, what
+                assert answer.json()["detail"] == view.refusal.detail, what
 
 
 async def test_a_preview_records_nothing_and_does_nothing(monkeypatch):
