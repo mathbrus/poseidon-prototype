@@ -1,8 +1,11 @@
 import io
 import json
 import logging
+from collections.abc import Callable
 
-from common.telemetry import JsonFormatter, get_logger
+import pytest
+
+from common.telemetry import BoundLogger, JsonFormatter, get_logger
 
 
 def capture(logger_name: str):
@@ -59,11 +62,9 @@ def test_stdout_handler_configured_once():
     assert len(json_handlers) == 1
 
 
-def test_otel_handler_exports_bound_fields_as_attributes():
-    """The OTel half of the seam: bound context rides as flat, primitive
-    log-record attributes (never the `bound` dict itself), the body is the
-    message, and the stdout JSON contract is untouched by the extra
-    handler's presence."""
+def exported(logger_name: str, emit: Callable[[BoundLogger], None]) -> list:
+    """The OTel log records `emit` logs on `logger_name`, through the OTLP
+    handler, onto an in-memory exporter, in the order they were logged."""
     from opentelemetry.sdk._logs.export import InMemoryLogRecordExporter
 
     from common import telemetry
@@ -72,19 +73,28 @@ def test_otel_handler_exports_bound_fields_as_attributes():
     handler = telemetry._otel_handler(exporter=exporter)
     assert handler is not None
 
-    underlying = logging.getLogger("t-otel")
+    underlying = logging.getLogger(logger_name)
     underlying.addHandler(handler)
-    underlying.setLevel(logging.INFO)
+    underlying.setLevel(logging.DEBUG)
     try:
-        log = get_logger("t-otel").bind(run_id="run-z", agent_id="pm-1")
-        log.info("exported", extra={"iterations": 3, "handle": object()})
+        emit(get_logger(logger_name))
         assert handler.provider.force_flush()
     finally:
         underlying.removeHandler(handler)
+    return [finished.log_record for finished in exporter.get_finished_logs()]
 
-    finished = exporter.get_finished_logs()
-    assert len(finished) == 1
-    record = finished[0].log_record
+
+def test_otel_handler_exports_bound_fields_as_attributes():
+    """The OTel half of the seam: bound context rides as flat, primitive
+    log-record attributes (never the `bound` dict itself), the body is the
+    message, and the stdout JSON contract is untouched by the extra
+    handler's presence."""
+
+    def emit(log: BoundLogger) -> None:
+        log = log.bind(run_id="run-z", agent_id="pm-1")
+        log.info("exported", extra={"iterations": 3, "handle": object()})
+
+    (record,) = exported("t-otel", emit)
     assert record.body == "exported"
     attributes = dict(record.attributes)
     assert attributes["run_id"] == "run-z"
@@ -94,6 +104,62 @@ def test_otel_handler_exports_bound_fields_as_attributes():
     # itself never leaks through as an attribute.
     assert isinstance(attributes["handle"], str)
     assert "bound" not in attributes
+
+
+@pytest.mark.parametrize(
+    ("level", "number", "text"),
+    [
+        (logging.DEBUG, 5, "DEBUG"),
+        (logging.INFO, 9, "INFO"),
+        (logging.WARNING, 13, "WARN"),
+        (logging.ERROR, 17, "ERROR"),
+        (logging.CRITICAL, 21, "FATAL"),
+    ],
+)
+def test_otel_severity_follows_the_level(level, number, text):
+    """Each of Python's levels lands on OTel's severity of the same name,
+    spelled as OTel spells it: WARNING is WARN, CRITICAL is FATAL."""
+    (record,) = exported(f"t-severity-{level}", lambda log: log.log(level, "leveled"))
+    assert record.severity_number.value == number
+    assert record.severity_text == text
+
+
+def test_otel_exception_rides_as_attributes():
+    """A record logged with its exception carries the exception's type,
+    message and stack, under OTel's semantic-convention names."""
+
+    def emit(log: BoundLogger) -> None:
+        try:
+            raise ValueError("boom")
+        except ValueError:
+            log.exception("failed")
+
+    (record,) = exported("t-exception", emit)
+    attributes = dict(record.attributes)
+    assert attributes["exception.type"] == "ValueError"
+    assert attributes["exception.message"] == "boom"
+    assert 'raise ValueError("boom")' in attributes["exception.stacktrace"]
+
+
+def test_otel_record_carries_the_active_span():
+    """A record logged inside a span names that span's trace and span; one
+    logged outside any span names none."""
+    from opentelemetry.sdk.trace import TracerProvider
+
+    tracer = TracerProvider().get_tracer("test")
+    active = []
+
+    def emit(log: BoundLogger) -> None:
+        log.info("outside")
+        with tracer.start_as_current_span("work") as span:
+            active.append(span.get_span_context())
+            log.info("inside")
+
+    outside, inside = exported("t-trace", emit)
+    (span,) = active
+    assert span.trace_id and span.span_id
+    assert (inside.trace_id, inside.span_id) == (span.trace_id, span.span_id)
+    assert (outside.trace_id, outside.span_id) == (0, 0)
 
 
 def test_otel_service_name_rides_the_resource(monkeypatch):
