@@ -13,7 +13,7 @@ the schema pass names those.
 from typing import Any
 
 from blueprint.catalog import CrewTemplate, Role
-from blueprint.tools import KNOWN_TOOLS, PLATFORM_ONLY
+from blueprint.tools import CONSOLE_ONLY, KNOWN_TOOLS, PLATFORM_ONLY
 
 
 def _known(names: dict[str, Any] | tuple[str, ...]) -> str:
@@ -78,7 +78,7 @@ def tool_scope_problems(
             if tool not in KNOWN_TOOLS:
                 if report_unknown_tools:
                     problems.append(f"{where}: {tool!r} is not a tool the gateway serves")
-            elif tool in PLATFORM_ONLY:
+            elif tool in PLATFORM_ONLY | CONSOLE_ONLY:
                 continue  # platform_tool_problems names it
             elif tool not in role.tools:
                 problems.append(
@@ -93,13 +93,19 @@ def tool_scope_problems(
 def platform_tool_problems(where: str, declared: list[str]) -> list[str]:
     """No company role may hold a platform-only tool: `git.merge_pr` belongs
     to the orchestrator identity after the gate, and a blueprint able to
-    grant it would make the merge gate optional."""
+    grant it would make the merge gate optional. Nor a console-only one:
+    `repo.purge` resets the repository for a person deleting the company."""
     return [
         f"{where}: {tool!r} is callable only by the platform identity "
         f"(the orchestrator, after the merge gate) and cannot be granted "
         f"to a company role"
         for tool in declared
         if tool in PLATFORM_ONLY
+    ] + [
+        f"{where}: {tool!r} is callable only by the console, for a person "
+        f"deleting the company, and cannot be granted to a company role"
+        for tool in declared
+        if tool in CONSOLE_ONLY
     ]
 
 

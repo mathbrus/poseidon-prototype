@@ -42,6 +42,7 @@ from common.console import (
     RunView,
     TickView,
 )
+from common.repos import repo_slug
 from common.topology import (
     CONSOLE_TOKEN_AUDIENCE,
     PLATFORM_NAMESPACE,
@@ -385,8 +386,9 @@ def _await_converged(client: ConsoleClient, generation: int, timeout_s: int) -> 
 @company_app.command("show", epilog=examples("poseidon company show"))
 def company_show(as_json: bool = JSON_OPTION) -> None:
     """The applied company: its name, phase (`activating` until its policy
-    is served, `converged` after), generation and bundle revision, and who
-    holds its heartbeat paused, if anyone."""
+    is served, `converged` after), generation and bundle revision, the
+    repository it works on, and who holds its heartbeat paused, if
+    anyone."""
     state = _call(_client().company)
     if as_json:
         _json(state)
@@ -401,6 +403,7 @@ def company_show(as_json: bool = JSON_OPTION) -> None:
                 f"{state.generation} (observed {state.observed_generation})",
             ),
             ("bundle", render.dim(state.bundle_revision)),
+            ("repository", state.repo or ""),
             (
                 "heartbeat",
                 Text.assemble(
@@ -415,22 +418,38 @@ def company_show(as_json: bool = JSON_OPTION) -> None:
     )
 
 
+# What `--purge-remote` does to the repository, as the help and the
+# warning before the question both say it.
+PURGE_EFFECT = (
+    "every open pull request and issue closed, every branch but the base and"
+    " default ones deleted, and those forced to one empty root commit"
+)
+
+
 @company_app.command(
     "delete",
     epilog=examples(
         'poseidon company delete --reason "wrong vision"',
         'poseidon company delete --reason "done" --yes',
+        'poseidon company delete --reason "start over" --purge-remote',
     ),
 )
 def company_delete(
     reason: str = REASON_OPTION,
+    purge_remote: bool = typer.Option(
+        False,
+        "--purge-remote",
+        help=f"Also reset the company's repository in place: {PURGE_EFFECT}.",
+    ),
     yes: bool = typer.Option(False, "--yes", "-y", help="Delete without asking."),
-    no_wait: bool = NO_WAIT_OPTION,
 ) -> None:
-    """Delete the company: cancels its running runs, removes it and waits
-    for the teardown. Asks first, naming the runs it will cancel. The one
-    way to stop a company (`pause` holds it instead); applying its
-    blueprint again brings it back."""
+    """Delete the company: holds its heartbeat, cancels its running runs,
+    removes it and erases every record the platform kept of it — runs,
+    tickets, spend, audit rows, workflow histories. Asks first, naming the
+    runs it will cancel; with `--purge-remote`, names the repository and
+    asks you to type its `owner/name`. The one way to stop a company
+    (`pause` holds it instead); applying its blueprint again starts a new
+    company, with no history."""
     client = _client()
     company = _call(client.whoami).company
     if not company:
@@ -448,13 +467,27 @@ def company_delete(
             [(r.run_id, r.workflow, r.task) for r in running],
             render.ERR,
         )
-    if not yes:
-        typer.confirm(f"delete {company}?", abort=True)
-    result = _call(client.delete_company, reason, wait=not no_wait)
+    if purge_remote:
+        repo = _call(client.company).repo or ""
+        render.act(
+            f"--purge-remote resets {repo} in place: {PURGE_EFFECT}. Closed"
+            " issues and pull requests stay visible on the git host.",
+            render.ERR,
+        )
+        if not yes and typer.prompt(f"type {repo_slug(repo)} to purge it") != repo_slug(
+            repo
+        ):
+            render.error("that is not the repository's name; nothing was deleted")
+            raise typer.Exit(1)
+    elif not yes:
+        typer.confirm(
+            f"delete {company} and erase everything recorded about it?", abort=True
+        )
+    result = _call(client.delete_company, reason, purge_remote)
     cancelled = result.runs_cancelled
     render.act(
-        f"{result.company} deleted"
-        + (f" in {render.duration(result.elapsed_s)}" if not no_wait else "")
+        f"{result.company} deleted in {render.duration(result.elapsed_s)}"
+        + ("; its repository purged" if result.purged_remote else "")
         + (f"; cancelled {', '.join(cancelled)}" if cancelled else "")
     )
 

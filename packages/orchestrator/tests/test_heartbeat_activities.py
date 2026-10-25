@@ -87,8 +87,8 @@ def ledger() -> InMemoryBudgetLedger:
 
 
 @pytest.fixture
-def audit() -> InMemoryAuditStore:
-    return InMemoryAuditStore()
+def audit(companies) -> InMemoryAuditStore:
+    return InMemoryAuditStore(companies)
 
 
 @pytest.fixture
@@ -258,14 +258,14 @@ def test_config_carries_the_pause(activities, companies):
 def test_config_is_none_without_an_applied_company(activities, companies):
     """The fail-closed half of teardown: a deleted company stops the loop
     at its next tick."""
-    companies.delete(COMPANY)
+    del companies.rows[COMPANY]
     assert asyncio.run(activities.heartbeat_config(COMPANY)) is None
 
 
 def test_config_is_none_for_a_heartbeat_of_another_company(activities, companies):
     """A heartbeat that outlived its company must not tick on the next
     company's blueprint: the config read answers for its own name only."""
-    companies.delete(COMPANY)
+    del companies.rows[COMPANY]
     companies.upsert("other-co", {"heartbeat": HEARTBEAT_SPEC})
     assert asyncio.run(activities.heartbeat_config(COMPANY)) is None
 
@@ -812,8 +812,10 @@ def test_authorize_deny_raises_nonretryable_and_audits(activities, audit, monkey
 
 
 def test_every_tick_leaves_a_correlated_row(activities, audit):
-    asyncio.run(activities.record_tick("idle", "backlog_empty", "heartbeat-x"))
-    asyncio.run(activities.record_tick("started", "implement_issue_5", "heartbeat-x"))
+    asyncio.run(activities.record_tick(COMPANY, "idle", "backlog_empty", "heartbeat-x"))
+    asyncio.run(
+        activities.record_tick(COMPANY, "started", "implement_issue_5", "heartbeat-x")
+    )
     story = audit.story(f"heartbeat-{COMPANY}")
     # The gate-outcome idiom: started is the tick's allow, idle its deny.
     assert [e["decision"] for e in story] == ["deny", "allow"]
@@ -823,6 +825,14 @@ def test_every_tick_leaves_a_correlated_row(activities, audit):
     ]
     assert {e["tool"] for e in story} == {HEARTBEAT_TICK}
     assert {e["source"] for e in story} == {"process-lifecycle"}
+
+
+def test_a_tick_of_a_deleted_company_leaves_no_row(activities, audit, companies):
+    """A tick in flight while the company is deleted: its row would
+    outlive the teardown sweep, so it is not written."""
+    del companies.rows[COMPANY]
+    asyncio.run(activities.record_tick(COMPANY, "paused", "owner", "heartbeat-x"))
+    assert audit.events == []
 
 
 # -- heartbeat_decide --------------------------------------------------------

@@ -61,13 +61,6 @@ class AgentInstances:
             "DELETE FROM registry.agent_instances WHERE agent_id = %s", (agent_id,)
         )
 
-    def delete_for_company(self, company: str) -> None:
-        """The company-level sweep at teardown: correct even if the reconciler
-        was down for individual instance-delete events."""
-        self._db.execute(
-            "DELETE FROM registry.agent_instances WHERE company = %s", (company,)
-        )
-
     def for_company(self, company: str) -> list[dict]:
         return self._db.query(
             "SELECT agent_id, company, standing_name, role,"

@@ -5,7 +5,7 @@ assumes it can rely on.
 """
 
 from blueprint.catalog import CREW_TEMPLATES, PROCEDURES, ROLES, STEWARD_ROLE
-from blueprint.tools import KNOWN_TOOLS, PLATFORM_ONLY, RATIONALE_TOOLS
+from blueprint.tools import CONSOLE_ONLY, KNOWN_TOOLS, PLATFORM_ONLY, RATIONALE_TOOLS
 
 
 def test_catalog_covers_the_mvp_roles():
@@ -20,6 +20,11 @@ def test_every_role_scope_is_a_known_tool():
 def test_no_role_carries_a_platform_only_tool():
     for role in ROLES.values():
         assert not set(role.tools) & PLATFORM_ONLY, role.name
+
+
+def test_no_role_carries_a_console_only_tool():
+    for role in ROLES.values():
+        assert not set(role.tools) & CONSOLE_ONLY, role.name
 
 
 def test_every_role_declares_known_procedures():

@@ -131,7 +131,7 @@ def seeded() -> World:
     world.workflows.running[workflow_id("heartbeat", COMPANY)] = HEARTBEAT_SLEEPING
     world.run_ids = [STARTED_RUN]
 
-    world.documents.files[applied_spec()["documents"]["strategy"]] = (
+    world.gateway.files[applied_spec()["documents"]["strategy"]] = (
         "# Strategy\n\nShip slugify first: every later slice builds on it.\n"
     )
     world.participants.add(
@@ -246,11 +246,7 @@ REQUESTS: dict[tuple[str, str], tuple[str, dict[str, Any], dict[str, Any] | None
     ("GET", "/documents/{kind}"): ("/documents/strategy", {}, None),
     ("GET", "/agents"): ("/agents", {}, None),
     ("GET", "/tickets"): ("/tickets", {}, None),
-    ("DELETE", "/company"): (
-        "/company",
-        {},
-        {"rationale": "the vision is done", "wait": True},
-    ),
+    ("DELETE", "/company"): ("/company", {}, {"rationale": "the vision is done"}),
     ("POST", "/runs"): ("/runs", {}, {"workflow": "implement", "number": 7}),
     ("GET", "/runs"): ("/runs", {}, None),
     ("GET", "/runs/{run_id}"): (f"/runs/{REVIEW_RUN}", {}, None),

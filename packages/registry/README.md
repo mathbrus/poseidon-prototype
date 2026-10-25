@@ -23,7 +23,8 @@ imports it and connects with its own `REGISTRY_DSN`.
 | `tickets.py` | `FiledTickets`: so the heartbeat reads its own tickets before the git host lists them. |
 | `ledger.py` | `BudgetLedger`: spend rows and their sums. |
 | `audit.py` | `AuditStore`: `append`, `story(run_id)`, `after` for followers, `count_allowed`, `latest_human_verdict`. |
-| `memory.py` | In-memory doubles of every accessor except `PolicyBundles`, for other packages' unit tests. They fail the way the real accessors do. No running service imports it. |
+| `sweep.py` | `CompanySweep`: the teardown's one write, every row of a deleted company in one transaction. |
+| `memory.py` | In-memory doubles of every accessor except `PolicyBundles` and `CompanySweep`, for other packages' unit tests. They fail the way the real accessors do. No running service imports it. |
 
 ### The nine tables
 
@@ -37,7 +38,7 @@ imports it and connects with its own `REGISTRY_DSN`.
 | `sandbox_registrations` | mcp-gateway | Run to sandbox address. |
 | `filed_tickets` | mcp-gateway | Each ticket the company filed. |
 | `budget_ledger` | llm-gateway | One spend entry per model call. |
-| `audit_events` | mcp-gateway, llm-gateway, egress proxy, orchestrator, console | Every decision, append only. |
+| `audit_events` | mcp-gateway, llm-gateway, egress proxy, orchestrator, console | Every decision, append only while its company lives. |
 
 ## How it works
 
@@ -54,6 +55,21 @@ The `rationale` column is the only cleartext the actor wrote.
 `audit_events.run_id` and `sandbox_registrations.run_id` carry no
 foreign key, so an event whose run claim failed verification is still
 recorded.
+
+### Deleting a company erases its rows
+
+The one deleter of every table is the reconciler's teardown, through
+`CompanySweep`, once the tombstone is served and the namespace is gone.
+In one transaction it deletes every row of the company: by its company
+column, or by run id where a writer knows only the run (egress attempts,
+the platform identity's calls under `heartbeat-<company>`, bootstrap
+tickets). The runs are the company's runs plus `heartbeat-<company>`;
+its filed tickets are also matched by the applied repository. A company
+applied again under the same name starts with no history.
+
+What stays is the platform's: the policy bundles, the company slot
+holding the tombstone, and audit rows that name neither the company nor
+one of its runs, such as an unknown caller's rejected authentication.
 
 ### Every service migrates at startup
 
@@ -82,8 +98,9 @@ each write is safe to repeat:
   `ParticipantRevoked`.
 - `SandboxRegistrations.register` updates on conflict, since a provision
   retry brings a new address.
-- `Runs.finish` recreates a missing row, so compensation never fails on
-  it.
+- `Runs.finish` updates the row in place. A run refused at birth has no
+  row: `finish` returns its record and writes none, since a row without
+  its company would outlive the teardown sweep.
 
 ## Invariants
 
@@ -96,14 +113,16 @@ each write is safe to repeat:
 - One live run per issue and per pull request:
   `test_one_live_implement_run_per_issue`,
   `test_one_live_review_run_per_pr`.
-- `finish` recreates a missing row:
-  `test_finish_recreates_a_missing_row`.
+- A run refused at birth gets a record and no row:
+  `test_a_run_refused_at_birth_gets_a_record_and_no_row`.
 - An unattributable event is still recorded:
   `test_unattributable_attempts_are_still_recorded`.
 - One query returns a run's story across every source:
   `test_story_spans_every_source`.
 - A re-apply keeps the pause:
   `test_the_pause_is_a_company_fact_that_survives_a_re_apply`.
+- A deleted company leaves no row:
+  `test_the_teardown_sweep_erases_every_row_of_the_company`.
 - Identical policy packs identically:
   `test_bundles.py::test_identical_files_pack_identically`.
 - Bundle roots come from the files' `package` lines:
@@ -127,7 +146,8 @@ REGISTRY_DSN=postgresql://poseidon:ci@127.0.0.1:5432/poseidon uv run pytest pack
 CI runs the same container. Run tests per package
 ([Contributing](../../docs/developing/contributing.md)). On the cluster,
 `tests/e2e_kind/test_registry_durability.py` checks that a run's record
-and sandbox registration survive a gateway restart.
+and sandbox registration survive a gateway restart, and
+`tests/e2e_kind/test_delete.py` that a deleted company leaves no row.
 
 ## Related
 

@@ -5,7 +5,8 @@ revocation and the wake path are exactly what the activity units cannot see.
 
 Each test scripts a queue of per-tick configs ending in None, so the loop
 always stops itself through the same path a deleted company takes in
-production — every test is therefore also a teardown test. And because the
+production, writing nothing — every test is therefore also a teardown
+test. And because the
 time-skipping clock only advances while a result is awaited, every test
 that chains ticks without sending a wake is also a reconcile-backstop
 test: the full wait between those ticks ended by timer, not by signal."""
@@ -128,7 +129,10 @@ class Harness:
             )
 
         @activity.defn(name="record_tick")
-        async def record_tick(outcome: str, rule: str, workflow_id: str) -> None:
+        async def record_tick(
+            company: str, outcome: str, rule: str, workflow_id: str
+        ) -> None:
+            assert company == COMPANY
             harness.ticks.append((outcome, rule))
 
         @activity.defn(name="record_gate_outcome")
@@ -233,9 +237,9 @@ async def test_started_tick_authorizes_then_spawns_the_chosen_child(env):
     assert kind == "implement"
     assert child_input["issue_number"] == 5
     assert child_input["run_id"] == decide_run_id
-    assert harness.ticks[0] == ("started", f"implement_5_as_{decide_run_id}")
-    # The config queue ran dry: the loop stopped as a deleted company's does.
-    assert harness.ticks[-1] == ("stopped", "blueprint_absent")
+    # The config queue ran dry: the loop stopped as a deleted company's
+    # does, without a row.
+    assert harness.ticks == [("started", f"implement_5_as_{decide_run_id}")]
     assert result == {"stopped": "no applied blueprint for the company"}
 
 
@@ -437,17 +441,27 @@ async def test_empty_observation_never_wakes_the_pm(env):
 
 async def test_deleting_the_company_stops_a_running_loop(env):
     """The mid-flight teardown: tick one runs under an applied company,
-    the company disappears, and the loop's next tick stops it cleanly
-    with the stop recorded — no ensure-loop involvement, no kill."""
+    the company disappears, and the loop's next tick stops it cleanly —
+    no ensure-loop involvement, no kill, and no row: the company's
+    history went with it."""
     harness = Harness(
         configs=[CONFIG, None],
         observations=[observation()],
         decisions=[{"action": "implement", "target": 5, "rationale": "go"}],
     )
     result = await run_heartbeat(env.client, harness)
-    assert harness.ticks[0][0] == "started"
-    assert harness.ticks[1] == ("stopped", "blueprint_absent")
+    assert [t[0] for t in harness.ticks] == ["started"]
     assert result["stopped"].startswith("no applied blueprint")
+
+
+async def test_a_deleted_companys_heartbeat_completes_and_writes_nothing(env):
+    """A loop started for a company already gone: it completes on its
+    first config read, observing, deciding and recording nothing."""
+    harness = Harness(configs=[None])
+    result = await run_heartbeat(env.client, harness)
+    assert result == {"stopped": "no applied blueprint for the company"}
+    assert harness.ticks == [] and harness.gate_events == []
+    assert harness.observed_caps == [] and harness.decide_calls == []
 
 
 async def test_heartbeat_survives_worker_death_between_ticks(env):
@@ -490,7 +504,7 @@ async def test_heartbeat_survives_worker_death_between_ticks(env):
     async with worker():  # a fresh worker: replay, resume, self-stop
         result = await handle.result()
     assert result["stopped"].startswith("no applied blueprint")
-    assert [t[0] for t in harness.ticks] == ["started", "stopped"]
+    assert [t[0] for t in harness.ticks] == ["started"]
     assert len(harness.children) == 1  # the replay started nothing twice
 
 
@@ -547,7 +561,6 @@ async def test_a_paused_loop_says_so_and_a_wake_leaves_it_paused(env):
     assert harness.ticks == [
         ("paused", "owner"),
         ("paused", "owner"),
-        ("stopped", "blueprint_absent"),
     ]
     assert harness.children == []
 
@@ -577,7 +590,7 @@ async def test_wake_cuts_the_sleep_short(env):
         while len(harness.ticks) < 2:
             await asyncio.sleep(0.05)
         result = await handle.result()
-    assert [t[0] for t in harness.ticks] == ["idle", "idle", "stopped"]
+    assert [t[0] for t in harness.ticks] == ["idle", "idle"]
     assert result["stopped"].startswith("no applied blueprint")
 
 
@@ -625,7 +638,7 @@ async def test_wakes_mid_tick_coalesce_to_one_extra_tick(env):
         assert len(harness.ticks) == 2
         assert await handle.query("state") == "sleeping"
         await handle.result()
-    assert [t[0] for t in harness.ticks] == ["idle", "idle", "stopped"]
+    assert [t[0] for t in harness.ticks] == ["idle", "idle"]
 
 
 async def test_a_pending_wake_skips_the_first_sleep_then_the_loop_rests(env):
@@ -653,5 +666,5 @@ async def test_a_pending_wake_skips_the_first_sleep_then_the_loop_rests(env):
             await asyncio.sleep(0.05)
         assert await handle.query("state") == "sleeping"
         result = await handle.result()
-    assert [t[0] for t in harness.ticks] == ["idle", "idle", "stopped"]
+    assert [t[0] for t in harness.ticks] == ["idle", "idle"]
     assert result["stopped"].startswith("no applied blueprint")

@@ -48,9 +48,11 @@ HEARTBEAT_PAUSE = "heartbeat.pause"
 HEARTBEAT_RESUME = "heartbeat.resume"
 BLUEPRINT_APPLY = "blueprint.apply"
 COMPANY_DELETE = "company.delete"
-# The one read the console makes at the MCP gateway, for a person: the
-# company's documents at the base ref.
+# The console's two calls at the MCP gateway, for a person: the read of
+# the company's documents at the base ref, and the reset of its
+# repository when the company is deleted with `--purge-remote`.
 CONSOLE_READ_DOCUMENT = "console_read_document"
+CONSOLE_REPO_PURGE = "console_repo_purge"
 
 # The rules the blueprint's `policies` section and the company's document
 # paths compile to over a delivery (`git.open_pr`), and the repository
@@ -75,6 +77,12 @@ def verdict_rule(gate: str, approved: bool) -> str:
     allow, the console that records it and the workflow that reads it
     back agree on one spelling."""
     return f"gate_resolve_{rego_slug(gate)}_{'approve' if approved else 'reject'}"
+
+
+def delete_rule(purge_remote: bool) -> str:
+    """The rule a delete is allowed and recorded under: whether it purges
+    the repository is named in the rule, like a verdict's answer."""
+    return "company_delete_purge_remote" if purge_remote else "company_delete"
 
 
 def rego_slug(value: str) -> str:
@@ -318,7 +326,15 @@ RULES: tuple[PolicyRule, ...] = (
         "blueprint_apply", "allow", "A person `company.humans` names applies a blueprint."
     ),
     PolicyRule(
-        "company_delete", "allow", "A person `company.humans` names deletes the company."
+        delete_rule(False),
+        "allow",
+        "A person `company.humans` names deletes the company, its repository left"
+        " as it is.",
+    ),
+    PolicyRule(
+        delete_rule(True),
+        "allow",
+        "A person `company.humans` names deletes the company and purges its repository.",
     ),
     PolicyRule(
         "human_not_recognized",
@@ -330,6 +346,12 @@ RULES: tuple[PolicyRule, ...] = (
         "allow",
         "The console reads one of the company's two documents, on its repository"
         " at the base ref, for a person.",
+    ),
+    PolicyRule(
+        CONSOLE_REPO_PURGE,
+        "allow",
+        "The console purges the company's repository, at its base ref, for a"
+        " person deleting the company.",
     ),
     # -- the merge gate
     PolicyRule(

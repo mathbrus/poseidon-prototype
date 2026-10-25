@@ -16,6 +16,7 @@ from registry import (
     AuditStore,
     BudgetLedger,
     Companies,
+    CompanySweep,
     FiledTickets,
     ParticipantRevoked,
     PolicyBundles,
@@ -89,9 +90,18 @@ def test_start_is_retry_safe(registry: Registry):
     assert len(runs.recent("hello-saas")) == 1
 
 
-def test_finish_recreates_a_missing_row(registry: Registry):
-    record = Runs(registry).finish(RUN_ID, "failed", error="row vanished")
-    assert record.run_id == RUN_ID and record.status == "failed"
+def test_a_run_refused_at_birth_gets_a_record_and_no_row(registry: Registry):
+    """A run whose birth was refused has no row; its teardown's terminal
+    record is returned, never written: a row without its company would
+    outlive the company's sweep."""
+    runs = Runs(registry)
+    record = runs.finish(RUN_ID, "failed", error="refused at birth")
+    assert (record.run_id, record.status, record.error) == (
+        RUN_ID,
+        "failed",
+        "refused at birth",
+    )
+    assert runs.get(RUN_ID) is None
 
 
 def test_record_artifacts_accumulates(registry: Registry):
@@ -292,19 +302,110 @@ def test_revoking_what_was_never_stored_is_nothing(registry: Registry):
     assert PolicyBundles(registry).get("nobody") is None
 
 
-def test_company_rows_and_instance_sweep(registry: Registry):
-    companies, instances = Companies(registry), AgentInstances(registry)
-    companies.upsert("test-corp", {"namespace": "test-corp", "vision": "m"})
-    instances.upsert("tc-pm-1", "test-corp", "pm", "pm", "standard")
-    instances.upsert("other-1", "other-corp", "pm", "pm", "standard")
-    assert [r["agent_id"] for r in instances.for_company("test-corp")] == ["tc-pm-1"]
+def _spend(company: str, run_id: str) -> dict:
+    return {
+        "company": company,
+        "run_id": run_id,
+        "agent_id": "pm-1",
+        "parent_agent_id": "",
+        "role": "pm",
+        "model": "mock-brain",
+        "prompt_tokens": 1,
+        "completion_tokens": 1,
+        "cached_tokens": 0,
+        "reasoning_tokens": 0,
+        "usd": 0.01,
+    }
 
-    # The teardown sweep: company-scoped, other companies untouched.
-    instances.delete_for_company("test-corp")
-    companies.delete("test-corp")
-    assert instances.for_company("test-corp") == []
-    assert [r["agent_id"] for r in instances.for_company("other-corp")] == ["other-1"]
-    instances.delete_for_company("other-corp")
+
+def test_the_teardown_sweep_erases_every_row_of_the_company(registry: Registry):
+    """Every table, including the rows that carry only a run id: an egress
+    attempt, the platform identity's call under the heartbeat's run id, a
+    bootstrap ticket. Another company's rows, an authentication reject
+    that names no company, and the policy bundles stay."""
+    repo = "github.com/acme/test"
+    heartbeat = "heartbeat-test-corp"
+    companies, instances, runs = (
+        Companies(registry),
+        AgentInstances(registry),
+        Runs(registry),
+    )
+    participants, sandboxes = RunParticipants(registry), SandboxRegistrations(registry)
+    tickets, ledger, audit = (
+        FiledTickets(registry),
+        BudgetLedger(registry),
+        AuditStore(registry),
+    )
+    bundles = PolicyBundles(registry)
+
+    companies.upsert("test-corp", {"namespace": "c", "repo": {"url": repo}})
+    companies.upsert("other-corp", {"namespace": "o", "repo": {"url": "github.com/o/o"}})
+    companies.pause("test-corp", "human-owner")
+    instances.upsert("tc-pm-1", "test-corp", "pm", "pm", "c")
+    instances.upsert("other-1", "other-corp", "pm", "pm", "o")
+    runs.start("run-tc", "implement issue #1", company="test-corp")
+    runs.start("auto-tc", "heartbeat decision", "heartbeat", heartbeat, "test-corp")
+    runs.start("run-other", "implement issue #1", company="other-corp")
+    participants.add(
+        "fd-tc", "run-tc", "pm-1", "feature-delivery", "implementer", "test-corp"
+    )
+    participants.add(
+        "fd-other", "run-other", "pm-1", "feature-delivery", "implementer", "other-corp"
+    )
+    sandboxes.register("run-tc", "http://sandbox-tc")
+    sandboxes.register("run-other", "http://sandbox-other")
+    tickets.record(repo, 1, "run-tc")
+    tickets.record(repo, 2, heartbeat)  # a bootstrap ticket
+    tickets.record("github.com/acme/moved", 3, heartbeat)
+    tickets.record("github.com/o/o", 1, "run-other")
+    ledger.record(**_spend("test-corp", "run-tc"))
+    ledger.record(**_spend("", "auto-tc"))
+    ledger.record(**_spend("other-corp", "run-other"))
+    audit.append(event(run_id="run-tc", company="test-corp"))
+    audit.append(event(run_id="run-tc", company="", source="sandbox-infra"))
+    audit.append(event(run_id=heartbeat, company="", lifecycle="platform"))
+    audit.append(event(run_id="", company="test-corp", tool="company.delete"))
+    audit.append(event(run_id="", company="", workflow=heartbeat))
+    audit.append(event(run_id="run-other", company="other-corp"))
+    audit.append(event(run_id="", company="", decision="deny", rule="authn_rejected"))
+    bundles.put("company", {"authz.rego": "package poseidon.authz.test\n"})
+    revision = bundles.revoke("company")
+
+    CompanySweep(registry).sweep("test-corp")
+
+    def left(table: str, column: str) -> list:
+        rows = registry.query(f"SELECT {column} AS v FROM registry.{table} ORDER BY 1")
+        return [row["v"] for row in rows]
+
+    assert left("companies", "name") == ["other-corp"]
+    assert left("agent_instances", "agent_id") == ["other-1"]
+    assert left("runs", "run_id") == ["run-other"]
+    assert left("run_participants", "agent_id") == ["fd-other"]
+    assert left("sandbox_registrations", "run_id") == ["run-other"]
+    assert left("filed_tickets", "run_id") == ["run-other"]
+    assert left("budget_ledger", "run_id") == ["run-other"]
+    assert left("audit_events", "rule") == ["authn_rejected", "sandbox_assigned_run"]
+    assert left("audit_events", "company") == ["", "other-corp"]
+    # The tombstone is a revocation, not a record of the company.
+    stored = bundles.get("company")
+    assert stored is not None and stored.revision == revision
+
+    CompanySweep(registry).sweep("test-corp")  # a re-run teardown finds nothing
+    assert left("companies", "name") == ["other-corp"]
+
+
+def test_an_event_written_while_applied_never_outlives_the_sweep(registry: Registry):
+    """The heartbeat's tick row: it lands while the company is applied,
+    is swept with the rest, and a tick after the sweep writes nothing."""
+    companies, audit = Companies(registry), AuditStore(registry)
+    companies.upsert("test-corp", {"namespace": "c"})
+    tick = event(run_id="heartbeat-test-corp", company="test-corp", tool="heartbeat.tick")
+    assert audit.append_while_applied(tick) is True
+    assert len(audit.story("heartbeat-test-corp")) == 1
+
+    CompanySweep(registry).sweep("test-corp")
+    assert audit.append_while_applied(tick) is False
+    assert audit.story("heartbeat-test-corp") == []
 
 
 # -- workload identity reads ------------------------------------------------

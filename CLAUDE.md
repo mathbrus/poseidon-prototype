@@ -98,9 +98,10 @@ first.
 | **steward** | the catalog role that writes the two documents; ephemeral only; its crew is `stewardship` | librarian, architect |
 | **observer** | a future standing hire that would revise the strategy; not in the catalog; named in comments and docs only | — |
 | **profile** | the deployment's activity-bound sizing (`TIMEOUT_PROFILE`: `default` for a paid brain, `fast` for the mock), learned by every workflow from its first config activity | fast timeouts, timeouts on the input |
-| **console** | the human's chokepoint: the one service a person acts on a company through (apply the blueprint, resolve a gate, start or cancel a run, wake, pause or resume the heartbeat, delete the company) and reads it through; verifies the human, asks policy, acts, audits — nothing else; its clients are the `poseidon` CLI and the web client, both built on the console interface; at the MCP gateway it is the `console` lifecycle, which policy allows one read, the company's two documents | API, front door, dashboard, operator gateway |
+| **console** | the human's chokepoint: the one service a person acts on a company through (apply the blueprint, resolve a gate, start or cancel a run, wake, pause or resume the heartbeat, delete the company) and reads it through; verifies the human, asks policy, acts, audits — nothing else; its clients are the `poseidon` CLI and the web client, both built on the console interface; at the MCP gateway it is the `console` lifecycle, which policy allows one read, the company's two documents, and one write, the purge | API, front door, dashboard, operator gateway |
 | **console interface** | the typed request and response models and the route table in `common.console`, the one interface every console client (the CLI, the web client, the acceptance suite) is built on; its OpenAPI rendering (`packages/console/openapi.json`) is committed and checked, so a change to it is a reviewed diff and a failing check in the same pull request | API schema, DTOs, contract, console contract |
 | **act** | a human's commitment through the console (apply, delete, start, verdict, cancel, wake, pause, resume), decided by policy, checked against the company's state and audited under the human's name; an act's *preview* (`GET /acts`) answers the same two checks and commits nothing | action, command, operation |
+| **purge** | the delete option that resets the company's repository in place (`poseidon company delete --purge-remote`), through the gateway's `repo.purge` that only the console may call: every open pull request and issue closed, every branch but the base and default ones deleted, those forced to one empty root commit; closed issues and pull requests stay on the git host | wipe, reset repo |
 | **web client** | the browser client of the console, peer of the `poseidon` CLI; it reads and acts on a company only through the console interface and holds no authority of its own: every act is the console's, decided and audited under the human's name | dashboard, frontend, UI, portal |
 | **company namespace** | the one fixed Kubernetes namespace a cluster's company lives in (`common.topology.COMPANY_NAMESPACE`, `poseidon-company`): the reconciler creates it from the Company CR, the chart's NetworkPolicies select it, the worker puts sandboxes and ephemeral agents in it; it carries no company name | a namespace named after the company, tenant namespace |
 | **human** | a verified person: on kind a ServiceAccount `human-<name>` the chart declares under `console.humans`, elsewhere an identity provider's user; `lifecycle: human`, never a catalog role; `company.humans` names those who may act on a company | operator, user, approver, admin |
@@ -123,8 +124,9 @@ first.
 
 - **A company always has a heartbeat**: a blueprint without one does not
   compile, work originates only from its ticks, and stopping the company
-  is deleting it. Pausing it (`poseidon pause`) holds the heartbeat and
-  nothing else: runs in flight finish, the company stays. There is no
+  is deleting it, and deleting it erases everything the platform recorded
+  about it. Pausing it (`poseidon pause`) holds the heartbeat and nothing
+  else: runs in flight finish, the company stays. There is no
   human-started mode and no goal file.
 - **LLM cost guardrail**: the mock LLM is the default for e2e runs.
   Never set `REAL_LLM=1` or use a paid provider without explicit

@@ -116,7 +116,18 @@ class Cluster:
     # -- deletes --------------------------------------------------------------
 
     def delete_namespace(self, name: str) -> None:
-        self._tolerate_404(self._core.delete_namespace, name)
+        """Ask for the namespace's deletion. Kubernetes deletes its content
+        first and refuses a second ask meanwhile (409): asking again is
+        already asked."""
+        try:
+            self._core.delete_namespace(name)
+        except k8s.exceptions.ApiException as exc:
+            if exc.status not in (404, 409):
+                raise
+
+    def namespace_exists(self, name: str) -> bool:
+        """Whether the namespace is still there, terminating included."""
+        return self._exists(self._core.read_namespace, name=name)
 
     def delete_deployment(self, namespace: str, name: str) -> None:
         self._tolerate_404(

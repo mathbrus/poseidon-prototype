@@ -47,6 +47,24 @@ How a release is decided is the Releasing page of the docs site
   takes `merge_onto`, and `git.read` answers `base_sha`; new rules
   `issues_dismiss_*`; the activity `record_attempts_exhausted` is
   `abandon_exhausted` (#98)
+- Deleting a company erases everything the platform recorded about it:
+  its runs, tickets, spend, audit rows (the delete's own included) and
+  workflow histories. A company applied again under the same name starts
+  with no history, and its daily cap starts at $0. The delete holds the
+  heartbeat, ends the runs and waits for each, and answers once the
+  company is gone. A delete that cannot finish in time says so and
+  leaves the company held; a second delete finishes it.
+  `poseidon company delete --purge-remote` also resets the repository in
+  place: every open pull request and issue closed, every branch but the
+  base and default ones deleted, and those forced to one empty root
+  commit. The CLI asks for the repository's `owner/name` typed out, and
+  `poseidon company show` names the repository. *Changed:*
+  `company delete --no-wait` and `DeleteRequest.wait` are gone;
+  `DeleteRequest` takes `purge_remote` and `CompanyDeleted` answers
+  `purged_remote`; a delete is allowed under `company_delete` or
+  `company_delete_purge_remote`, on `args.purge_remote`; the gateway
+  tool `repo.purge` and its rule `console_repo_purge` are the console's
+  alone; the tick outcome `stopped` is gone (#99)
 
 ## [0.4.0+2026.10.22] - 2026-10-22
 

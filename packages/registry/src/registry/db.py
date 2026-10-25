@@ -9,6 +9,8 @@ and audit events optional, which is the opposite of what they are for.
 """
 
 import os
+from collections.abc import Iterator
+from contextlib import contextmanager
 from importlib import resources
 from typing import Any
 
@@ -56,6 +58,12 @@ class Registry:
     def query(self, sql: str, params: tuple[Any, ...] = ()) -> list[dict[str, Any]]:
         with self._connection() as conn:
             return conn.execute(sql, params).fetchall()
+
+    @contextmanager
+    def transaction(self) -> Iterator[Connection]:
+        """One connection whose statements commit together or not at all."""
+        with self._connection() as conn, conn.transaction():
+            yield conn
 
     def now(self) -> str:
         """The database's clock, as an ISO timestamp — the fence a reader

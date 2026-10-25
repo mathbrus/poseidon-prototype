@@ -22,6 +22,7 @@
 | `agentpod.py` | Resources and readiness probe shared by standing and ephemeral agent pods. |
 | `documents.py` | `DOCUMENT_NAMES`: the company's two documents by name, which the blueprint places and the console interface names. |
 | `tasks.py` | The task texts of heartbeat-started runs, the regexes that parse them, and the `Crew:` ticket trailer. |
+| `repos.py` | `repo_slug()`: a repository URL's `owner/name`, which the gateway addresses GitHub by and the CLI asks for before a purge. |
 | `verify.py` | `suite_green()`: what a test run's exit code means. |
 | `text.py` | `numbered_lines()` and the clip helpers for untrusted text. |
 | `telemetry.py` | `get_logger(name)`: one JSON object per line on stdout, with optional OTLP export. |

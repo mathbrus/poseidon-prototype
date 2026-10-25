@@ -1,8 +1,7 @@
 {
   "request": {
     "body": {
-      "rationale": "the vision is done",
-      "wait": true
+      "rationale": "the vision is done"
     },
     "path": "/company",
     "query": {}
@@ -10,6 +9,7 @@
   "response": {
     "company": "hello-saas",
     "elapsed_s": 0,
+    "purged_remote": false,
     "rule": "company_delete",
     "runs_cancelled": [
       "run-01REVIEW"

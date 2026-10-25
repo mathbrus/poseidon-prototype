@@ -402,7 +402,7 @@
       },
       "CompanyDeleted": {
         "additionalProperties": false,
-        "description": "`DELETE /company`: the runs cancelled on the way, and how long the\nteardown took (0 without waiting).",
+        "description": "`DELETE /company`: the runs cancelled on the way, whether the\nrepository was purged, and how long the delete took. The receipt:\nnothing else of the company is left to read.",
         "properties": {
           "company": {
             "title": "Company",
@@ -411,6 +411,10 @@
           "elapsed_s": {
             "title": "Elapsed S",
             "type": "integer"
+          },
+          "purged_remote": {
+            "title": "Purged Remote",
+            "type": "boolean"
           },
           "rule": {
             "title": "Rule",
@@ -427,6 +431,7 @@
         "required": [
           "company",
           "runs_cancelled",
+          "purged_remote",
           "elapsed_s",
           "rule"
         ],
@@ -443,7 +448,7 @@
       },
       "CompanyView": {
         "additionalProperties": false,
-        "description": "`GET /company`: the applied company as its Company CR says \u2014\n`activating` until OPA serves its policy, `converged` after; the\ngeneration the phase answers for \u2014 its pause, and its limits (null\nuntil the company has converged once).",
+        "description": "`GET /company`: the applied company as its Company CR says \u2014\n`activating` until OPA serves its policy, `converged` after; the\ngeneration the phase answers for \u2014 its pause, and the repository it\nworks on and its limits (null until the company has converged\nonce).",
         "properties": {
           "bundle_revision": {
             "title": "Bundle Revision",
@@ -487,6 +492,17 @@
           },
           "phase": {
             "$ref": "#/components/schemas/CompanyPhase"
+          },
+          "repo": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repo"
           }
         },
         "required": [
@@ -497,6 +513,7 @@
           "bundle_revision",
           "message",
           "paused",
+          "repo",
           "limits"
         ],
         "title": "CompanyView",
@@ -535,18 +552,18 @@
       },
       "DeleteRequest": {
         "additionalProperties": false,
-        "description": "`DELETE /company`. `wait: false` answers before the reconciler's\nteardown ends; the act and the teardown are the same either way.",
+        "description": "`DELETE /company`. The console answers once the company is gone:\nits runs ended, its rows swept, its workflow histories deleted. With\n`purge_remote`, its repository is reset in place first: every open\npull request and issue closed, every branch but the base and default\nones deleted, and those forced to one empty root commit.",
         "properties": {
+          "purge_remote": {
+            "default": false,
+            "title": "Purge Remote",
+            "type": "boolean"
+          },
           "rationale": {
             "maxLength": 1000,
             "minLength": 1,
             "title": "Rationale",
             "type": "string"
-          },
-          "wait": {
-            "default": true,
-            "title": "Wait",
-            "type": "boolean"
           }
         },
         "required": [
@@ -1644,7 +1661,6 @@
           "started",
           "idle",
           "refused",
-          "stopped",
           "paused"
         ],
         "title": "TickOutcome",
@@ -2256,7 +2272,7 @@
             "description": "Service Unavailable"
           }
         },
-        "summary": "stop the company: cancel its runs, delete its CR, wait for the teardown"
+        "summary": "stop the company and erase it: cancel its runs, delete its CR and its records"
       },
       "get": {
         "operationId": "company_company_get",

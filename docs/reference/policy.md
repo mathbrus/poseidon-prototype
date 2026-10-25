@@ -33,7 +33,8 @@ OPA polls a bundle server for both. Nothing is pushed. Until OPA serves
 the company's bundle, every enforcement point denies with
 `no_policy_installed`, and the company reads `activating`. When a company
 is deleted, its bundle becomes an empty *tombstone*, and OPA's next poll
-erases its rules.
+erases its rules. The tombstone stays served after the company is gone:
+without it, OPA would keep the last rules it activated.
 
 ## What a decision reads
 
@@ -73,6 +74,9 @@ Every component writes the same event shape to one table, so one query by
   A refusal carries none, because its rule is the reason.
 - `decision` is always `allow` or `deny`. A gate that expired or a budget
   that parked a run are decisions on the record too.
+- The trail lasts as long as the company. Deleting the company erases
+  every row of it, the delete's own included. Rows that name no company,
+  such as a token the console or a gateway refused, stay.
 
 | `source` | Written by | Records |
 |---|---|---|

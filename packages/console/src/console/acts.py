@@ -56,7 +56,13 @@ def cancel_args(run_id: str) -> dict[str, Any]:
     return {"run_id": run_id}
 
 
-# Wake, pause, resume and delete: the act is the fact.
+def delete_args(purge_remote: bool) -> dict[str, Any]:
+    """Whether the delete purges the repository: a rule of its own, like a
+    verdict's."""
+    return {"purge_remote": purge_remote}
+
+
+# Wake, pause and resume: the act is the fact.
 NO_ARGS: dict[str, Any] = {}
 
 

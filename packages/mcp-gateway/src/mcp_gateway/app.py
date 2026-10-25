@@ -29,6 +29,7 @@ from blueprint.tools import (
     GIT_CLOSE_PR,
     ISSUES_CLOSE,
     ISSUES_DISMISS,
+    REPO_PURGE,
 )
 from common.authn import Authenticator, AuthMiddleware, Reviewer, default_reviewer
 from common.identity import Identity
@@ -288,6 +289,20 @@ def create_app(
         documents with it at `base_ref`, never from a sandbox a run could
         have edited."""
         return await service.read_file(identity_of(ctx), run_id, repo, ref, path)
+
+    @mcp.tool(name=REPO_PURGE)
+    async def repo_purge(
+        run_id: str, repo: str, base_ref: str, ctx: Context
+    ) -> dict[str, Any]:
+        """Reset the repository in place: `base_ref` and the default branch
+        forced to one new root commit with an empty tree, every open pull
+        request closed, every open issue closed as not planned, every other
+        branch deleted. The console's call alone, for a person deleting the
+        company with `--purge-remote`: compiled policy allows it on the
+        company's repository at its base ref, and no role or blueprint can
+        hand it on. Closed issues and pull requests stay on the git
+        host."""
+        return await service.purge_repo(identity_of(ctx), run_id, repo, base_ref)
 
     @mcp.tool(name="repo.present")
     async def repo_present(

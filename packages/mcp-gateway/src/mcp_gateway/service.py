@@ -27,6 +27,7 @@ from blueprint.tools import (
     ISSUES_CLOSE,
     ISSUES_DISMISS,
     RATIONALE_TOOLS,
+    REPO_PURGE,
 )
 from common.audit import RATIONALE_LIMIT, AuditEvent, args_digest
 from common.documents import BOOTSTRAP_TITLES
@@ -509,6 +510,14 @@ class GatewayService:
         args = {"run_id": run_id, "repo": repo, "ref": ref, "path": path}
         return await self.call(
             identity, "repo.read_file", args, lambda: self._git.read_file(repo, ref, path)
+        )
+
+    async def purge_repo(
+        self, identity: Identity, run_id: str, repo: str, base_ref: str
+    ) -> Any:
+        args = {"run_id": run_id, "repo": repo, "base_ref": base_ref}
+        return await self.call(
+            identity, REPO_PURGE, args, lambda: self._git.purge(repo, base_ref)
         )
 
     async def present_paths(

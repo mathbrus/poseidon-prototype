@@ -6,7 +6,8 @@ Postgres would add a failure mode without adding a boundary. One module
 per table, each with exactly one writer; write ownership shows up as which
 accessor a service imports — `Runs` for the orchestrator,
 `SandboxRegistrations` and `AuditStore` for the gateway, `Companies`,
-`AgentInstances` and `PolicyBundles` for the reconciler.
+`AgentInstances` and `PolicyBundles` for the reconciler. The one deleter
+of every table is the reconciler's teardown, through `CompanySweep`.
 """
 
 from registry.audit import AuditStore
@@ -18,6 +19,7 @@ from registry.participants import ParticipantRevoked, RunParticipants
 from registry.policy import PolicyBundles, StoredBundle, pack, tombstone
 from registry.runs import Attempts, RunRecord, Runs
 from registry.sandboxes import SandboxRegistrations
+from registry.sweep import CompanySweep
 from registry.tickets import FiledTickets
 
 __all__ = [
@@ -25,6 +27,7 @@ __all__ = [
     "AuditStore",
     "BudgetLedger",
     "Companies",
+    "CompanySweep",
     "FiledTickets",
     "ParticipantRevoked",
     "PolicyBundles",

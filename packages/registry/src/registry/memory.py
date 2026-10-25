@@ -28,11 +28,23 @@ from registry.runs import Attempts, RunRecord
 
 
 class InMemoryAuditStore:
-    def __init__(self) -> None:
+    """`companies` is what `append_while_applied` checks the event's
+    company against, as the real store checks the companies table."""
+
+    def __init__(self, companies: "InMemoryCompanies | None" = None) -> None:
         self.events: list[AuditEvent] = []
+        self._companies = companies
 
     def append(self, event: AuditEvent) -> None:
         self.events.append(event)
+
+    def append_while_applied(self, event: AuditEvent) -> bool:
+        if self._companies is None:
+            raise RuntimeError("this audit double was built without its companies")
+        if self._companies.get(event.company) is None:
+            return False
+        self.events.append(event)
+        return True
 
     def count_allowed(self, run_id: str, tool: str) -> int:
         return sum(
@@ -287,10 +299,6 @@ class InMemoryCompanies:
                 return spec
         return None
 
-    def delete(self, name: str) -> None:
-        self.rows.pop(name, None)
-        self.pauses.pop(name, None)
-
 
 class InMemoryAgentInstances:
     """The gateway's read side of `agent_instances` (workload identity)
@@ -325,6 +333,9 @@ class InMemoryAgentInstances:
 
     def get(self, agent_id: str) -> dict[str, Any] | None:
         return self.rows.get(agent_id)
+
+    def delete(self, agent_id: str) -> None:
+        self.rows.pop(agent_id, None)
 
 
 class InMemoryRunParticipants:
@@ -488,13 +499,20 @@ class InMemoryRuns:
         iterations: int = 0,
         error: str | None = None,
     ) -> RunRecord:
-        record = self.rows.get(run_id) or RunRecord(run_id=run_id)
+        record = self.rows.get(run_id)
+        if record is None:  # refused at birth: returned, never written
+            return RunRecord(
+                run_id=run_id,
+                status=status,
+                pr_url=pr_url,
+                iterations=iterations,
+                error=error,
+            )
         record.status = status
         record.pr_url = pr_url or record.pr_url
         record.iterations = iterations
         record.error = error
         record.finished_at = "2026-01-01T00:00:00+00:00"
-        self.rows[run_id] = record
         return record
 
     def get(self, run_id: str) -> RunRecord | None:

@@ -164,7 +164,8 @@ TOOL_GROUPS: dict[str, list[str]] = {
     "sandbox": tools.SANDBOX_TOOLS,
     "repository": tools.GIT_TOOLS
     + tools.REVIEW_TOOLS
-    + [t for t in tools.PLATFORM_TOOLS if t != tools.ISSUES_CLOSE],
+    + [t for t in tools.PLATFORM_TOOLS if t != tools.ISSUES_CLOSE]
+    + tools.CONSOLE_TOOLS,
     "issues": tools.ISSUE_TOOLS + [tools.ISSUES_CLOSE],
     "architecture": tools.ARCHITECTURE_TOOLS,
 }

@@ -21,7 +21,8 @@
     "message": "",
     "observed_generation": 2,
     "paused": null,
-    "phase": "converged"
+    "phase": "converged",
+    "repo": "github.com/example-org/hello-saas"
   },
   "route": "GET /company",
   "status": 200

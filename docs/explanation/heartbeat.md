@@ -113,6 +113,9 @@ uv run poseidon run story heartbeat-<company> --decisions
 
 `poseidon pause` holds the heartbeat: a paused tick records `tick_paused`
 with your name and starts nothing. Runs in flight finish. Deleting the
-company is the only way to stop the heartbeat.
+company is the only way to stop the heartbeat. The delete holds it first,
+so no tick starts a run while the company goes. Its next tick finds the
+company gone and ends without a row: the delete erased the heartbeat's
+history with everything else.
 [Pause, resume or delete](../how-to/pause-resume-delete.md) has the
 commands.

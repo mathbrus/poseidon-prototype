@@ -31,6 +31,8 @@ The CLI performs no act of its own. `_client()` reads the console's address from
 
 `blueprint apply` previews the diff, asks unless `--yes`, and applies. It then polls `/company` until the phase is `converged` for the generation the apply made. `--no-wait` skips the wait, and `--wait-timeout` bounds it (600 seconds by default).
 
+`company delete` names the runs it will cancel and asks unless `--yes`. With `--purge-remote`, it names the repository (`/company`'s `repo`) and what the purge does, and asks for the repository's `owner/name` typed out instead. It always waits for the console's answer: the delete is done when the console replies.
+
 `blueprint new` asks through a small `Prompter` protocol: questionary in a terminal, a script in tests. Its defaults are the shipped example's answers. The vision and the repository have no default. It compiles the document before writing it and refuses to overwrite a file without `--force`.
 
 ### Rendering has four shapes
@@ -53,6 +55,7 @@ The CLI performs no act of its own. `_client()` reads the console's address from
 - A missing token says how to get one: `test_cli.py::test_without_a_token_the_cli_says_how_to_get_one`.
 - `login` asks for a console-audience token: `test_cli.py::test_login_asks_the_api_server_for_a_console_token`.
 - `apply` previews first and waits for `converged`: `test_cli.py::test_apply_previews_first_and_applies_with_yes`, `test_apply_waits_for_converged_and_says_so`.
+- A purge takes the repository's name typed out, and a wrong one deletes nothing: `test_cli.py::test_a_purge_asks_for_the_repositorys_name_typed_out`.
 - `follow` prints each row once and resumes from the cursor: `test_follow.py::test_follow_prints_each_row_once_and_resumes_from_the_cursor`.
 - Spend prints only when it moves: `test_follow.py::test_spend_prints_once_and_then_only_when_it_moves`.
 - The questionnaire's defaults are the shipped example, and what it writes compiles: `test_new.py::test_the_defaults_are_the_shipped_example`, `test_what_is_written_is_what_was_built`.

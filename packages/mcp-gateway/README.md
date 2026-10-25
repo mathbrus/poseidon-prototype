@@ -86,6 +86,7 @@ A bundle that fails verification still goes through `call`, with no changed path
 - Archives carry no token: `test_git_tools.py::test_platform_archives_repo_stripped_of_remotes`.
 - Unsafe repos, refs and paths fail: `test_git_hardening.py`.
 - Merging and closing are platform-only: `test_tool_surface.py::test_merge_is_platform_only`.
+- Only the console may purge, and a purge pages through every listing and refuses before anything changes on a protected branch: `test_repo_purge.py`.
 - A call owing a rationale is refused without one: `test_tool_surface.py::test_a_ticket_without_a_rationale_is_refused_before_policy`.
 
 ## Testing

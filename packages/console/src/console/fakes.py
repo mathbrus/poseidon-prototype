@@ -25,14 +25,19 @@ from fastapi import FastAPI
 
 from common.authn import Principal
 from common.console import EXECUTION_RUNNING
-from common.policy import GATE_RESOLVE, verdict_rule
+from common.policy import COMPANY_DELETE, GATE_RESOLVE, delete_rule, verdict_rule
 from common.topology import COMPANY_NAMESPACE, CONSOLE_TOKEN_AUDIENCE, PLATFORM_NAMESPACE
-from common.workflows import RUN_RUNNING, workflow_id
+from common.workflows import (
+    HEARTBEAT_PAUSED,
+    RUN_RUNNING,
+    workflow_id,
+)
 from compiler import DeploymentPlan, compile_blueprint
 from console import crs
 from console import service as service_module
 from console.app import create_app
 from console.config import ConsoleSettings
+from console.gateway import GatewayUnavailable
 from console.temporal import WorkflowNotFound
 from registry.memory import (
     InMemoryAgentInstances,
@@ -82,12 +87,21 @@ class FakeReviewer:
 
 
 class FakeWorkflows:
-    """Records what the console asked Temporal for, in order. `running`
-    maps a workflow id to the state its `state()` query answers."""
+    """Records what the console asked Temporal for, in order, in `calls`:
+    the world's log, which also holds the gateway's purge and the Company
+    CR's deletion. `running` maps a workflow id to the state its `state()`
+    query answers; a cancelled workflow closes at once. `on_signal` is how
+    a workflow answers a signal, as the world scripts it."""
 
-    def __init__(self) -> None:
-        self.calls: list[tuple[str, Any]] = []
+    def __init__(
+        self,
+        calls: list[tuple[str, Any]],
+        on_signal: Callable[[str, str], None] = lambda wf_id, name: None,
+    ) -> None:
+        self.calls = calls
         self.running: dict[str, str] = {}
+        self.closed: dict[str, str] = {}
+        self.on_signal = on_signal
 
     async def start(self, workflow: str, key: str, payload: dict[str, Any]) -> str:
         wf_id = workflow_id(workflow, key)
@@ -99,13 +113,23 @@ class FakeWorkflows:
         if wf_id not in self.running:
             raise WorkflowNotFound(wf_id)
         self.calls.append(("signal", (wf_id, name, args)))
+        self.on_signal(wf_id, name)
 
     async def cancel(self, wf_id: str) -> None:
         if wf_id not in self.running:
             raise WorkflowNotFound(wf_id)
         self.calls.append(("cancel", wf_id))
+        del self.running[wf_id]
+        self.closed[wf_id] = "CANCELED"
+
+    async def delete_executions(self, latest: list[str]) -> None:
+        self.calls.append(("delete_executions", latest))
+        self.running.clear()
+        self.closed.clear()
 
     async def inspect(self, wf_id: str) -> dict[str, Any]:
+        if wf_id in self.closed:
+            return {"workflow_id": wf_id, "status": self.closed[wf_id], "state": None}
         if wf_id not in self.running:
             raise WorkflowNotFound(wf_id)
         return {
@@ -115,18 +139,30 @@ class FakeWorkflows:
         }
 
 
-class FakeDocuments:
-    """The gateway's `repo.read_file`, over a dict of path to text; records
-    what it was asked."""
+class FakeGateway:
+    """The gateway's `repo.read_file` over a dict of path to text, which
+    records each read; and its `repo.purge`, logged in the world's `calls`.
+    `purge_refusal` is what the git host answers a purge with, when it
+    refuses one."""
 
-    def __init__(self) -> None:
+    def __init__(self, calls: list[tuple[str, Any]]) -> None:
         self.files: dict[str, str] = {}
         self.reads: list[tuple[str, str, str]] = []
+        self.purge_refusal: str | None = None
+        self._calls = calls
 
     async def read(self, repo: str, ref: str, path: str) -> dict[str, Any]:
         self.reads.append((repo, ref, path))
         text = self.files.get(path)
         return {"present": text is not None, "text": text}
+
+    async def purge(self, repo: str, base_ref: str) -> dict[str, Any]:
+        if self.purge_refusal is not None:
+            raise GatewayUnavailable(
+                f"mcp gateway refused repo.purge: {self.purge_refusal}"
+            )
+        self._calls.append(("purge", (repo, base_ref)))
+        return {"reset": [base_ref]}
 
 
 class FixedCompanies(InMemoryCompanies):
@@ -175,11 +211,12 @@ class World:
         # which company it hosts from here.
         self.companies = FixedCompanies(lambda: self.now)
         self.companies.upsert(COMPANY, applied_spec())
-        self.workflows = FakeWorkflows()
-        self.documents = FakeDocuments()
+        # What the console asked the world for, in order: Temporal's
+        # calls, the gateway's purge, the Company CR's deletion.
+        self.calls: list[tuple[str, Any]] = []
+        self.workflows = FakeWorkflows(self.calls, on_signal=self._signalled)
+        self.gateway = FakeGateway(self.calls)
         self.submitted: list[DeploymentPlan] = []
-        self.deleted: list[str] = []
-        self.waited: list[bool] = []
         self.cr: dict[str, Any] | None = None
         # What OPA answers, per tool; the default is the rule the compiled
         # bundle would name: the act's for a human the company names,
@@ -205,10 +242,20 @@ class World:
     def read_company(self) -> dict[str, Any] | None:
         return self.cr
 
-    def delete(self, company: str, wait: bool = True) -> None:
-        self.deleted.append(company)
-        self.waited.append(wait)
-        self.companies.delete(company)
+    def delete(self, company: str, timeout_s: float) -> None:
+        """The Company CR deleted and the reconciler's teardown done: the
+        company's row is gone. The sweep of every other row is the
+        registry's, tested against Postgres."""
+        self.calls.append(("delete_company", company))
+        self.cr = None
+        del self.companies.rows[company]
+
+    def _signalled(self, wf_id: str, name: str) -> None:
+        """The heartbeat answers a wake with a tick, which reads the pause:
+        a held loop then says `paused`."""
+        heartbeat = workflow_id("heartbeat", COMPANY)
+        if name == "wake" and wf_id == heartbeat and self.companies.paused(COMPANY):
+            self.workflows.running[wf_id] = HEARTBEAT_PAUSED
 
     async def evaluate(self, opa_url: str, company: str, decision_input: dict) -> dict:
         self.asked.append(decision_input)
@@ -220,6 +267,8 @@ class World:
         args = decision_input["args"]
         if tool == GATE_RESOLVE:
             return {"allow": True, "rule": verdict_rule(args["gate"], args["approved"])}
+        if tool == COMPANY_DELETE:
+            return {"allow": True, "rule": delete_rule(args["purge_remote"])}
         return {"allow": True, "rule": tool.replace(".", "_")}
 
     def new_run_id(self) -> str:
@@ -252,7 +301,7 @@ class World:
             tickets=self.tickets,
             token_reviewer=FakeReviewer(),
             workflows=self.workflows,
-            documents=self.documents,
+            gateway=self.gateway,
             submit_crs=self.submit,
             delete_company=self.delete,
             read_company=self.read_company,

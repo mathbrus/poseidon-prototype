@@ -23,12 +23,15 @@ from reconciler import resources
 from reconciler.config import ReconcilerSettings
 from reconciler.kube import Cluster
 from reconciler.opa import activated_revision
-from registry import AgentInstances, Companies, PolicyBundles, open_registry
+from registry import AgentInstances, Companies, CompanySweep, PolicyBundles, open_registry
 
 # How long a handler waits before asking OPA again whether it has
 # activated a stored bundle. OPA polls the bundle server every few
 # seconds; asking more often than that buys nothing.
 ACTIVATION_POLL_S = 5
+# How long the teardown waits before asking again whether the company
+# namespace is gone: its pods get their grace period first.
+NAMESPACE_POLL_S = 5
 
 _log = get_logger("reconciler")
 _registry = None
@@ -162,22 +165,28 @@ def reconcile_company(
 
 @kopf.on.delete("poseidon.dev", "v1", "companies")
 def teardown_company(spec: dict[str, Any], name: str, **_: Any) -> None:
-    """Teardown revokes, authority first. The stored bundle becomes a
-    tombstone over the company's roots, and nothing is torn down until OPA
-    serves it: a running OPA drops the company's rules on its own next
-    poll, no restart, so a caller still holding an identity finds no rule
-    to match before its namespace goes. The platform bundle stays — it
-    belongs to the platform, not to any company. Registry rows are swept
-    at the company level — correct even if the reconciler missed individual
-    instance-delete events."""
+    """Teardown revokes, authority first, then erases. The stored bundle
+    becomes a tombstone over the company's roots, and nothing is torn down
+    until OPA serves it: a running OPA drops the company's rules on its own
+    next poll, no restart, so a caller still holding an identity finds no
+    rule to match before its namespace goes. Then the namespace goes, and
+    the handler retries until it is gone, so no pod of the company is left
+    to write a row. Then the sweep erases every registry row of the
+    company. The tombstone and the platform bundle stay: a revocation and
+    the platform's own, not records of the company. Every step is safe to
+    repeat, so a retried teardown converges."""
     revoked = PolicyBundles(_db()).revoke(COMPANY_BUNDLE)
     if revoked and activated_revision(_settings().opa_url, COMPANY_BUNDLE) != revoked:
         raise kopf.TemporaryError(
             f"OPA still serves policy for {name}", delay=ACTIVATION_POLL_S
         )
-    AgentInstances(_db()).delete_for_company(name)
-    Companies(_db()).delete(name)
-    _cluster().delete_namespace(spec["namespace"])
+    cluster, namespace = _cluster(), spec["namespace"]
+    cluster.delete_namespace(namespace)
+    if cluster.namespace_exists(namespace):
+        raise kopf.TemporaryError(
+            f"namespace {namespace} is still terminating", delay=NAMESPACE_POLL_S
+        )
+    CompanySweep(_db()).sweep(name)
     _log.info("company torn down", extra={"company": name})
 
 

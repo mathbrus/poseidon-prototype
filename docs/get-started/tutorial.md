@@ -154,7 +154,10 @@ starting new work, pause it:
 uv run poseidon pause --reason "done for today"
 ```
 
-When you are done, delete it with `poseidon company delete`.
+When you are done, delete it with `poseidon company delete`. Deleting
+erases everything the platform recorded about the company, and
+`--purge-remote` resets its repository too
+([Pause, resume or delete](../how-to/pause-resume-delete.md)).
 
 ## Next steps
 

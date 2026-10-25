@@ -98,7 +98,7 @@ ROUTES: tuple[Route, ...] = (
     Route(
         "DELETE",
         "/company",
-        "stop the company: cancel its runs, delete its CR, wait for the teardown",
+        "stop the company and erase it: cancel its runs, delete its CR and its records",
         m.CompanyDeleted,
         m.DeleteRequest,
         COMPANY_DELETE,

@@ -16,7 +16,8 @@ Retry safety, per activity:
                           and re-audits, which is the honest record of what
                           was asked. A deny is non-retryable by construction.
     record_tick         — append-only audit write; a duplicate row is a
-                          duplicate heartbeat line, never a wrong one.
+                          duplicate heartbeat line, never a wrong one. A
+                          deleted company gets none.
     wake_heartbeat      — one signal, best-effort; every failure is
                           swallowed, so a retry is at most a second nudge.
 """
@@ -88,9 +89,11 @@ async def emit_heartbeat_event(
     rationale: str | None = None,
     latency_ms: int = 0,
     workflow: str = WORKFLOW,
+    while_applied: bool = False,
 ) -> None:
     """One row of the heartbeat's story: what the loop decided, filed,
-    authorized or did on a tick, under the company's heartbeat run id."""
+    authorized or did on a tick, under the company's heartbeat run id;
+    with `while_applied`, only while the company is applied."""
     await record_event(
         audit,
         run_id=run_id,
@@ -102,6 +105,7 @@ async def emit_heartbeat_event(
         company=company,
         workflow=workflow,
         latency_ms=latency_ms,
+        while_applied=while_applied,
     )
 
 
@@ -331,19 +335,27 @@ class HeartbeatActivities:
             )
 
     @activity.defn(name="record_tick")
-    async def record_tick(self, outcome: str, rule: str, workflow_id: str) -> None:
+    async def record_tick(
+        self, company: str, outcome: str, rule: str, workflow_id: str
+    ) -> None:
         """Every tick leaves a row — started, idle and why, refused and
         why — under the heartbeat's own run id, so the loop's whole story
         is one correlated query. The decision column keeps its allow/deny
         contract (the gate-outcome idiom): a tick that started work is an
-        allow; every other outcome declined or was refused to start."""
-        await self._emit(
-            run_id=heartbeat_run_id(self._company()),
+        allow; every other outcome declined or was refused to start. The
+        row is written only while `company` is applied: a tick in flight
+        while the company is deleted leaves nothing behind the teardown
+        sweep."""
+        await emit_heartbeat_event(
+            self._audit,
+            company,
+            run_id=heartbeat_run_id(company),
             tool=HEARTBEAT_TICK,
             digest=args_digest({"outcome": outcome, "rule": rule}),
             decision="allow" if outcome == TICK_STARTED else "deny",
             rule=tick_rule(outcome, rule),
             workflow=workflow_id,
+            while_applied=True,
         )
         self._log.info("heartbeat tick", extra={"outcome": outcome, "rule": rule})
 

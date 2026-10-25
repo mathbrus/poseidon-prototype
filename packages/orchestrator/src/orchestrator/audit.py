@@ -27,11 +27,13 @@ async def record_event(
     role: str = PLATFORM_ROLE,
     lifecycle: str = LIFECYCLE_PLATFORM,
     parent_agent_id: str = "",
+    while_applied: bool = False,
 ) -> AuditEvent:
     """Append one event under the platform identity by default — an
     ephemeral agent's own identity when the platform acts *for* it (its binding,
-    its pod). The store is synchronous psycopg; it runs off the event
-    loop."""
+    its pod). With `while_applied`, only while the company is applied: a
+    company deleted meanwhile gets no row. The store is synchronous
+    psycopg; it runs off the event loop."""
     event = AuditEvent(
         run_id=run_id,
         agent_id=agent_id,
@@ -49,5 +51,6 @@ async def record_event(
         parent_agent_id=parent_agent_id,
         workflow=workflow,
     )
-    await asyncio.to_thread(store.append, event)
+    append = store.append_while_applied if while_applied else store.append
+    await asyncio.to_thread(append, event)
     return event

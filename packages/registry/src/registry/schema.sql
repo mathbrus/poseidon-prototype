@@ -17,7 +17,12 @@
 --   LLM gateway   -> budget_ledger
 --   audit_events  <- gateway, LLM gateway, egress proxy, orchestrator
 --                    (process-gate, process-lifecycle) and console: many
---                    writers, one append-only contract
+--                    writers, append-only while its company lives
+--
+-- The one deleter of every table is the reconciler's teardown sweep
+-- (`registry.sweep`): a deleted company's rows go, all of them, in one
+-- transaction. policy_bundles is the exception: the company slot keeps
+-- the tombstone, a revocation rather than a record of the company.
 
 CREATE SCHEMA IF NOT EXISTS registry;
 

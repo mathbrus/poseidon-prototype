@@ -28,6 +28,7 @@ from blueprint import validate_blueprint
 from blueprint.validate import ValidationError
 from common.audit import AuditEvent, args_digest, gate_event
 from common.console import (
+    EXECUTION_RUNNING,
     ActList,
     ActView,
     AgentList,
@@ -71,10 +72,11 @@ from common.policy import (
     verdict_rule,
 )
 from common.telemetry import get_logger
-from common.topology import BLUEPRINT_LIMIT_BYTES
+from common.topology import BLUEPRINT_LIMIT_BYTES, TEARDOWN_TIMEOUT_S
 from common.workflows import (
     GATE_PARKED,
     GATES_OF,
+    HEARTBEAT_PAUSED,
     HUMAN_STARTABLE,
     RUN_STATUS_RUNNING,
     gate_rule,
@@ -91,7 +93,7 @@ from compiler import (
 from compiler.errors import CompileError
 from console import acts, crs, views
 from console.config import ConsoleSettings
-from console.documents import Documents
+from console.gateway import Gateway
 from console.temporal import AlreadyStarted, WorkflowNotFound, Workflows
 from registry import (
     AgentInstances,
@@ -105,6 +107,9 @@ from registry import (
 )
 
 BOOTSTRAP_RULE = "blueprint_apply_bootstrap"
+# How often a delete asks again whether what it waits on has happened: the
+# heartbeat holding, a cancelled run's workflow closing.
+DELETE_POLL_S = 2
 
 # What a human start works on, per workflow: the reader of the attempts
 # that hold an item, what the item is called, and the payload key naming it.
@@ -131,6 +136,11 @@ class NoCompany(Exception):
     applied yet. The blueprint apply is the one act that never raises it."""
 
 
+class Unfinished(Exception):
+    """An act that began and could not finish in time: what it did stands,
+    and asking again finishes it."""
+
+
 class ConsoleService:
     def __init__(
         self,
@@ -143,9 +153,9 @@ class ConsoleService:
         participants: RunParticipants,
         tickets: FiledTickets,
         workflows: Workflows,
-        documents: Documents,
+        gateway: Gateway,
         submit_crs: Callable[[DeploymentPlan, dict[str, str]], tuple[int, int, int]],
-        delete_company: Callable[[str, bool], None],
+        delete_company: Callable[[str, float], None],
         read_company: Callable[[], dict[str, Any] | None],
         clock: Callable[[], str],
     ) -> None:
@@ -158,7 +168,7 @@ class ConsoleService:
         self._participants = participants
         self._tickets = tickets
         self._workflows = workflows
-        self._documents = documents
+        self._gateway = gateway
         self._submit = submit_crs
         self._delete = delete_company
         self._read_company = read_company
@@ -382,7 +392,8 @@ class ConsoleService:
             asyncio.to_thread(self._ledger.spent_today, company),
         )
         limits = views.limits_view(spec, spent) if spec is not None else None
-        return views.company_view(cr, paused, limits)
+        repo = spec["repo"]["url"] if spec is not None else None
+        return views.company_view(cr, paused, repo, limits)
 
     async def blueprint(self) -> BlueprintView:
         """The blueprint's text as it was applied, from the Company CR."""
@@ -397,7 +408,7 @@ class ConsoleService:
         MCP gateway under the console's own identity."""
         _, spec = await self._converged_spec()
         repo = spec["repo"]
-        read = await self._documents.read(
+        read = await self._gateway.read(
             repo["url"], repo["base_ref"], spec["documents"][kind]
         )
         read_at = await asyncio.to_thread(self._clock)
@@ -419,43 +430,123 @@ class ConsoleService:
         return views.ticket_list(repo, await asyncio.to_thread(self._tickets.filed, repo))
 
     async def delete(
-        self, identity: Identity, rationale: str, wait: bool = True
+        self, identity: Identity, rationale: str, purge_remote: bool = False
     ) -> CompanyDeleted:
-        """Stop the company: the one stop there is (a pause is not one —
-        the company stays, held). Decided and audited under the person's
-        name first; then every running run is cancelled through the same
-        path `cancel_run` takes, so none dies with its namespace; then the
-        Company CR goes and the reconciler's teardown — the tombstone served,
-        the rows swept, the namespace deleted — is waited for unless the
-        caller said not to (it proceeds either way). The heartbeat stops
-        itself at its next config read. What the company wrote into the
-        world (its repository, its ledger rows) stays: applying the same
-        name again brings it back."""
+        """Delete the company: the one stop there is (a pause is not one —
+        the company stays, held), and it erases everything the platform
+        recorded about the company. In order:
+
+        1. decided and audited under the person's name;
+        2. the heartbeat held — the pause `heartbeat.pause` sets, with no
+           act of its own — and waited for until it says so, so no tick
+           starts a run meanwhile;
+        3. every running run cancelled through the path `cancel_run`
+           takes, and waited for until its workflow is closed, its own
+           teardown done;
+        4. with `purge_remote`, the repository reset in place through the
+           gateway's `repo.purge`, while the company's policy still
+           allows the console that one call;
+        5. the Company CR deleted and the reconciler's teardown waited for:
+           the tombstone served, the namespace gone, every registry row of
+           the company swept, this act's own rows with them;
+        6. every workflow history deleted from Temporal, the heartbeat's
+           whole continue-as-new chain included: once the company's row is
+           gone the worker no longer keeps its heartbeat running, and
+           Temporal ends whatever still runs.
+
+        The whole delete waits at most `TEARDOWN_TIMEOUT_S`. A step that
+        cannot finish — a purge the git host refuses included — fails the
+        act with what was done standing, the company still applied, held
+        and its runs ended, and a second delete finishes it: every step is
+        safe to repeat. The answer is the receipt."""
         company = await self._company()
         started = time.monotonic()
+        deadline = started + TEARDOWN_TIMEOUT_S
         decision = await self._act(
             identity,
             COMPANY_DELETE,
-            acts.NO_ARGS,
+            acts.delete_args(purge_remote),
             company=company,
             rationale=rationale,
         )
+        await self._hold_for_delete(identity, company, deadline)
+        cancelled = await self._end_runs(identity, company, rationale, deadline)
+        if purge_remote:
+            _, spec = await self._converged_spec()
+            await self._gateway.purge(spec["repo"]["url"], spec["repo"]["base_ref"])
+        try:
+            await asyncio.to_thread(
+                self._delete, company, max(0.0, deadline - time.monotonic())
+            )
+        except TimeoutError as exc:
+            raise Unfinished(str(exc)) from exc
+        # Its heartbeat's latest run by name: the listing may lag it.
+        await self._workflows.delete_executions([workflow_id("heartbeat", company)])
+        return CompanyDeleted(
+            company=company,
+            runs_cancelled=cancelled,
+            purged_remote=purge_remote,
+            elapsed_s=int(time.monotonic() - started),
+            rule=decision["rule"],
+        )
+
+    async def _hold_for_delete(
+        self, identity: Identity, company: str, deadline: float
+    ) -> None:
+        """Hold the heartbeat under the person's name and wake it, then
+        wait until it says it is held: a tick that began before the hold
+        may still start a run, which the cancels after this find. A loop
+        not running has no tick to wait for."""
+        if await asyncio.to_thread(self._companies.paused, company) is None:
+            await asyncio.to_thread(self._companies.pause, company, identity.agent_id)
+        await self._nudge(company)
+        await self._until(
+            workflow_id("heartbeat", company),
+            lambda execution: (
+                execution.status != EXECUTION_RUNNING
+                or execution.state == HEARTBEAT_PAUSED
+            ),
+            deadline,
+            "the heartbeat has not held",
+        )
+
+    async def _end_runs(
+        self, identity: Identity, company: str, rationale: str, deadline: float
+    ) -> list[str]:
+        """Cancel every running run, then wait until each workflow has
+        closed, its crew and sandbox torn down. The run ids cancelled."""
         cancelled = []
         for record in await asyncio.to_thread(self._runs.running, company):
             try:
-                await self.cancel_run(
+                result = await self.cancel_run(
                     identity, record.run_id, f"company deleted: {rationale}"
                 )
             except Invalid:
                 continue  # a run whose workflow is already gone needs no cancel
-            cancelled.append(record.run_id)
-        await asyncio.to_thread(self._delete, company, wait)
-        return CompanyDeleted(
-            company=company,
-            runs_cancelled=cancelled,
-            elapsed_s=int(time.monotonic() - started),
-            rule=decision["rule"],
-        )
+            cancelled.append((record.run_id, result.workflow_id))
+        for run_id, wf_id in cancelled:
+            await self._until(
+                wf_id,
+                lambda execution: execution.status != EXECUTION_RUNNING,
+                deadline,
+                f"run {run_id!r} has not finished",
+            )
+        return [run_id for run_id, _ in cancelled]
+
+    async def _until(
+        self,
+        wf_id: str,
+        done: Callable[[ExecutionView], bool],
+        deadline: float,
+        unfinished: str,
+    ) -> None:
+        while not done(await self._execution(wf_id)):
+            if time.monotonic() >= deadline:
+                raise Unfinished(
+                    f"{unfinished} after {TEARDOWN_TIMEOUT_S}s; what the delete did"
+                    " stands: delete the company again to finish it"
+                )
+            await asyncio.sleep(DELETE_POLL_S)
 
     # -- runs -----------------------------------------------------------------
 
@@ -792,8 +883,9 @@ class ConsoleService:
 
     async def acts(self, identity: Identity) -> ActList:
         """The company's acts as this person could ask for them now:
-        apply, delete, wake, pause, resume, and a start per workflow a
-        human may start. Policy's questions are asked all at once."""
+        apply, delete (with and without the repository's purge), wake,
+        pause, resume, and a start per workflow a human may start.
+        Policy's questions are asked all at once."""
         company = await self._company()
         paused, heartbeat = await asyncio.gather(
             asyncio.to_thread(self._companies.paused, company),
@@ -802,7 +894,8 @@ class ConsoleService:
         loop = heartbeat_run_id(company)
         plans = [
             (BLUEPRINT_APPLY, acts.apply_args(company), "", None),
-            (COMPANY_DELETE, acts.NO_ARGS, "", None),
+            (COMPANY_DELETE, acts.delete_args(False), "", None),
+            (COMPANY_DELETE, acts.delete_args(True), "", None),
             (HEARTBEAT_WAKE, acts.NO_ARGS, loop, acts.wake_refusal(company, heartbeat)),
             (HEARTBEAT_PAUSE, acts.NO_ARGS, loop, acts.pause_refusal(company, paused)),
             (HEARTBEAT_RESUME, acts.NO_ARGS, loop, acts.resume_refusal(company, paused)),

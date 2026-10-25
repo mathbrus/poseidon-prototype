@@ -8,7 +8,7 @@ blueprint.
 
 | Kind | Image | Entry point | Holds | Writes |
 |---|---|---|---|---|
-| service (two processes) | `poseidon-reconciler` | `kopf run -m reconciler.reconcile --all-namespaces`; `python -m reconciler.bundleserver` | `REGISTRY_DSN` | `companies` (the spec), `agent_instances`, `policy_bundles` |
+| service (two processes) | `poseidon-reconciler` | `kopf run -m reconciler.reconcile --all-namespaces`; `python -m reconciler.bundleserver` | `REGISTRY_DSN` | `companies` (the spec), `agent_instances`, `policy_bundles`; at teardown, deletes every row of the company |
 
 Kubernetes calls a process like this an operator. In Poseidon it is the
 reconciler.
@@ -61,14 +61,23 @@ only credential is a projected token for the audience
 secret, and `GPG_KEY` is blanked. Role, repository and vision ride the
 pod template, so a blueprint edit rolls out the Deployment.
 
-### Teardown revokes authority first
+### Teardown revokes authority first, then erases
 
-Deleting a `Company` replaces the stored company bundle with a
-tombstone: an empty bundle that still declares the company's roots. OPA
-activates it on its next poll and drops the company's rules. The handler
-retries until OPA serves the tombstone. Only then does it delete the
-`agent_instances` rows for the company, the `companies` row and the
-namespace. The platform bundle stays.
+Deleting a `Company` runs three steps, each retried until it holds:
+
+1. The stored company bundle becomes a tombstone: an empty bundle that
+   still declares the company's roots. OPA activates it on its next poll
+   and drops the company's rules. The handler retries until OPA serves
+   the tombstone.
+2. The company namespace is deleted. The handler retries until
+   Kubernetes has removed it, so no pod of the company is left to write
+   a row.
+3. `CompanySweep` deletes every registry row of the company, in every
+   table, in one transaction. See
+   [Deleting a company erases its rows](../registry/README.md#deleting-a-company-erases-its-rows).
+
+The tombstone and the platform bundle stay: a revocation, and the
+platform's own.
 
 Deleting an `AgentInstance` deletes its Deployment, Service and
 ServiceAccount, then its registry row. Once the ServiceAccount is gone,
@@ -107,6 +116,8 @@ without holding those rights itself.
   `test_company_is_activating_until_opa_serves_its_bundle`.
 - Teardown waits for OPA to serve the tombstone:
   `test_company_teardown_waits_until_the_revocation_is_served`.
+- Teardown sweeps only once the namespace is gone:
+  `test_company_teardown_sweeps_only_once_the_namespace_is_gone`.
 - Firing an agent deletes its ServiceAccount:
   `test_instance_teardown_removes_everything`.
 - Kopf bookkeeping stays out of status:
@@ -135,9 +146,10 @@ handlers against a fake `Cluster`, registry and OPA. Run tests per
 package ([Contributing](../../docs/developing/contributing.md)).
 
 On the cluster, `tests/e2e_kind/test_reconciler_lifecycle.py` applies a
-company, checks that OPA activated both bundles, rolls a blueprint edit,
-and deletes the company to check that a working credential is refused
-afterwards.
+company, checks that OPA activated both bundles and rolls a blueprint
+edit. `tests/e2e_kind/test_delete.py` deletes the company and checks that
+a working credential is refused afterwards and that no row of the company
+is left.
 
 ## Related
 

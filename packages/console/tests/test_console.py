@@ -68,6 +68,7 @@ from common.text import UNTRUSTED_CLIP, clip_head
 from common.topology import BLUEPRINT_LIMIT_BYTES, PLATFORM_NAMESPACE
 from common.workflows import GATE_PARKED, gate_rule
 from console import fakes
+from console import service as service_module
 from console.config import ConsoleSettings
 from console.fakes import COMPANY, World, applied_spec, as_owner, company_cr
 
@@ -437,36 +438,126 @@ async def test_a_later_apply_is_policys(client, world):
 async def test_deleting_the_company_is_decided_audited_and_ends_its_runs_first(
     client, world
 ):
-    """The one stop there is, as a console act: decided under the person's
-    name, its running runs cancelled through the same path a cancel takes,
-    then the Company CR deleted and the teardown waited for."""
+    """The one stop there is, as a console act, in its order: decided under
+    the person's name; the heartbeat held and woken until it says so; the
+    running runs cancelled through the path a cancel takes and waited for
+    until closed; then the Company CR deleted and its teardown waited for;
+    then every workflow history deleted, the heartbeat's latest run named
+    in case the listing lags it."""
+    heartbeat = f"heartbeat-{COMPANY}"
+    world.workflows.running[heartbeat] = "sleeping"
     a_review_run(world)
+
     response = await client.request(
         "DELETE", "/company", json={"rationale": "wrong vision"}, headers=as_owner()
     )
     deleted = model(CompanyDeleted, response)
     assert deleted.company == COMPANY
     assert deleted.runs_cancelled == [RUN_ID]
-    assert deleted.rule == "company_delete"
-    assert world.deleted == [COMPANY]
-    assert world.workflows.calls == [("cancel", f"review-{RUN_ID}")]
-    # The delete is recorded before anything is cancelled, and the cancel
-    # under the same name says why.
-    assert world.events == [
-        (COMPANY_DELETE, "allow", "company_delete"),
-        (RUN_CANCEL, "allow", "run_cancel"),
+    assert (deleted.rule, deleted.purged_remote) == ("company_delete", False)
+    assert world.calls == [
+        ("signal", (heartbeat, "wake", [])),
+        ("cancel", f"review-{RUN_ID}"),
+        ("delete_company", COMPANY),
+        ("delete_executions", [heartbeat]),
     ]
-    assert world.audit.events[0].agent_id == "owner"
-    assert [e.rationale for e in world.audit.events] == [
-        "wrong vision",
-        "company deleted: wrong vision",
+    # The act recorded first, the cancel after it under the same name, and
+    # the loop held under it.
+    assert [
+        (e.tool, e.decision, e.agent_id, e.rationale) for e in world.audit.events
+    ] == [
+        (COMPANY_DELETE, "allow", "owner", "wrong vision"),
+        (RUN_CANCEL, "allow", "owner", "company deleted: wrong vision"),
     ]
+    assert world.companies.pauses[COMPANY]["by"] == "owner"
     # Nothing is left to act on.
     assert (await client.get("/heartbeat", headers=as_owner())).status_code == 404
     again = await client.request(
         "DELETE", "/company", json={"rationale": "again"}, headers=as_owner()
     )
     assert again.status_code == 404
+
+
+async def test_a_delete_may_purge_the_repository_once_the_runs_have_ended(client, world):
+    """`purge_remote`: decided under its own rule, then the repository
+    reset through the gateway after the runs closed and before the Company
+    CR goes — while the company's policy still allows the console that one
+    call."""
+    a_review_run(world)
+    response = await client.request(
+        "DELETE",
+        "/company",
+        json={"rationale": "start over", "purge_remote": True},
+        headers=as_owner(),
+    )
+    deleted = model(CompanyDeleted, response)
+    assert (deleted.rule, deleted.purged_remote) == ("company_delete_purge_remote", True)
+    repo = applied_spec()["repo"]
+    assert [call[0] for call in world.calls] == [
+        "cancel",
+        "purge",
+        "delete_company",
+        "delete_executions",
+    ]
+    assert ("purge", (repo["url"], repo["base_ref"])) in world.calls
+
+
+async def test_a_refused_purge_fails_the_delete_before_the_company_goes(client, world):
+    """A git host that refuses the reset — a protected base branch — fails
+    the act: the company stays applied and held, its runs ended, and a
+    second delete finishes it once the branch allows it."""
+    a_review_run(world)
+    world.gateway.purge_refusal = "Cannot force-push to this branch"
+    response = await client.request(
+        "DELETE",
+        "/company",
+        json={"rationale": "start over", "purge_remote": True},
+        headers=as_owner(),
+    )
+    assert response.status_code == 503
+    assert "Cannot force-push" in Problem.model_validate(response.json()).detail
+    assert world.calls == [("cancel", f"review-{RUN_ID}")]
+    assert world.companies.paused(COMPANY)["by"] == "owner"
+
+    world.gateway.purge_refusal = None
+    again = await client.request(
+        "DELETE",
+        "/company",
+        json={"rationale": "again", "purge_remote": True},
+        headers=as_owner(),
+    )
+    assert model(CompanyDeleted, again).purged_remote is True
+    assert ("delete_company", COMPANY) in world.calls
+
+
+async def test_a_delete_that_cannot_finish_leaves_the_company_held_and_a_second_finishes(
+    client, world, monkeypatch
+):
+    """A heartbeat that does not hold in time — a tick still deciding —
+    fails the act before anything is torn down: the company stays applied
+    and held, and asking again finishes the delete."""
+    monkeypatch.setattr(service_module, "TEARDOWN_TIMEOUT_S", 0)
+    heartbeat = f"heartbeat-{COMPANY}"
+    world.workflows.running[heartbeat] = "ticking"
+    world.workflows.on_signal = lambda wf_id, name: None  # still mid-tick
+
+    response = await client.request(
+        "DELETE", "/company", json={"rationale": "first"}, headers=as_owner()
+    )
+    assert response.status_code == 503
+    assert "the heartbeat has not held" in Problem.model_validate(response.json()).detail
+    assert world.calls == [("signal", (heartbeat, "wake", []))]
+    assert world.companies.paused(COMPANY)["by"] == "owner"
+
+    world.workflows.running[heartbeat] = "paused"  # the tick ended, held
+    deleted = model(
+        CompanyDeleted,
+        await client.request(
+            "DELETE", "/company", json={"rationale": "again"}, headers=as_owner()
+        ),
+    )
+    assert deleted.company == COMPANY and ("delete_company", COMPANY) in world.calls
+    assert world.companies.applied() is None
 
 
 async def test_the_company_read_is_the_crs_phase(client, world):
@@ -488,19 +579,6 @@ async def test_the_company_read_is_the_crs_phase(client, world):
     assert state.phase == "converged" and state.bundle_revision == "r1"
 
 
-async def test_a_delete_may_decline_to_wait_for_the_teardown(client, world):
-    """`wait: false` is the CLI's `--no-wait`: the act and the teardown
-    are the same, only the answer comes before the namespace is gone."""
-    response = await client.request(
-        "DELETE",
-        "/company",
-        json={"rationale": "quick", "wait": False},
-        headers=as_owner(),
-    )
-    model(CompanyDeleted, response)
-    assert world.deleted == [COMPANY] and world.waited == [False]
-
-
 async def test_a_stranger_cannot_delete_the_company(client, world):
     a_review_run(world)
     world.decisions[COMPANY_DELETE] = {"allow": False, "rule": "human_not_recognized"}
@@ -509,7 +587,7 @@ async def test_a_stranger_cannot_delete_the_company(client, world):
     )
     assert response.status_code == 403
     assert PolicyRefusal.model_validate(response.json()).rule == "human_not_recognized"
-    assert world.deleted == [] and world.workflows.calls == []
+    assert world.calls == []
     assert world.events == [(COMPANY_DELETE, "deny", "human_not_recognized")]
 
 
@@ -615,7 +693,7 @@ async def test_before_the_first_apply_any_name_applies_and_nothing_else_answers(
 ):
     """A fresh cluster hosts no company: the reads and acts that need one
     say so, `whoami` names none, and the first apply may bring any name."""
-    world.companies.delete(COMPANY)
+    del world.companies.rows[COMPANY]
     who = await client.get("/whoami", headers=as_owner())
     assert model(WhoAmI, who).company is None
     for method, path in (("GET", "/heartbeat"), ("GET", "/spend"), ("GET", "/runs")):
@@ -756,7 +834,7 @@ async def test_events_are_the_companys_rows_after_a_cursor_with_spend(client, wo
     assert (one_run.spend.usd, one_run.spend.run_usd) == (0.25, 0.25)
     assert world.audit.events[-1].tool == "git.open_pr"  # a read: nothing appended
 
-    world.companies.delete(COMPANY)
+    del world.companies.rows[COMPANY]
     assert (await client.get("/events", headers=as_owner())).status_code == 404
 
 
@@ -915,7 +993,7 @@ async def test_the_documents_are_read_live_at_the_base_ref(client, world):
     repository and base ref, clipped as a crew reads it; an absent one is
     `present: false`, not an error."""
     spec = applied_spec()
-    world.documents.files[spec["documents"]["strategy"]] = "x" * (UNTRUSTED_CLIP + 10)
+    world.gateway.files[spec["documents"]["strategy"]] = "x" * (UNTRUSTED_CLIP + 10)
     strategy = model(
         DocumentView, await client.get("/documents/strategy", headers=as_owner())
     )
@@ -930,7 +1008,7 @@ async def test_the_documents_are_read_live_at_the_base_ref(client, world):
         DocumentView, await client.get("/documents/architecture", headers=as_owner())
     )
     assert architecture.present is False and architecture.text is None
-    assert world.documents.reads == [
+    assert world.gateway.reads == [
         (spec["repo"]["url"], spec["repo"]["base_ref"], spec["documents"][name])
         for name in ("strategy", "architecture")
     ]
@@ -970,7 +1048,7 @@ async def test_before_it_converges_a_company_has_no_limits_and_no_bounds(client,
     """The CR is there, the reconciler's copy of the spec is not yet: the
     company reads activating without limits, and what needs the applied
     spec says so."""
-    world.companies.delete(COMPANY)
+    del world.companies.rows[COMPANY]
     await client.post(
         "/blueprint/apply", json={"blueprint": HELLO_SAAS}, headers=as_owner()
     )

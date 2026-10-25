@@ -10,6 +10,8 @@ the worker's ensure loop for as long as the company is applied. Each tick
 re-reads the blueprint's `heartbeat` section from the registry and stops
 the loop when the company is gone — deleting the company is how it stops,
 effective at the next tick even if the ensure loop has not noticed yet.
+The stop writes nothing: deleting the company erased its history, and a
+tick row is written only while the company is applied.
 The compiled `heartbeat.start` decision is the second, independent
 refusal: a tick that somehow survived the config read still cannot start
 anything the bundle does not allow.
@@ -90,7 +92,6 @@ from common.workflows import (
     TICK_PAUSED,
     TICK_REFUSED,
     TICK_STARTED,
-    TICK_STOPPED,
     workflow_id,
 )
 from orchestrator.workflows.base import (
@@ -149,7 +150,8 @@ class HeartbeatWorkflow(RunWorkflow):
             retry_policy=STEP_RETRY,
         )
         if not config:
-            await self._record(TICK_STOPPED, "blueprint_absent")
+            # Deleted: the loop ends without a row, the company's history
+            # having gone with it.
             return {"stopped": "no applied blueprint for the company"}
         self._profile = Timeouts(**config["timeouts"])
 
@@ -160,7 +162,7 @@ class HeartbeatWorkflow(RunWorkflow):
             outcome, rule = TICK_PAUSED, str(config["paused"]["by"])
         else:
             outcome, rule = await self._tick(input, config)
-        await self._record(outcome, rule)
+        await self._record(input.company, outcome, rule)
 
         self._state = HEARTBEAT_PAUSED if outcome == TICK_PAUSED else HEARTBEAT_SLEEPING
         # A wake that landed during the tick skips the wait: one more tick
@@ -345,10 +347,10 @@ class HeartbeatWorkflow(RunWorkflow):
         item = "" if action == "scope" else f"_{target}"
         return TICK_STARTED, f"{action}{item}_as_{child_run_id}"
 
-    async def _record(self, outcome: str, rule: str) -> None:
+    async def _record(self, company: str, outcome: str, rule: str) -> None:
         await workflow.execute_activity(
             "record_tick",
-            args=[outcome, rule, workflow.info().workflow_id],
+            args=[company, outcome, rule, workflow.info().workflow_id],
             start_to_close_timeout=timedelta(seconds=self._profile.step_s),
             retry_policy=STEP_RETRY,
         )
