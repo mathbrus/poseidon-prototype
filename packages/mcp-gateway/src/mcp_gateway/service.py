@@ -355,8 +355,8 @@ class GatewayService:
             verified = registration is not None
         else:
             # Standing callers: the run's sandbox must live in the caller's
-            # own namespace — a live registration of another company is a
-            # cross-tenant claim, not a binding.
+            # own namespace — a live registration anywhere else is a claim
+            # on a run that is not the caller's, not a binding.
             verified = (
                 registration is not None
                 and identity.namespace is not None

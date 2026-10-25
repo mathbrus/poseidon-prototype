@@ -10,10 +10,6 @@ from common import opa
 pytestmark = pytest.mark.anyio
 
 
-def anyio_backend() -> str:
-    return "asyncio"
-
-
 class _Resp:
     def __init__(self, payload):
         self._payload = payload

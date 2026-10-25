@@ -177,7 +177,7 @@ async def test_an_architecture_request_becomes_a_stewardship_ticket(app, backend
                 "architecture.request",
                 {
                     "run_id": RUN_ID,
-                    "rationale": "the plan allows one module",
+                    "rationale": "the masterplan allows one module",
                     "proposal": "Allow a second module.\nFor the statistics.",
                 },
             )
@@ -193,7 +193,7 @@ async def test_an_architecture_request_becomes_a_stewardship_ticket(app, backend
         body["title"] == f"Architecture request from run {RUN_ID}: Allow a second module."
     )
     assert body["body"].endswith("Crew: stewardship")
-    assert "the plan allows one module" in body["body"]
+    assert "the masterplan allows one module" in body["body"]
     assert second.isError and "architecture_request_over_cap" in second.content[0].text
     events = [e for e in audit_events(audit) if e["tool"] == "architecture.request"]
     assert [e["decision"] for e in events] == ["allow", "deny"]
