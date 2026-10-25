@@ -577,13 +577,7 @@ def test_rework_depth_is_zero_outside_any_chain(settings, monkeypatch):
     monkeypatch.setattr(module, "GatewayClient", FakeIssueGateway())
     runs = InMemoryRuns()
     activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]), runs=runs)
-    # No implement run at all.
-    assert asyncio.run(activities.rework_depth(RUN_ID, 41)) == {
-        "depth": 0,
-        "root_pr": 41,
-    }
-    # An implement run from a free-form task names no ticket to read.
-    _chain(runs, "the task file text")
+    # No implement run delivered the PR: no ticket to read.
     assert asyncio.run(activities.rework_depth(RUN_ID, 41)) == {
         "depth": 0,
         "root_pr": 41,
@@ -849,16 +843,13 @@ def test_a_merged_rework_closes_the_whole_chain(settings, monkeypatch):
 
 def test_close_tickets_skips_closed_tickets_and_unattributed_prs(settings, monkeypatch):
     """A ticket a human already closed is read and left alone; a PR no
-    implement run delivered, or one delivered from a free-form task, names
-    no ticket and closes nothing."""
+    implement run delivered names no ticket and closes nothing."""
     import orchestrator.activities.review as module
 
     gateway = FakeIssueGateway(issues={7: _issue(7, "Add slugify", state="closed")})
     monkeypatch.setattr(module, "GatewayClient", gateway)
     runs = InMemoryRuns()
     activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]), runs=runs)
-    assert asyncio.run(activities.close_tickets(RUN_ID, 41, "s", "t")) == []
-    _delivered(runs, "run-free", "the task file text", 41)
     assert asyncio.run(activities.close_tickets(RUN_ID, 41, "s", "t")) == []
     _delivered(runs, "run-impl", "implement issue #7", 42)
     assert asyncio.run(activities.close_tickets(RUN_ID, 42, "s", "t")) == []
@@ -998,19 +989,19 @@ def test_a_refusal_that_spends_the_last_attempt_abandons_the_ticket(
 
 
 def test_a_refused_delivery_with_no_open_ticket_only_closes(settings, monkeypatch):
-    """A delivery from a free-form task, or one whose ticket is already
-    closed, has no ticket to give back: the PR still closes, refused."""
+    """A pull request no implement run delivered, or one whose ticket is
+    already closed, has no ticket to give back: the PR still closes,
+    refused."""
     import orchestrator.activities.review as module
 
     gateway = FakeIssueGateway(issues={7: _issue(7, "Add slugify", state="closed")})
     monkeypatch.setattr(module, "GatewayClient", gateway)
     runs = InMemoryRuns()
-    _delivered(runs, "run-free", "the task file text", 40)
     _delivered(runs, "run-impl", "implement issue #7", 41)
     activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]), runs=runs)
-    for number in (39, 40, 41):
+    for number in (39, 41):
         asyncio.run(activities.refuse_delivery(RUN_ID, number, "expired"))
-    assert [n for n, _ in gateway.closed_prs] == [39, 40, 41]
+    assert [n for n, _ in gateway.closed_prs] == [39, 41]
     assert gateway.comments == []
     # A PR the company never delivered keeps its branch: it is not ours.
-    assert gateway.deleted_branches == [40, 41]
+    assert gateway.deleted_branches == [41]

@@ -433,9 +433,8 @@ class ReviewActivities:
         failing PR's implement run consumed. The rework bound must follow
         the *chain*, not the single PR: every rework delivers a fresh PR,
         so a per-PR count would reset to zero each round and the loop
-        would never terminate. A PR outside any chain (fresh work, an
-        unattributable PR, a free-form ticket) is depth 0 with itself as
-        root.
+        would never terminate. A PR outside any chain (fresh work, or a
+        PR no implement run delivered) is depth 0 with itself as root.
 
         Read from the *consumed* ticket, not from any freely-filed one, so
         a standalone ticket forging a low depth changes nothing (proven in

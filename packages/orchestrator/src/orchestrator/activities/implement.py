@@ -64,8 +64,8 @@ class ImplementActivities:
         refused deliveries (`refusals`, oldest first) tell this attempt what
         went wrong before. Fail-closed on a closed issue — implement
         consumes open work, it does not resurrect finished tickets. The
-        body and the refusals' reasons are untrusted input, exactly like a
-        task file's contents."""
+        body and the refusals' reasons are untrusted input, like every
+        text an agent reads."""
         async with GatewayClient(
             self._settings.mcp_gateway_url, self._settings.gateway_token()
         ) as gateway:

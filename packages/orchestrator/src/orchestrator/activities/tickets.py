@@ -89,16 +89,20 @@ def refused_comment(
 
 
 def delivered_ticket(implement: RunRecord | None) -> int | None:
-    """The ticket an implement run consumed, read off its task, or None for
-    no run or one that worked a free-form task."""
-    match = ISSUE_TASK_RE.match((implement.task if implement else "") or "")
-    return int(match.group(1)) if match else None
+    """The ticket an implement run consumed, read off its task — which the
+    platform composes from the ticket's number (`common.tasks`) — or None
+    for no run."""
+    if implement is None:
+        return None
+    match = ISSUE_TASK_RE.match(implement.task)
+    if match is None:
+        raise ValueError(f"implement run {implement.run_id} names no ticket")
+    return int(match.group(1))
 
 
 def consumed_ticket(runs: Runs, company: str, pr_number: int) -> int | None:
     """The ticket the implement run that delivered `pr_number` consumed,
-    or None for a PR no implement run delivered or one delivered from a
-    free-form task."""
+    or None for a PR no implement run delivered."""
     return delivered_ticket(runs.implement_run_for_pr(company, pr_number))
 
 
