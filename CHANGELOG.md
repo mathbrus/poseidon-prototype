@@ -11,6 +11,8 @@ How a release is decided is the Releasing page of the docs site
 
 ## [Unreleased]
 
+## [0.5.0+2026.10.25] - 2026-10-25
+
 - One name per concept for the company's document and for merging
   without a person. The company's document is the blueprint, never "the
   charter": the agent prompts introduce the bounds as "The blueprint as
