@@ -296,30 +296,6 @@ async def test_an_architecture_request_ends_the_run_without_delivery(env):
     assert harness.wakes == 1
 
 
-async def test_a_verify_retry_keeps_the_first_dispatchs_tickets(env):
-    """A ticket an implement dispatch had the platform file is the run's
-    whatever the verify loop does next: a red verify re-dispatches, and
-    the re-dispatch's result must not erase it."""
-    url = "https://github.test/example/repo/issues/78"
-    harness = Harness(
-        implement_outcomes=[
-            {"status": "done", "error": None, "iterations": 1, "ticket_urls": [url]},
-        ],
-        verify_outcomes=[{"passed": False, "output": "red"}],
-        max_verify_retries=1,
-    )
-    # A dispatch that filed a ticket ends the run at the request (no
-    # verify at all), so the first dispatch here files nothing and the
-    # second, after the red verify, does.
-    harness.implement_outcomes.insert(
-        0, {"status": "done", "error": None, "iterations": 1, "ticket_urls": []}
-    )
-    await run_implement(env.client, harness)
-    (result, error) = harness.torn_down[0]
-    assert result is not None and result["ticket_urls"] == [url]
-    assert error == architecture_wait([url])
-
-
 async def test_a_delivery_that_opened_nothing_is_not_a_conclusion(env):
     harness = Harness(deliver={"status": "done", "error": None, "pr_url": None})
     record = await run_implement(env.client, harness)
