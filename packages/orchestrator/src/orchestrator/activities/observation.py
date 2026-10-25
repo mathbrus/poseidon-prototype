@@ -273,6 +273,11 @@ class ObservationActivities:
                     # a close refuses the delivery and gives its ticket
                     # back. Observed once, remembered on the run row; a
                     # failure leaves the PR to be read — and settled — again.
+                    # Only a gateway failure is caught. The settle reads the
+                    # ticket off the delivering run's task, and every
+                    # implement run's task is a ticket's: `delivered_ticket`
+                    # raises on a row whose task names none, a broken
+                    # registry, and that fails the tick.
                     try:
                         await settle_delivery(
                             gateway,

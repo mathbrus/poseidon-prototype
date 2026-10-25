@@ -18,10 +18,12 @@ from common.audit import (
     gate_event,
 )
 from common.policy import GATE_RESOLVE, MERGE_RESOLVE
+from common.tasks import issue_run_task, review_run_task
 from common.topology import COMPANY_NAMESPACE
 from common.workflows import MERGE_GATE
 from orchestrator.activities.review import ReviewActivities
 from orchestrator.activities.tickets import CLOSED_OUTSIDE, refused_comment
+from registry import RunRecord
 from registry.memory import (
     InMemoryAuditStore,
     InMemoryCompanies,
@@ -813,6 +815,23 @@ def test_close_tickets_skips_closed_tickets_and_unattributed_prs(settings, monke
     _delivered(runs, "run-impl", "implement issue #7", 42)
     assert asyncio.run(activities.close_tickets(RUN_ID, 42, "s", "t")) == []
     assert gateway.closed == []
+
+
+def test_an_implement_run_whose_task_names_no_ticket_is_a_broken_row():
+    """The platform composes every implement run's task from its ticket's
+    number, so the ticket a delivery fulfils is read off it; no run means
+    no ticket, and a run whose task names none is a broken row, said so
+    rather than read as one that consumed nothing."""
+    from orchestrator.activities.tickets import delivered_ticket
+
+    assert delivered_ticket(None) is None
+    run = RunRecord(run_id="run-impl", task=issue_run_task(7), workflow="implement")
+    assert delivered_ticket(run) == 7
+    broken = RunRecord(
+        run_id="run-broken", task=review_run_task(41), workflow="implement"
+    )
+    with pytest.raises(ValueError, match="run-broken names no ticket"):
+        delivered_ticket(broken)
 
 
 @pytest.mark.parametrize(("merged", "closes"), [(True, [7]), (False, [])])
