@@ -279,10 +279,6 @@ def test_worker_kill_leaks_no_crew(stack: None, env: dict) -> None:
     # Nothing leaked: the identity is revoked and the pod is gone.
     crew = {agent.agent_id: agent.status for agent in participants(run_id)}
     assert crew.get(implementer_id) == "terminated", crew
-    with registry() as client:
-        client.execute(
-            "DELETE FROM registry.run_participants WHERE run_id = %s", (run_id,)
-        )
     # "Survived" means still there, not still there *this instant*. A
     # cancelled fulfillment retry can be mid-`provision` in a worker thread
     # when the workflow returns — `asyncio.to_thread` cannot interrupt it —

@@ -8,7 +8,7 @@ Add a small, self-contained text utility to this repository:
    - replaces every run of characters that are not ASCII letters or digits
      with a single hyphen,
    - strips leading and trailing hyphens.
-2. Create `tests/test_slugify.py` with pytest tests asserting at least:
+2. Create `tests/unit/test_slugify.py` with pytest tests asserting at least:
    - `slugify("Hello, World!") == "hello-world"`
    - `slugify("  --Already--Slugged--  ") == "already-slugged"`
    - `slugify("MiXeD 123 CaSe") == "mixed-123-case"`

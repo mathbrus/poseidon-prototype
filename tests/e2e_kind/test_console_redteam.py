@@ -10,8 +10,8 @@ verdict through the
 console, on the review of a second PR, merges — and the story names the
 person.
 
-Two PRs the company delivers under an implement-only profile, then the
-review-only profile applied over them without a sweep — the two open PRs
+Two PRs the company delivers under an implement-only blueprint, then the
+review-only blueprint applied over them without a sweep — the two open PRs
 are the backlog this module means the loop to have. A review that
 reached a verdict concluded its PR, so the loop reviews each once: the
 review the raw road failed is never retried into the lane the console's
@@ -28,23 +28,23 @@ from common.tasks import review_run_task
 from common.workflows import workflow_id
 
 from .blueprints import (
-    HELLO_SAAS,
     apply_blueprint,
     may_start,
     restore_pristine,
     wait_for_convergence,
 )
 from .cluster import (
+    HELLO_SAAS,
     HUMAN,
     audit_story,
-    await_bare_heartbeat_asleep,
+    await_heartbeat_asleep,
     await_run,
     console,
     run_by_task,
     temporal_port_forward,
 )
 from .conftest import (
-    apply_profile,
+    apply_and_settle,
     await_gate,
     close_issue,
     close_pr,
@@ -78,13 +78,13 @@ def _pull(env: dict, number: int) -> dict:
 
 @pytest.fixture(scope="module")
 def delivered(stack: None, baseline_env: dict) -> dict:
-    """Two PRs the company delivered under an implement-only profile, for
+    """Two PRs the company delivered under an implement-only blueprint, for
     two reviews — the raw road's and the console's — under the review-only
     one, applied over the open PRs on purpose: they are the backlog."""
     env = baseline_env
     import secrets
 
-    apply_profile(may_start(HELLO_SAAS, "implement"), env)
+    apply_and_settle(may_start(HELLO_SAAS, "implement"), env)
     prs: list[int] = []
     issues: list[int] = []
     for _ in range(2):
@@ -96,7 +96,7 @@ def delivered(stack: None, baseline_env: dict) -> dict:
         prs.append(pr_number(record["pr_url"]))
     apply_blueprint(may_start(HELLO_SAAS, "review"))
     wait_for_convergence()
-    await_bare_heartbeat_asleep()
+    await_heartbeat_asleep()
     try:
         yield {"env": env, "prs": prs}
     finally:
@@ -145,7 +145,7 @@ def test_a_signal_past_the_console_releases_nothing(raw_review: dict, delivered)
     assert pull["state"] == "closed" and pull["merged"] is False
 
 
-def _merge_approval(env: dict, run_id: str):
+def _merge_verdict(env: dict, run_id: str):
     """The run's preview of the approving merge verdict."""
     return next(
         view
@@ -169,12 +169,12 @@ def test_the_same_verdict_through_the_console_merges(raw_review: dict, delivered
     await_gate(run_id, "parked-merge_gate")
     # The preview says what the act will: the merge verdict is the human's
     # to give while the run is parked on it.
-    before = _merge_approval(env, run_id)
+    before = _merge_verdict(env, run_id)
     assert before.allowed, before
     verdict = console(env).resolve(run_id, "merge", True, "red-team: the real road")
     assert verdict.human == HUMAN
     # Once answered, the question is no longer asked: refused by state.
-    after = _merge_approval(env, run_id)
+    after = _merge_verdict(env, run_id)
     assert not after.allowed and after.refusal.kind == "state", after
     assert "not parked" in after.refusal.detail or "no workflow" in after.refusal.detail
     record = await_run(task, terminal=True, deadline_s=600, workflow="review")

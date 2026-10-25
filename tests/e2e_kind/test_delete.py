@@ -10,8 +10,8 @@ The company applied again starts with no history. With `--purge-remote`,
 the repository is reset in place too.
 
 The conftest orders this module after the capstones and before the quiet
-check: the delete erases what the capstones read. Every test ends with
-the company applied again on the baseline repository, so the quiet check
+check: the delete erases what the capstones read. The module's finalizer
+applies the company again on the baseline repository, so the quiet check
 finds the company it expects.
 """
 
@@ -34,7 +34,7 @@ from .blueprints import restore_pristine
 from .cluster import (
     COMPANY,
     COMPANY_NS,
-    bare_heartbeat_id,
+    HEARTBEAT_ID,
     console,
     db_now,
     gateway_url,
@@ -95,7 +95,7 @@ def rows_left(run_ids: list[str]) -> dict[str, int]:
         runs=",".join(run_ids),
         company=COMPANY,
         repo=harness_repo_or_fail(),
-        heartbeat=bare_heartbeat_id(),
+        heartbeat=HEARTBEAT_ID,
     )
     return json.loads(counts)
 

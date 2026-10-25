@@ -23,7 +23,7 @@ from common.console import Problem
 from common.topology import CONSOLE_TOKEN_AUDIENCE, TOKEN_AUDIENCE, human_service_account
 from poseidon_cli import ConsoleClient, ConsoleError, PolicyDenied
 
-from .blueprints import pristine_profile, restore_pristine, suite_document
+from .blueprints import pristine_blueprint, restore_pristine, suite_document
 from .cluster import (
     COMPANY,
     COMPANY_NS,
@@ -214,7 +214,7 @@ def test_the_applied_blueprint_reads_back_and_applies_again_unchanged(
     `poseidon blueprint show`'s output previews as no change — the
     compiled spec could never be applied again; this text can."""
     restore_pristine()
-    applied = suite_document(pristine_profile()).read_text()
+    applied = suite_document(pristine_blueprint()).read_text()
     shown = console(env).blueprint()
     assert shown.text == applied
     assert shown.sha256 == hashlib.sha256(applied.encode()).hexdigest()

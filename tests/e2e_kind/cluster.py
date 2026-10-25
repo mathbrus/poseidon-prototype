@@ -50,6 +50,9 @@ HELLO_SAAS = EXAMPLES / "hello-saas.yaml"
 AUTOMATED = EXAMPLES / "hello-saas-automated.yaml"
 COMPANY: str = yaml.safe_load(HELLO_SAAS.read_text())["company"]["name"]
 COMPANY_NS = COMPANY_NAMESPACE
+# The company's one heartbeat: its workflow id, and the run id its ticks
+# and its own platform calls are journaled under.
+HEARTBEAT_ID = workflow_id("heartbeat", COMPANY)
 
 # The disposable repository the suite opens pull requests on. A company's
 # repository is a blueprint field; this one is the harness's, written into
@@ -621,7 +624,7 @@ def workspace_tar(
 
 # --- acting as a human: the console --------------------------------------------
 #
-# Every act the suite performs on the company — apply a profile, wake the
+# Every act the suite performs on the company — apply a blueprint, wake the
 # loop, answer a gate, start a run by hand — goes through the console as
 # the human the chart declares (`owner`), exactly as a person does. What the
 # suite *observes* it reads with its own instruments (psql, kubectl, the
@@ -785,31 +788,23 @@ def crew_activities(client: Registry, settings, provisioner=None):
     )
 
 
-# --- the standing heartbeat: its id, its ticks, its wake and its sleep -----
+# --- the heartbeat: its ticks, its wake and its sleep ----------------------
 
 
-def heartbeat_ticks(heartbeat_id: str) -> list[dict[str, Any]]:
-    """The tick rows one heartbeat workflow wrote — the ledger journals
-    every tick under the shared `heartbeat-{company}` run id, and each row
-    carries the writing workflow's own id in the `workflow` column. The
-    standing heartbeat keeps its id across restarts, so this list grows
-    for as long as the session runs: scope assertions to a window (count
-    the rows, act, assert on the rows past the mark) or to rules that
-    name a run, never to the whole history."""
+def heartbeat_ticks() -> list[dict[str, Any]]:
+    """The tick rows the company's heartbeat wrote, journaled under its
+    `heartbeat-{company}` run id. The heartbeat keeps its id across
+    restarts, so this list grows for as long as the session runs: scope
+    assertions to a window (count the rows, act, assert on the rows past
+    the mark) or to rules that name a run, never to the whole history."""
     return [
         e
-        for e in audit_story(workflow_id("heartbeat", COMPANY))
-        if e["tool"] == HEARTBEAT_TICK and e["workflow"] == heartbeat_id
+        for e in audit_story(HEARTBEAT_ID)
+        if e["tool"] == HEARTBEAT_TICK and e["workflow"] == HEARTBEAT_ID
     ]
 
 
-def bare_heartbeat_id() -> str:
-    """The standing heartbeat's workflow id — the one the ensure loop
-    keeps running and the platform's own wakes reach."""
-    return workflow_id("heartbeat", COMPANY)
-
-
-def wake_bare_heartbeat() -> None:
+def wake_heartbeat() -> None:
     """Nudge the standing heartbeat through the console — the harness's
     stand-in for a change only the outside world saw (an issue filed by
     hand, a PR merged by hand), compressed from the reconcile wait to now.
@@ -825,24 +820,22 @@ def await_new_ticks(mark: int, n: int, deadline_s: int = 180) -> list[dict[str, 
     a wake landing mid-tick coalesces, so blind sends under-count."""
     deadline = time.monotonic() + deadline_s
     while time.monotonic() < deadline:
-        ticks = heartbeat_ticks(bare_heartbeat_id())
+        ticks = heartbeat_ticks()
         if len(ticks) >= mark + n:
             return ticks[mark:]
         time.sleep(3)
     raise AssertionError(
-        f"the heartbeat wrote {len(heartbeat_ticks(bare_heartbeat_id()))} ticks"
+        f"the heartbeat wrote {len(heartbeat_ticks())} ticks"
         f" within {deadline_s}s; needed {mark + n}"
     )
 
 
-def await_bare_heartbeat_asleep(deadline_s: int = 300) -> None:
-    """Block until the company's `heartbeat-{company}` is running and
-    parked on its wait, so tick counts taken after this are the module's
-    own. Read off the workflow's own `state` query: a profile re-applied
-    over itself finds the standing heartbeat already waiting. The parked
-    loop answers a wake immediately — "sleeping" means ready, never
-    dormant."""
-    bare = workflow_id("heartbeat", COMPANY)
+def await_heartbeat_asleep(deadline_s: int = 300) -> None:
+    """Block until the company's heartbeat is running and sleeping on its
+    wait, so tick counts taken after this are the module's own. Read off
+    the workflow's own `state` query: a blueprint applied again over
+    itself finds the heartbeat already waiting. The sleeping loop answers
+    a wake immediately — "sleeping" means ready, never dormant."""
     deadline = time.monotonic() + deadline_s
     while time.monotonic() < deadline:
         # Not started yet, or between runs: keep waiting.
@@ -855,7 +848,7 @@ def await_bare_heartbeat_asleep(deadline_s: int = 300) -> None:
                 return
         time.sleep(3)
     raise AssertionError(
-        f"the bare heartbeat {bare} was not asleep within {deadline_s}s of the apply"
+        f"the heartbeat {HEARTBEAT_ID} was not asleep within {deadline_s}s"
     )
 
 
@@ -863,8 +856,8 @@ def wake_and_await_ticks(n: int = 1) -> list[dict[str, Any]]:
     """The one way a module makes the standing heartbeat look now: count
     its ticks, send the platform's own wake, and return the `n` ticks it
     journals from there — the module's own, never an earlier one's."""
-    mark = len(heartbeat_ticks(bare_heartbeat_id()))
-    wake_bare_heartbeat()
+    mark = len(heartbeat_ticks())
+    wake_heartbeat()
     return await_new_ticks(mark, n)
 
 

@@ -28,7 +28,7 @@ platform did, and that each attack really landed first.
 Applies the automated example as the one-shot company: documents merge
 without a person (they are in the automated paths), and a run meant to fail
 is the company's last word on its ticket. The resting documents and the
-pristine profile are restored after.
+pristine blueprint are restored after.
 """
 
 import secrets
@@ -48,10 +48,14 @@ from mock_brain.brain import (
 from orchestrator.activities.documents import bootstrap_body
 from orchestrator.workflows.implement import architecture_wait
 
-from .blueprints import AUTOMATED, restore_pristine, single_attempt
+from .blueprints import (
+    restore_pristine,
+    single_attempt,
+)
 from .cluster import (
+    AUTOMATED,
+    HEARTBEAT_ID,
     audit_story,
-    bare_heartbeat_id,
     console,
     db_now,
     events_since,
@@ -62,7 +66,7 @@ from .cluster import (
 from .conftest import (
     DOCUMENT_PATHS,
     REPO_BASELINE,
-    apply_profile,
+    apply_and_settle,
     assert_merge_closed_tickets,
     close_issue,
     close_pr,
@@ -105,7 +109,7 @@ def _open_issue_numbers(env: dict, title: str) -> list[int]:
 
 @pytest.fixture(scope="module")
 def one_shot_automated(stack: None, baseline_env: dict):
-    apply_profile(single_attempt(AUTOMATED), baseline_env)
+    apply_and_settle(single_attempt(AUTOMATED), baseline_env)
     yield baseline_env
     restore_strategy(baseline_env)
     put_repo_file(
@@ -129,10 +133,9 @@ def bootstrapped(one_shot_automated: dict) -> dict:
     env = one_shot_automated
     for path in REPO_BASELINE:
         delete_repo_file(env, path, f"e2e: vision-only repository ({path})")
-    heartbeat_id = bare_heartbeat_id()
     since = db_now()
     filing = wake_and_await_ticks(1)
-    result: dict = {"env": env, "heartbeat_id": heartbeat_id, "filing_tick": filing[0]}
+    result: dict = {"env": env, "filing_tick": filing[0]}
     # The platform's own filings, read the way the platform reads them —
     # from the registry, by number — not off a listing the host has not
     # caught up with.
@@ -178,11 +181,7 @@ def test_the_platform_filed_both_bootstrap_tickets_once(bootstrapped: dict):
     assert all(len(numbers) == 1 for numbers in bootstrapped["tickets"].values()), (
         bootstrapped["tickets"]
     )
-    filed = [
-        e
-        for e in audit_story(bootstrapped["heartbeat_id"])
-        if e["tool"] == HEARTBEAT_BOOTSTRAP
-    ]
+    filed = [e for e in audit_story(HEARTBEAT_ID) if e["tool"] == HEARTBEAT_BOOTSTRAP]
     assert {e["rule"] for e in filed} >= {
         "bootstrap_filed:strategy",
         "bootstrap_filed:architecture",
@@ -191,7 +190,7 @@ def test_the_platform_filed_both_bootstrap_tickets_once(bootstrapped: dict):
 
 
 def test_the_steward_wrote_each_document_and_it_merged(bootstrapped: dict):
-    """Different hands: each bootstrap run's participants are the
+    """Different hands: each bootstrap run's ephemeral agents are the
     stewardship crew, its PR touched only the document's path, and the
     document now on the base ref is what the steward wrote."""
     env = bootstrapped["env"]

@@ -5,7 +5,7 @@ apply converges a live company (namespace, RBAC, standing agents, served bundle
 rollout with no manual steps. Deleting the company is `test_delete.py`'s,
 ordered late: it erases what the capstones read.
 
-The module finalizer always restores `examples/hello-saas.yaml` and waits
+The module finalizer always restores the pristine blueprint and waits
 for convergence, so the rest of the suite finds a healthy company whether
 these tests pass or fail.
 """
@@ -22,7 +22,6 @@ import yaml
 from common.policy import COMPANY_BUNDLE, company_decision_path
 
 from .blueprints import (
-    HELLO_SAAS,
     apply_blueprint,
     bundle_revision_from_cr,
     restore_pristine,
@@ -31,6 +30,7 @@ from .blueprints import (
 from .cluster import (
     COMPANY,
     COMPANY_NS,
+    HELLO_SAAS,
     kubectl,
     port_forward,
 )

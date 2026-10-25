@@ -26,12 +26,12 @@ def test_only_the_heartbeat_is_still_running(stack: None):
     review parked on a gate nobody will answer, no scope run mid-dispatch.
     The one workflow left is the standing heartbeat — a company always has
     one — and it is asleep, its last tick idle on an empty backlog."""
-    from .cluster import await_bare_heartbeat_asleep, bare_heartbeat_id, heartbeat_ticks
+    from .cluster import await_heartbeat_asleep, heartbeat_ticks
 
     running = [w for w in running_workflows() if f"heartbeat-{COMPANY}" not in w]
     assert running == [], "workflows survived the suite; a module left its campsite dirty"
-    await_bare_heartbeat_asleep()
-    ticks = heartbeat_ticks(bare_heartbeat_id())
+    await_heartbeat_asleep()
+    ticks = heartbeat_ticks()
     assert ticks and ticks[-1]["decision"] == "deny", ticks[-1:]
     assert parse_tick_rule(ticks[-1]["rule"] or "")[0] != TICK_STARTED, ticks[-1]
 

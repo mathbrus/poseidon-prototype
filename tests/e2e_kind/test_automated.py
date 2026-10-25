@@ -33,7 +33,7 @@ anywhere.
 
 The conftest orders this module after the other capstones, so its runs
 are added last. Applies `examples/hello-saas-automated.yaml` (automated
-merge) for the module and restores the pristine profile after.
+merge) for the module and restores the pristine blueprint after.
 """
 
 import re
@@ -52,17 +52,20 @@ from mock_brain.brain import (
     TAMPERING_REVIEW_MARKER,
 )
 
-from .blueprints import AUTOMATED, may_start, restore_pristine
+from .blueprints import (
+    may_start,
+    restore_pristine,
+)
 from .cluster import (
+    AUTOMATED,
     audit_story,
     await_run,
-    bare_heartbeat_id,
     console,
     participants,
     run_spend,
 )
 from .conftest import (
-    apply_profile,
+    apply_and_settle,
     assert_merge_closed_tickets,
     close_issue,
     close_pr,
@@ -120,9 +123,9 @@ def automated_overnight(stack: None, baseline_env: dict) -> dict:
     base ref — without it the composed verify is red and the arc reworks
     instead of merging."""
     env = baseline_env
-    apply_profile(AUTOMATED, env)
+    apply_and_settle(AUTOMATED, env)
     nonce = secrets.token_hex(3)
-    result: dict = {"env": env, "heartbeat_id": bare_heartbeat_id()}
+    result: dict = {"env": env}
     try:
         scope, titles = _scope_tickets(env, open_slice_strategy(nonce, NEXT_SLICE_MARKER))
         result["scope"] = scope
@@ -195,7 +198,7 @@ def test_the_merge_was_automated_not_released_by_a_human(automated_overnight: di
     story = audit_story(automated_overnight["review"]["run_id"])
     gate_rules = gate_merge_rules(story)
     assert "gate_automated" in gate_rules, gate_rules
-    assert "gate_approved" not in gate_rules, "a human approval sneaked in"
+    assert "gate_approved" not in gate_rules, "a person's verdict sneaked in"
     resolves = [e for e in story if e["tool"] == MERGE_RESOLVE]
     assert resolves and resolves[-1]["decision"] == "allow", resolves
     assert resolves[-1]["rule"] == "merge_resolve_automated"
@@ -234,10 +237,10 @@ def test_automated_arc_had_no_human_act(automated_overnight: dict):
     ), "the merge was released by a human, not automated"
 
 
-# --- the contract-first arc: the split oracle's capstone --------------------
+# --- the contract-first arc: the contract tree's capstone -------------------
 #
 # The automated arc above proves automated work merges unattended. This proves
-# the shape the split oracle adds: the company writes the *spec* first, under
+# the shape the contract tree adds: the company writes the *spec* first, under
 # different hands and different authority, and only then implements against
 # it. The whole arc has exactly one human act — the merge of the contract PR
 # — and everything else is the platform's. The heartbeat sequences it: the
@@ -257,7 +260,7 @@ def contract_first(stack: None, baseline_env: dict) -> dict:
     merge, and then the implementation auto-merges on a green base-ref
     contract — no other command."""
     env = baseline_env
-    apply_profile(AUTOMATED, env)
+    apply_and_settle(AUTOMATED, env)
     # The declared deviation from the session baseline: the tree is declared
     # by the blueprint but deleted from `main`, so an implementation cannot
     # merge until the spec lands — which is the whole point of sequencing
@@ -329,8 +332,8 @@ def test_the_pm_filed_contract_then_implement(contract_first: dict):
 
 
 def test_the_contract_was_authored_by_the_contract_crew(contract_first: dict):
-    """The spec came from different hands: the authoring run's participants
-    are the contract-authoring crew, a template the delivery crew does not
+    """The spec came from different hands: the authoring run's ephemeral
+    agents are the contract-authoring crew, whose role the delivery crew does not
     contain — positional independence, not a promise."""
     run_id = contract_first["contract_implement"]["run_id"]
     crews = {p.crew for p in participants(run_id)}
@@ -411,7 +414,7 @@ def tampered_review(stack: None, baseline_env: dict) -> dict:
     reviews the PR on its own nor implements the rework ticket the
     platform files; the module closes both."""
     env = baseline_env
-    apply_profile(may_start(AUTOMATED, "scope"), env)
+    apply_and_settle(may_start(AUTOMATED, "scope"), env)
     nonce = secrets.token_hex(3)
     result: dict = {"env": env}
     try:

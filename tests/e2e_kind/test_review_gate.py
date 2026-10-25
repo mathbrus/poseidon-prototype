@@ -7,8 +7,8 @@ by run_id in one audit story.
 
 The chain runs its own runs (never the shared session fixtures: this
 module *merges* its PR into the disposable repo's main, and nothing else in
-the suite may inherit that side effect). The merge gate leg is timed by the
-fast profile: the gate parks, escalates at half its declared deadline with
+the suite may inherit that side effect). The merge gate leg is timed by
+the gate's `deadline_minutes`: the gate parks, escalates at half of it with
 a real `process-gate` audit event, and only then does the test approve —
 so the escalation path is proven on every run, not just when someone
 forgets to answer.
@@ -48,7 +48,6 @@ from mock_brain.brain import NEXT_SLICE_MARKER
 from .blueprints import (
     E2E_GATE_MINUTES,
     E2E_PATIENT_GATE_MINUTES,
-    HELLO_SAAS,
     apply_blueprint,
     may_start,
     restore_pristine,
@@ -56,6 +55,7 @@ from .blueprints import (
 )
 from .cluster import (
     COMPANY_NS,
+    HELLO_SAAS,
     HUMAN,
     audit_story,
     await_run,
@@ -71,7 +71,7 @@ from .cluster import (
 )
 from .conftest import (
     REPO_ROOT,
-    apply_profile,
+    apply_and_settle,
     assert_merge_closed_tickets,
     await_gate,
     close_issue,
@@ -162,7 +162,7 @@ def review_chain(stack: None, baseline_env: dict) -> dict:
     reviewer findings, a parked gate, an escalation, an approval, and a
     gateway merge (the loop's review run)."""
     env = baseline_env
-    apply_profile(may_start(HELLO_SAAS, "scope", "review"), env)
+    apply_and_settle(may_start(HELLO_SAAS, "scope", "review"), env)
     chain: dict = {"env": env}
     nonce = secrets.token_hex(3)
     try:
@@ -177,7 +177,7 @@ def review_chain(stack: None, baseline_env: dict) -> dict:
         chain["issue_number"] = int(issue_match.group(1))
 
         # 2. Implement, by hand: a human's repro on the company's own
-        # ticket. The loop may not implement in this profile, so the ticket
+        # ticket. The loop may not implement under this blueprint, so the ticket
         # is a human's to start — and the company's spec, not a
         # second, human-written one.
         chain["implement"] = _poseidon_run(env, chain["issue_number"])
@@ -513,7 +513,7 @@ def _crew_pods(run_id: str) -> str:
 @pytest.fixture(scope="module")
 def gate_endings(stack: None, baseline_env: dict) -> dict:
     env = baseline_env
-    apply_profile(
+    apply_and_settle(
         may_start(HELLO_SAAS, "implement", "review"),
         env,
         gate_minutes=E2E_PATIENT_GATE_MINUTES,

@@ -20,9 +20,9 @@ said so. The parked review holds no place while it waits for the person,
 and the loop, with nothing else on its backlog, starts nothing.
 
 The conftest orders this module after `test_acceptance`: it is itself a
-capstone, and it adds runs the five-source assertion need not see. The
+capstone, and it adds runs the six-source assertion need not see. The
 example as shipped (`hello-saas.yaml`, every workflow startable) is
-applied for the module and the pristine profile restored after.
+applied for the module and the pristine blueprint restored after.
 """
 
 import re
@@ -35,17 +35,19 @@ from common.policy import HEARTBEAT_START
 from common.tasks import review_run_task
 from mock_brain.brain import NEXT_SLICE_MARKER
 
-from .blueprints import HELLO_SAAS, restore_pristine
+from .blueprints import (
+    restore_pristine,
+)
 from .cluster import (
+    HELLO_SAAS,
     audit_story,
     await_run,
-    bare_heartbeat_id,
     console_env,
     heartbeat_ticks,
 )
 from .conftest import (
     REPO_ROOT,
-    apply_profile,
+    apply_and_settle,
     await_gate,
     close_issue,
     close_pr,
@@ -89,9 +91,9 @@ def overnight(stack: None, baseline_env: dict) -> dict:
     """Drive the whole unattended arc and hand back every artifact for the
     assertions to read."""
     env = baseline_env
-    apply_profile(HELLO_SAAS, env)
+    apply_and_settle(HELLO_SAAS, env)
     nonce = secrets.token_hex(3)
-    result: dict = {"env": env, "heartbeat_id": bare_heartbeat_id()}
+    result: dict = {"env": env}
 
     def drive() -> None:
         # --- nothing in: the strategy names the slice, the loop scopes
@@ -152,7 +154,7 @@ def test_the_company_scoped_its_own_slice_unattended(overnight: dict):
     assert scope["workflow"] == "scope" and scope["ticket_urls"]
     started = [
         t
-        for t in heartbeat_ticks(overnight["heartbeat_id"])
+        for t in heartbeat_ticks()
         if t["decision"] == "allow" and scope["run_id"] in (t["rule"] or "")
     ]
     assert started, "this heartbeat never recorded starting the scope run"
@@ -172,7 +174,7 @@ def test_the_company_implemented_its_own_ticket_unattended(overnight: dict):
     assert any(e["tool"] == HEARTBEAT_START and e["decision"] == "allow" for e in story)
     started = [
         t
-        for t in heartbeat_ticks(overnight["heartbeat_id"])
+        for t in heartbeat_ticks()
         if t["decision"] == "allow" and implement["run_id"] in (t["rule"] or "")
     ]
     assert started, "this heartbeat never recorded starting the implement"

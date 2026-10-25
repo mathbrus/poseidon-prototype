@@ -33,7 +33,7 @@ What the suite proves, and where:
                   this suite execution — nothing seeded
   5 budgets       test_budgets (refusal at the cap, API-visible park, process-gate
                   escalation, full {run, parent, agent, role} tuple)
-  6 lean standing test_reconciler_lifecycle (exactly one AgentInstance),
+  6 one standing test_reconciler_lifecycle (exactly one AgentInstance),
                   test_scope, test_ephemeral_identity, test_ephemeral_pods,
                   test_workload_identity; HERE: the registry's standing agents
                   agrees, and a live minted implementer is denied outside its
@@ -109,7 +109,7 @@ contract, ordered last: only the standing heartbeat running, asleep on an
 empty backlog; no run non-terminal).
 
 The conftest orders this module after every module whose runs it reads:
-the five-source assertion reads what the whole suite really produced.
+the six-source assertion reads what the whole suite really produced.
 """
 
 import asyncio
@@ -123,14 +123,14 @@ from common.audit import RATIONALE_EVENTS, SOURCES
 from common.ids import new_run_id
 
 from .blueprints import (
-    HELLO_SAAS,
     bundle_revision_from_cr,
-    pristine_profile,
+    pristine_blueprint,
     suite_document,
 )
 from .cluster import (
     COMPANY,
     COMPANY_NS,
+    HELLO_SAAS,
     audit_story,
     console,
     console_env,
@@ -178,10 +178,10 @@ def test_compile_and_preview_close_the_declarative_loop(stack, env, tmp_path):
     against the live registry), an edit previews as exactly that one
     change, and a local compile produces byte-for-byte the bundle revision
     the cluster serves — compile is what's live."""
-    # Preview of the applied document — the profile the suite leaves
+    # Preview of the applied document — the blueprint the suite leaves
     # applied: a converged cluster diffs empty.
     pristine = _poseidon(
-        env, "blueprint", "preview", str(suite_document(pristine_profile()))
+        env, "blueprint", "preview", str(suite_document(pristine_blueprint()))
     )
     assert pristine.returncode == 0, pristine.stderr
     assert f"{COMPANY}: no changes" in pristine.stdout, pristine.stdout
@@ -189,7 +189,7 @@ def test_compile_and_preview_close_the_declarative_loop(stack, env, tmp_path):
 
     # Preview of an edit of the applied document: exactly the edit, nothing
     # else (its repository is the company's own, which cannot change).
-    document = yaml.safe_load(suite_document(pristine_profile()).read_text())
+    document = yaml.safe_load(suite_document(pristine_blueprint()).read_text())
     assert "lead" not in document["standing"]
     document["standing"]["lead"] = {
         "role": "pm",
@@ -221,13 +221,13 @@ def test_compile_and_preview_close_the_declarative_loop(stack, env, tmp_path):
     # Compile-is-what's-live: the revision is a content digest (registry
     # `pack`), so equality here means the served policy is exactly what
     # this working tree's compiler emits from the document the suite
-    # leaves applied — the pristine profile, the example on the suite's
+    # leaves applied — the pristine blueprint, the example on the suite's
     # repository and clock with review off the loop's own initiative.
     from blueprint import load_blueprint
     from compiler import compile_blueprint
     from registry import pack
 
-    plan = compile_blueprint(load_blueprint(suite_document(pristine_profile())))
+    plan = compile_blueprint(load_blueprint(suite_document(pristine_blueprint())))
     _, revision = pack(dict(plan.bundle.files))
     assert revision == bundle_revision_from_cr(), (
         "the cluster serves a bundle this blueprint + compiler do not produce"
@@ -272,10 +272,10 @@ def test_the_killed_run_left_nothing_behind(implement_run: dict) -> None:
         assert row["terminated_at"], f"leaked sandbox registration: {row}"
 
 
-# -- 6 lean standing: the standing agents, from the registry's point of view --------------
+# -- 6 one standing agent, from the registry's point of view -----------------
 
 
-def test_the_registry_roster_is_the_lean_blueprint(stack) -> None:
+def test_the_registry_roster_is_the_blueprints_one_standing_agent(stack) -> None:
     """`exactly one standing AgentInstance` is asserted against the CRs in
     test_reconciler_lifecycle; the registry — which is what gateway authn
     enriches from — must agree, and must still agree at the end of the
@@ -288,7 +288,7 @@ def test_the_registry_roster_is_the_lean_blueprint(stack) -> None:
     )
     assert [(r["agent_id"], r["role"], r["namespace"]) for r in rows] == [
         ("pm-1", "pm", COMPANY_NS)
-    ], f"the registry's standing agents are not the lean blueprint's: {rows}"
+    ], f"the registry's standing agents are not the blueprint's: {rows}"
     # The console reads the same roster, the conductor marked.
     agents = console().agents().agents
     assert [(a.agent_id, a.standing_name, a.role, a.conductor) for a in agents] == [
@@ -425,7 +425,7 @@ def test_live_implementer_cannot_exceed_its_compiled_allowlist(
 # -- 4 governance: every audit source, real, in this suite execution ---------
 
 
-def test_all_five_audit_sources_are_real_in_this_suite(
+def test_all_six_audit_sources_are_real_in_this_suite(
     stack, db_session_start: str
 ) -> None:
     """Criterion 4's audit clause with no seeding anywhere: within this
@@ -433,7 +433,8 @@ def test_all_five_audit_sources_are_real_in_this_suite(
     real producers wrote every source in the closed audit-source vocabulary —
     gateway tool decisions, llm-gateway metering/cap refusals, sandbox-infra
     egress denies, process-gate escalations/verdicts, process-lifecycle
-    mint/revoke — and each source correlates to runs by run_id.
+    mint/revoke, console acts — and each source correlates to runs by
+    run_id.
 
     Runs alone against a fresh cluster this fails by design: it reads what
     the whole suite produced. Run the full acceptance suite."""

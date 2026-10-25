@@ -11,10 +11,10 @@ mirror image: a human who decides the run is worth more raises the cap
 with headroom and runs to a delivered PR. Unattributed model calls are
 rejected outright.
 
-The tiny-cap profile is the one-shot company (`max_attempts: 1`): a run the
+The tiny-cap blueprint is the one-shot company (`max_attempts: 1`): a run the
 human rejects is the company's last word on its ticket, not a retry the
 loop would start on its own. The module finalizer re-applies the pristine
-profile so later suites run against the real cap.
+blueprint so later suites run against the real cap.
 """
 
 import secrets
@@ -31,7 +31,7 @@ from common.workflows import BUDGET_GATE
 from .blueprints import (
     E2E_DEADLINE_MINUTES,
     derived_blueprint,
-    pristine_profile,
+    pristine_blueprint,
     restore_pristine,
     single_attempt,
 )
@@ -45,7 +45,7 @@ from .cluster import (
     run_by_task,
 )
 from .conftest import (
-    apply_profile,
+    apply_and_settle,
     await_gate,
     close_issue,
     close_pr_url,
@@ -67,7 +67,7 @@ def _tiny_cap():
     def shrink(document: dict) -> None:
         document["budgets"]["per_run"]["usd"] = TINY_CAP
 
-    return derived_blueprint(single_attempt(pristine_profile()), shrink, "tiny-cap")
+    return derived_blueprint(single_attempt(pristine_blueprint()), shrink, "tiny-cap")
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -82,7 +82,7 @@ def tiny_cap_applied(stack: None, env: dict) -> None:
     """Function-scoped: every test that needs the tiny cap re-applies it, so
     the approve test's mid-body cap-raise cannot leak the real cap into a
     later test — order stops mattering."""
-    apply_profile(_tiny_cap(), env)
+    apply_and_settle(_tiny_cap(), env)
 
 
 def ledger_entries(run_id: str) -> list[SpendEntryView]:
@@ -216,10 +216,12 @@ def test_unattributed_model_call_is_rejected(stack: None) -> None:
     assert resp.status_code == 401
 
 
-def test_approval_raises_the_cap_and_the_run_completes(tiny_cap_applied, env) -> None:
+def test_a_raised_cap_and_an_approving_verdict_complete_the_run(
+    tiny_cap_applied, env
+) -> None:
     """The run that stopped for money is not the end: with the cap raised
-    and the human's approval, the workflow re-dispatches and delivers.
-    The approval is a `gate.budget` `gate_approved` process-gate event, the
+    and the human's approving verdict, the workflow re-dispatches and
+    delivers. The verdict is a `gate.budget` `gate_approved` process-gate event, the
     run finishes `done` with a PR, and the ledger shows spend past the tiny
     cap — real work the first stop had blocked."""
     number, run_id = _parked_run(env)
@@ -231,7 +233,7 @@ def test_approval_raises_the_cap_and_the_run_completes(tiny_cap_applied, env) ->
         # then approve — the run may continue.
         from .blueprints import apply_blueprint
 
-        apply_blueprint(single_attempt(pristine_profile()))
+        apply_blueprint(single_attempt(pristine_blueprint()))
         _signal_budget(run_id, True, "worth the spend")
         record = await_run(issue_run_task(number), terminal=True, deadline_s=600)
         assert record["status"] == "done", f"the approved run did not finish: {record}"
@@ -246,7 +248,7 @@ def test_approval_raises_the_cap_and_the_run_completes(tiny_cap_applied, env) ->
 
         # The run spent *more* after the cap was raised: the pre-park total
         # already exceeds TINY_CAP by construction, so only a strictly larger
-        # final total proves the approval actually resumed real model work.
+        # final total proves the verdict actually resumed real model work.
         final_spend = sum(e.usd for e in ledger_entries(run_id))
         assert final_spend > spend_at_park, (
             f"no spend past the raised cap ({final_spend} == {spend_at_park}) — "

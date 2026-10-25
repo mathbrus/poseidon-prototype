@@ -18,8 +18,7 @@ the platform did:
 - the poisoned title cannot make the loop start out-of-observation work —
   the decide validation confines the choice to observed candidates, and
   the compiled `heartbeat.start` decision confines it again;
-- the run's spend stays under the per-run cap, and the loop honours
-  `max_concurrent_runs`;
+- the run's spend stays under the per-run cap;
 - nothing merges — no human delivered the merge signal, so the PR sits
   open;
 - the whole trajectory reconstructs from the audit store: the heartbeat's
@@ -39,7 +38,7 @@ The module arrives on the example with `may_start: [implement]` — a
 delivered PR waits for the world instead of being reviewed on the next
 wake, which the merged-by-hand arc needs — and the example as shipped
 (review startable again) is applied mid-module for the aborted-review
-arc. The pristine profile is restored after.
+arc. The pristine blueprint is restored after.
 """
 
 import secrets
@@ -54,24 +53,24 @@ from common.workflows import ATTEMPTS_GATE, TICK_IDLE, TICK_STARTED, tick_rule
 from mock_brain.brain import REVIEW_ABORT_MARKER
 
 from .blueprints import (
-    HELLO_SAAS,
     apply_blueprint,
     may_start,
     restore_pristine,
     wait_for_convergence,
 )
 from .cluster import (
+    HEARTBEAT_ID,
+    HELLO_SAAS,
     audit_story,
-    bare_heartbeat_id,
     heartbeat_ticks,
     run_by_task,
     run_spend,
     runs_by_task,
     wake_and_await_ticks,
-    wake_bare_heartbeat,
+    wake_heartbeat,
 )
 from .conftest import (
-    apply_profile,
+    apply_and_settle,
     close_issue,
     close_pr_url,
     file_ticket,
@@ -99,30 +98,29 @@ def _injected_body(nonce: str) -> str:
 
 
 @pytest.fixture(scope="module")
-def heartbeat_profile(stack: None, baseline_env: dict):
-    """Apply the implement-only profile for this module — the merged-by-hand
+def implement_only(stack: None, baseline_env: dict):
+    """Apply the implement-only blueprint for this module — the merged-by-hand
     arc needs a delivered PR to wait for the world, not for the next wake
-    — and restore the pristine profile after."""
-    apply_profile(may_start(HELLO_SAAS, "implement"), baseline_env)
+    — and restore the pristine blueprint after."""
+    apply_and_settle(may_start(HELLO_SAAS, "implement"), baseline_env)
     yield
     restore_pristine()
 
 
 @pytest.fixture(scope="module")
-def unattended_run(heartbeat_profile, env: dict) -> dict:
+def unattended_run(implement_only, env: dict) -> dict:
     """File the injected issue and wake the standing heartbeat onto it —
     the same loop the ensure loop keeps running, nudged with the same
     signal the platform sends. Returns the child run record plus the
     heartbeat's id."""
     nonce = secrets.token_hex(3)
     issue_number = file_ticket(env, INJECTED_TITLE, _injected_body(nonce))
-    heartbeat_id = bare_heartbeat_id()
 
     # An issue filed straight on GitHub is a change only the outside world
     # saw: wake the standing heartbeat onto it, then let it run the
     # implement to a terminal state with no human command.
     child = run_ticket(issue_number)
-    record = {"child": child, "heartbeat_id": heartbeat_id}
+    record = {"child": child}
 
     yield {**record, "issue_number": issue_number}
 
@@ -154,7 +152,7 @@ def test_the_heartbeat_started_the_issue_not_the_planted_review(
     # action and the child run, under the writer's own id.
     started = [
         t
-        for t in heartbeat_ticks(unattended_run["heartbeat_id"])
+        for t in heartbeat_ticks()
         if t["decision"] == "allow" and child["run_id"] in (t["rule"] or "")
     ]
     assert started, "this heartbeat never recorded starting the child"
@@ -207,7 +205,7 @@ def test_the_whole_unattended_trajectory_reconstructs_from_the_audit_store(
     ledger, filtered by the writer's workflow id), and the child run's
     gateway + egress + lifecycle events under its run_id — with the
     authorized start journaled under the run it started."""
-    ticks = heartbeat_ticks(unattended_run["heartbeat_id"])
+    ticks = heartbeat_ticks()
     assert ticks, "this heartbeat left no ledger rows at all"
     assert all(e["lifecycle"] == "platform" for e in ticks)
     assert any(
@@ -269,7 +267,6 @@ def merged_by_hand(unattended_run: dict, env: dict) -> dict:
         "ticks": ticks,
         "pr_number": number,
         "issue_number": unattended_run["issue_number"],
-        "heartbeat_id": bare_heartbeat_id(),
     }
 
 
@@ -295,7 +292,7 @@ def test_a_pr_merged_by_a_human_closes_its_ticket(merged_by_hand: dict):
     landed, so the work is done, whoever merged it."""
     number = merged_by_hand["pr_number"]
     assert issue_state(merged_by_hand["env"], merged_by_hand["issue_number"]) == "closed"
-    closes = platform_closes(audit_story(merged_by_hand["heartbeat_id"]), "issues.close")
+    closes = platform_closes(audit_story(HEARTBEAT_ID), "issues.close")
     mine = [
         e
         for e in closes
@@ -322,7 +319,7 @@ def _terminal_runs(task: str, workflow: str, count: int) -> list[dict]:
         ):
             return runs
         if time.monotonic() >= next_wake:
-            wake_bare_heartbeat()
+            wake_heartbeat()
             next_wake = time.monotonic() + 60
         time.sleep(5)
     raise AssertionError(f"the heartbeat never ran {task!r} {count} times: {runs}")
@@ -330,7 +327,7 @@ def _terminal_runs(task: str, workflow: str, count: int) -> list[dict]:
 
 @pytest.fixture(scope="module")
 def abandoned_review(merged_by_hand: dict, env: dict) -> dict:
-    """The eval finding, replayed on the mock: an issue whose title carries
+    """A reviewer that dies without a verdict, on the mock: an issue whose title carries
     `REVIEW_ABORT_MARKER` is implemented unattended, its PR delivered with
     the marker in the title, and every review of that PR posts findings
     but never reaches a verdict — the shape of a paid reviewer dying of a
@@ -351,8 +348,7 @@ def abandoned_review(merged_by_hand: dict, env: dict) -> dict:
         "Add a slugify utility with tests.\n\n"
         f"Deliver your work on the branch `feature/slugify-{nonce}`.",
     )
-    heartbeat_id = bare_heartbeat_id()
-    result: dict = {"issue_number": issue_number, "heartbeat_id": heartbeat_id}
+    result: dict = {"issue_number": issue_number}
 
     apply_blueprint(HELLO_SAAS)
     wait_for_convergence()
@@ -378,7 +374,7 @@ def abandoned_review(merged_by_hand: dict, env: dict) -> dict:
     # tick; wait for it, then compress two reconcile looks into now.
     deadline = time.monotonic() + 300
     while time.monotonic() < deadline:
-        ticks = heartbeat_ticks(heartbeat_id)
+        ticks = heartbeat_ticks()
         allows = [i for i, t in enumerate(ticks) if t["decision"] == "allow"]
         if allows and len(ticks) > allows[-1] + 1:
             break
@@ -392,7 +388,7 @@ def abandoned_review(merged_by_hand: dict, env: dict) -> dict:
     result["implements"] = runs_by_task(
         issue_run_task(issue_number), workflow="implement"
     )
-    result["ticks"] = heartbeat_ticks(heartbeat_id)
+    result["ticks"] = heartbeat_ticks()
     result["issue"] = github_api(
         env, "GET", f"/repos/{target_slug(env)}/issues/{issue_number}"
     ).json()

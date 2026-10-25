@@ -15,7 +15,7 @@ end wakes a loop that stays paused.
 
 The module arrives on the example with `may_start: [implement]` so the
 delivered PR waits for the world instead of being reviewed on the next
-wake, and the pristine profile is restored after. Every pause the module
+wake, and the pristine blueprint is restored after. Every pause the module
 takes it lifts; the session sweeper lifts one a failure path left.
 """
 
@@ -28,21 +28,24 @@ from common.tasks import issue_run_task
 from common.workflows import TICK_PAUSED, TICK_STARTED, parse_tick_rule, tick_rule
 from poseidon_cli import PolicyDenied
 
-from .blueprints import HELLO_SAAS, may_start, restore_pristine
+from .blueprints import (
+    may_start,
+    restore_pristine,
+)
 from .cluster import (
     COMPANY,
+    HELLO_SAAS,
     audit_story,
-    await_bare_heartbeat_asleep,
+    await_heartbeat_asleep,
     await_new_ticks,
     await_run,
-    bare_heartbeat_id,
     console,
     heartbeat_ticks,
     run_by_task,
     wake_and_await_ticks,
 )
 from .conftest import (
-    apply_profile,
+    apply_and_settle,
     close_issue,
     close_pr_url,
     file_ticket,
@@ -53,14 +56,14 @@ HUMAN = "owner"
 
 
 @pytest.fixture(scope="module")
-def pause_profile(stack: None, baseline_env: dict):
-    apply_profile(may_start(HELLO_SAAS, "implement"), baseline_env)
+def implement_only(stack: None, baseline_env: dict):
+    apply_and_settle(may_start(HELLO_SAAS, "implement"), baseline_env)
     yield
     restore_pristine()
 
 
 @pytest.fixture(scope="module")
-def held(pause_profile, env: dict) -> dict:
+def held(implement_only, env: dict) -> dict:
     """A startable backlog (one ticket), then the pause: the act itself
     wakes the loop, so the tick that follows is the module's own and is
     the one that reads the pause."""
@@ -71,7 +74,7 @@ def held(pause_profile, env: dict) -> dict:
         "Add a slugify utility with tests.\n\n"
         f"Deliver your work on the branch `feature/slugify-{nonce}`.",
     )
-    mark = len(heartbeat_ticks(bare_heartbeat_id()))
+    mark = len(heartbeat_ticks())
     paused = console(env).pause("reading the ledger with nothing moving")
     (tick,) = await_new_ticks(mark, 1)
     state = {
@@ -143,7 +146,7 @@ def test_resume_starts_the_held_work_and_a_run_in_flight_outlives_a_pause(
     pause held. A pause taken while that run is in flight touches it not
     at all: the run reaches its end, its end wakes the loop, and the loop
     ticks paused. The last resume leaves the loop asleep on its backlog."""
-    mark = len(heartbeat_ticks(bare_heartbeat_id()))
+    mark = len(heartbeat_ticks())
     resumed = console(env).resume("read it; let the work go on")
     assert resumed.paused is None
     (tick,) = await_new_ticks(mark, 1)
@@ -151,7 +154,7 @@ def test_resume_starts_the_held_work_and_a_run_in_flight_outlives_a_pause(
     started = await_run(held["task"], terminal=False, workflow="implement")
     assert started["status"] == "running", started
 
-    mark = len(heartbeat_ticks(bare_heartbeat_id()))
+    mark = len(heartbeat_ticks())
     console(env).pause("holding while the run finishes")
     (tick,) = await_new_ticks(mark, 1)
     assert tick["rule"] == tick_rule(TICK_PAUSED, HUMAN), tick
@@ -164,5 +167,5 @@ def test_resume_starts_the_held_work_and_a_run_in_flight_outlives_a_pause(
     assert console(env).heartbeat().execution.state == "paused"
 
     console(env).resume("done reading")
-    await_bare_heartbeat_asleep()
+    await_heartbeat_asleep()
     assert console(env).company().paused is None

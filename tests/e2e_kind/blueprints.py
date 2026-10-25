@@ -10,20 +10,15 @@ from pathlib import Path
 import yaml
 
 from .cluster import (
-    AUTOMATED,
     COMPANY,
     COMPANY_NS,
-    EXAMPLES,
     HELLO_SAAS,
-    REPO_ROOT,
     agent_image,
-    await_bare_heartbeat_asleep,
+    await_heartbeat_asleep,
     console,
     harness_repo_or_fail,
     kubectl,
 )
-
-__all__ = ["AUTOMATED", "EXAMPLES", "HELLO_SAAS", "REPO_ROOT"]
 
 # The suite's derived blueprints, written here and removed with the process.
 _SCRATCH = tempfile.TemporaryDirectory(prefix="poseidon-bp-")
@@ -78,7 +73,7 @@ def single_attempt(path: Path) -> Path:
     return derived_blueprint(path, one, "one-shot")
 
 
-def pristine_profile() -> Path:
+def pristine_blueprint() -> Path:
     """The company the suite rests at and every module returns to:
     `hello-saas.yaml` with review off the heartbeat's own initiative. A
     delivered PR then waits for the world instead of being reviewed on the
@@ -196,12 +191,12 @@ def bundle_revision_from_cr() -> str:
 
 
 def restore_pristine() -> None:
-    """Back to the pristine profile, converged and asleep — what every
-    module that applied another profile owes the modules after it. Always
+    """Back to the pristine blueprint, converged and asleep — what every
+    module that applied another blueprint owes the modules after it. Always
     re-applies and waits for convergence (OPA bundle activation included):
     a restore that skipped the wait could hand the next module a company
     that never re-converged. The standing heartbeat reads the re-applied
     section on its next tick and keeps running: a company always has one."""
-    apply_blueprint(pristine_profile())
+    apply_blueprint(pristine_blueprint())
     wait_for_convergence()
-    await_bare_heartbeat_asleep()
+    await_heartbeat_asleep()

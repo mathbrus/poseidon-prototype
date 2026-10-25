@@ -20,7 +20,7 @@ Run explicitly (excluded from plain `pytest`):
     uv run pytest tests/e2e_kind -m e2e_kind
 
 The suite holds itself to the same discipline the product has — declared
-state, enforced stops, verified quiet — via four session-level guarantees:
+state, enforced stops, verified quiet — via five session-level guarantees:
 
 - **The brain of record** (`paid_brain_guard`, autouse): the session fails
   before the first dispatch unless the deployed `llm-proxy` image is the
@@ -40,22 +40,22 @@ state, enforced stops, verified quiet — via four session-level guarantees:
   conftest.py, whose merged form would neuter every later run's
   collection). Idempotent — a repo already at baseline gets reads, not
   commits. No module may depend on what a previous run left behind.
-- **One lane** (`run_ticket`, `run_review`, `apply_profile`,
-  `sweep_repo_debris`, `repo_sweeper`): every run is the standing
-  heartbeat's. A module files the ticket the loop should implement (or
-  writes the strategy it should scope from), wakes the loop, and reads the
-  run it started; what the loop may start on its own is declared in the
-  profile the module applies (`blueprints.may_start`), never by a company
-  without a heartbeat. Debris feeds contention — the loop treats any open
-  PR or issue as backlog and wakes the moment any run finishes — so a
-  module closes a PR as soon as its claims about it are read, or holds it
-  open only under a profile the loop cannot start a review on; a module
-  sweeps BEFORE it applies a profile and waits for the loop to be asleep
-  on the swept backlog (`apply_profile`), so the ticks it counts from
-  there are its own; and a run that is *meant* to fail runs under
-  `blueprints.single_attempt`, or the loop retries it. A module that
-  pauses the heartbeat resumes it before it ends — a paused loop never
-  reports asleep, so the next profile apply would wait forever. The
+- **One lane** (`run_ticket`, `run_review`, `apply_and_settle`,
+  `sweep_repo_debris`, `repo_sweeper`): every run is the heartbeat's. A
+  module files the ticket the loop should implement (or writes the
+  strategy it should scope from), wakes the loop, and reads the run it
+  started; what the loop may start on its own is declared in the derived
+  blueprint the module applies (`blueprints.may_start`), never by a
+  company without a heartbeat. Debris feeds contention — the loop treats
+  any open PR or issue as backlog and wakes the moment any run finishes —
+  so a module closes a PR as soon as its claims about it are read, or
+  holds it open only under a blueprint the loop cannot start a review
+  on; a module sweeps BEFORE it applies a blueprint and waits for the
+  loop to be asleep on the swept backlog (`apply_and_settle`), so the
+  ticks it counts from there are its own; and a run that is *meant* to
+  fail runs under `blueprints.single_attempt`, or the loop retries it. A
+  module that pauses the heartbeat resumes it before it ends — a paused
+  loop never reports asleep, so the next apply would wait forever. The
   session sweeper catches whatever a failure path dropped, a pause
   included.
 - **Read your own writes** (`file_ticket`, `scope_via_heartbeat`,
@@ -73,7 +73,7 @@ state, enforced stops, verified quiet — via four session-level guarantees:
 What a new module owes: declare repo preconditions against `baseline_env`
 (and put deviations back — a strategy that names a slice above all);
 close every PR it opens and delete the branch (`close_pr`), and close the
-tickets it filed; if it applies another blueprint profile, sweep before
+tickets it filed; if it applies a derived blueprint, sweep before
 the apply and `blueprints.restore_pristine()` after; bound the attempts
 of a run it expects to fail; act through the console (`cluster.console`),
 never by a raw Temporal signal — except a red-team proving the raw road
@@ -116,16 +116,16 @@ from mock_brain.brain import (
 
 from .blueprints import (
     E2E_GATE_MINUTES,
-    HELLO_SAAS,
     apply_blueprint,
     restore_pristine,
     wait_for_convergence,
 )
 from .cluster import (
     COMPANY_NS,
+    HELLO_SAAS,
     PLATFORM_NS,
     REPO_ROOT,
-    await_bare_heartbeat_asleep,
+    await_heartbeat_asleep,
     await_run,
     console,
     console_url,
@@ -136,7 +136,7 @@ from .cluster import (
     run_by_task,
     run_kubectl,
     sandbox_pods,
-    wake_bare_heartbeat,
+    wake_heartbeat,
 )
 
 ENV_FILE = REPO_ROOT / "deploy" / "kind" / ".env"
@@ -390,7 +390,7 @@ def run_ticket(
     world the loop watches), optionally kill the worker mid-run, and wait
     for the run's terminal registry row — the record every other helper
     and assertion reads. `implement` must be startable in the applied
-    profile."""
+    blueprint."""
     task = issue_run_task(number)
     wake_until_run_started(task, "implement")
     if kill_after:
@@ -419,7 +419,7 @@ def run_review(
     escalates and expires under the suite's gate clock. With `approve` a
     bool, wait for the merge-gate park and deliver that one human verdict.
     Returns the review run id and its terminal record. `review` must be
-    startable in the applied profile."""
+    startable in the applied blueprint."""
     task = review_run_task(pr_number)
     wake_until_run_started(task, "review")
     run_id = run_by_task(task, workflow="review")["run_id"]
@@ -480,7 +480,7 @@ def wake_until_run_started(
         if run_by_task(task, workflow=workflow, since=since) is not None:
             return
         if time.monotonic() >= next_wake:
-            wake_bare_heartbeat()
+            wake_heartbeat()
             next_wake = time.monotonic() + 60
         time.sleep(3)
     raise AssertionError(f"the heartbeat never started {task!r}")
@@ -661,14 +661,14 @@ REPO_PRUNED: tuple[str, ...] = (
 
 @pytest.fixture(scope="session", autouse=True)
 def suite_blueprint(stack: None, baseline_env: dict[str, str]) -> None:
-    """The company the suite runs against: the pristine profile on the
+    """The company the suite runs against: the pristine blueprint on the
     suite's clock (`blueprints.suite_document`). The bootstrap applied the
     example as written, whose gates wait a working day, and its heartbeat
     has been working whatever the repository held since — a vision-only
     repository gets its bootstrap tickets — so the suite starts from rest:
     the baseline is seeded first (the fixture dependency), the campsite
     swept, every run in flight allowed to end, and only then the pristine
-    profile applied with the suite's own waits, so a module that parks on
+    blueprint applied with the suite's own waits, so a module that parks on
     a gate watches it escalate within a minute."""
     sweep_repo_debris(baseline_env)
     await_no_runs_in_flight()
@@ -809,9 +809,9 @@ def pr_state(env: dict, pr_url: str | None) -> str:
     return str(pull.get("state") or "missing")
 
 
-def apply_profile(path: Path, env: dict, gate_minutes: int = E2E_GATE_MINUTES) -> None:
+def apply_and_settle(path: Path, env: dict, gate_minutes: int = E2E_GATE_MINUTES) -> None:
     """Sweep, apply, converge, and wait for the standing heartbeat to be
-    asleep — the way every module that applies its own profile must
+    asleep — the way every module that applies its own blueprint must
     start. An empty campsite first: any open PR or issue an earlier module
     left becomes the loop's backlog the moment it reads the new section —
     a review the module never asked for, or a ticket it never filed. Then
@@ -823,7 +823,7 @@ def apply_profile(path: Path, env: dict, gate_minutes: int = E2E_GATE_MINUTES) -
     lift_pause(env)
     apply_blueprint(path, gate_minutes)
     wait_for_convergence()
-    await_bare_heartbeat_asleep()
+    await_heartbeat_asleep()
 
 
 def lift_pause(env: dict) -> None:
@@ -896,8 +896,8 @@ def repo_sweeper(env: dict[str, str]):
     sweep_repo_debris(env)
     lift_pause(env)
     with contextlib.suppress(Exception):
-        wake_bare_heartbeat()
-        await_bare_heartbeat_asleep()
+        wake_heartbeat()
+        await_heartbeat_asleep()
 
 
 # --- the shared runs ---------------------------------------------------------

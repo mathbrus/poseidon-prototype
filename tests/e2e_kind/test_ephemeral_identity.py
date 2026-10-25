@@ -2,7 +2,7 @@
 identity — a per-run ServiceAccount whose projected token round-trips the
 real TokenReview path — calls the gateway successfully; a foreign `run_id`
 claim from the same *live* identity is policy-denied; the same call after
-its participants row is terminated is denied while the token itself is
+its `run_participants` row is terminated is denied while the token itself is
 still valid — revocation is the registry write, not the clock; and OPA
 demonstrably receives the binding as input, never as pushed data.
 
