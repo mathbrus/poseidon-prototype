@@ -253,6 +253,25 @@ def test_implementer_delivers_on_feature_branches(decide):
     assert decision["allow"] is True
 
 
+def test_a_standing_caller_cannot_claim_a_crew_rule(decide):
+    """Crew rules key on the ephemeral lifecycle: a standing caller
+    presenting a bound implementer's whole shape — crew, role, run — gets
+    nothing."""
+    bound = ephemeral(
+        "feature-delivery",
+        "implementer",
+        tool="sandbox.exec",
+        args={},
+        run_binding_verified=True,
+    )
+    assert decide(**bound) == {
+        "allow": True,
+        "rule": "crew_feature_delivery_implementer_sandbox_exec",
+    }
+    as_standing = decide(**{**bound, "lifecycle": "standing"})
+    assert as_standing == {"allow": False, "rule": "default_deny"}
+
+
 def test_an_agent_works_on_the_declared_repository_only(decide):
     """A repo-bearing call names the company's repository or is denied by
     name, before the gateway reaches the git host — whoever the caller is
@@ -290,19 +309,6 @@ def test_reviewer_cannot_deliver(decide):
 # -- the blueprint's own policies ------------------------------------------
 
 
-def test_protected_branch_is_denied(decide):
-    decision = decide(
-        **ephemeral(
-            "feature-delivery",
-            "implementer",
-            tool="git.open_pr",
-            args={"branch": "main", "paths": ["a.py"]},
-        )
-    )
-    assert decision["allow"] is False
-    assert decision["rule"].startswith("git_open_pr_")
-
-
 def test_denied_paths_beat_an_allowed_branch(decide):
     decision = decide(
         **ephemeral(
@@ -337,60 +343,159 @@ def test_sandbox_tools_require_a_verified_run_binding(decide):
         assert decide(**unbound) == {"allow": False, "rule": "default_deny"}, unbound
 
 
-def test_another_company_cannot_borrow_our_rules(decide):
-    """Every rule names its company: the request our PM wins, made under
-    another company's name, matches none of them."""
-    request = standing(
-        "pm",
-        tool="crew.request",
-        args={"crew_template": "feature-delivery", "reason": "ticket"},
-    )
-    assert decide(**request) == {"allow": True, "rule": "role_pm_crew_request"}
-    borrowed = decide(**{**request, "company": "evil-corp"})
+@pytest.mark.parametrize(
+    ("bundle", "call", "rule"),
+    [
+        pytest.param(
+            "decide",
+            lambda: standing("pm", tool="issues.read", args={"number": 7}),
+            "role_pm_issues_read",
+            id="a-standing-agent's-tool",
+        ),
+        pytest.param(
+            "decide",
+            lambda: standing(
+                "pm",
+                tool="crew.request",
+                args={"crew_template": "feature-delivery", "reason": "ticket"},
+            ),
+            "role_pm_crew_request",
+            id="crew.request",
+        ),
+        pytest.param(
+            "decide",
+            lambda: ephemeral(
+                "feature-delivery",
+                "implementer",
+                tool="sandbox.exec",
+                args={},
+                run_binding_verified=True,
+            ),
+            "crew_feature_delivery_implementer_sandbox_exec",
+            id="an-ephemeral-agent's-tool",
+        ),
+        pytest.param(
+            "decide",
+            lambda: heartbeat_start("implement", active_runs=0, daily_spent_usd=0),
+            "heartbeat_start_implement",
+            id="heartbeat.start",
+        ),
+        pytest.param(
+            "decide",
+            lambda: human("owner", "gate.resolve", gate="merge", approved=True),
+            "gate_resolve_merge_approve",
+            id="a-human-act",
+        ),
+        pytest.param(
+            "decide",
+            lambda: console_read(),
+            "console_read_document",
+            id="the-console's-read",
+        ),
+        pytest.param(
+            "decide",
+            lambda: console_purge(),
+            "console_repo_purge",
+            id="the-console's-purge",
+        ),
+        pytest.param(
+            "decide",
+            lambda: human_resolve({"principal": "owner", "approved": True}),
+            "merge_resolve_human",
+            id="the-merge-by-a-verdict",
+        ),
+        pytest.param(
+            "decide_automated",
+            lambda: merge_resolve(verdict="pass", checks_green=True, paths=["src/a.py"]),
+            "merge_resolve_automated",
+            id="the-automated-merge",
+        ),
+    ],
+)
+def test_another_company_cannot_borrow_our_rules(request, bundle, call, rule):
+    """Every rule names its company: each kind of request our company wins,
+    made under another company's name, matches none of them."""
+    decide = request.getfixturevalue(bundle)
+    ours = call()
+    assert decide(**ours) == {"allow": True, "rule": rule}
+    borrowed = decide(**{**ours, "company": "evil-corp"})
     assert borrowed == {"allow": False, "rule": "default_deny"}
 
 
 # -- the platform lifecycle -----------------------------------------------
 
 
-def _company_callers() -> list[tuple[dict, tuple[str, ...]]]:
-    """Every caller of the shipped company beside the platform identity, as
-    the gateway presents it, with the tools its catalog role holds: each
-    standing agent, each ephemeral agent bound to its run, a human the
-    company names, and the console."""
-    plan = compile_blueprint(_company())
-    callers = [
-        (standing(i.role, agent_id=i.agent_id), ROLES[i.role].tools)
-        for i in plan.instances
-    ]
-    callers += [
-        ({**ephemeral(a.crew, a.role), "run_binding_verified": True}, ROLES[a.role].tools)
-        for a in plan.ephemeral_agents
-    ]
-    callers += [(human("owner", ""), ()), (console_read(), ())]
+def _company_callers(blueprint: dict) -> list[tuple[dict, dict[str, str]]]:
+    """Every caller of the company beside the platform identity, as the
+    gateway presents it, with the rule each of its own tools is allowed by:
+    each standing agent and each ephemeral agent bound to its run, holding
+    what its catalog role holds and never a platform-only tool; a human the
+    company names, holding none; and the console, holding its read of the
+    company's documents."""
+    plan = compile_blueprint(blueprint)
+    callers = []
+    for i in plan.instances:
+        holds = {
+            tool: f"role_{rego_slug(i.standing_name)}_{rego_slug(tool)}"
+            for tool in ROLES[i.role].tools
+            if tool not in PLATFORM_ONLY
+        }
+        callers.append((standing(i.role, agent_id=i.agent_id), holds))
+    for a in plan.ephemeral_agents:
+        holds = {
+            tool: f"crew_{rego_slug(a.crew)}_{rego_slug(a.role)}_{rego_slug(tool)}"
+            for tool in ROLES[a.role].tools
+            if tool not in PLATFORM_ONLY
+        }
+        callers.append(
+            ({**ephemeral(a.crew, a.role), "run_binding_verified": True}, holds)
+        )
+    callers.append((human("owner", ""), {}))
+    callers.append((console_read(), {"repo.read_file": "console_read_document"}))
     return callers
 
 
+# The company bundles the platform's scope is checked against: the shipped
+# example, and the company that compiles every catalog role, an automated
+# merge gate and a contract tree.
+COMPANIES = {
+    "decide": lambda: _company(),
+    "decide_contract_tree": lambda: _company(_declare_contract_tree),
+}
+
+
+@pytest.mark.parametrize("bundle", list(COMPANIES))
 @pytest.mark.parametrize("tool", PLATFORM_SCOPE)
-def test_the_platform_scope_is_the_platform_identitys_alone(decide, tool):
+def test_the_platform_scope_is_the_platform_identitys_alone(request, bundle, tool):
     """Every tool the orchestrator's own identity may call — the merge, the
     closing acts, the rework ticket, the notices, the archive, the reads,
     the verify gate, the sandbox registration — is allowed to it by a rule
-    naming the tool, and to nobody else: the platform package refuses each
-    company lifecycle the same call, and the company package refuses it to
-    every caller — a platform-only tool to all of them, a tool some role
-    shares (a read, a comment, a test run) to those whose role does not."""
-    args = {"repo": DECLARED_REPO, "number": 4}
+    naming the tool. The platform package refuses each company lifecycle
+    the same valid call, and the company package allows it to a caller
+    only by that caller's own rule — a role sharing a read, a comment or a
+    test run; the console reading the company's documents — and refuses it
+    to everyone else, a platform-only tool to every role."""
+    decide = request.getfixturevalue(bundle)
+    args = {
+        "repo": DECLARED_REPO,
+        "number": 4,
+        "ref": "main",
+        "path": "docs/STRATEGY.md",
+    }
     call = {"company": "hello-saas", "run_id": "run-1", "tool": tool, "args": args}
     platform = decide(PLATFORM_QUERY, lifecycle="platform", **call)
     assert platform == {"allow": True, "rule": f"platform_{rego_slug(tool)}"}
-    for caller, role_tools in _company_callers():
+    for caller, holds in _company_callers(COMPANIES[bundle]()):
         presented = {**caller, "tool": tool, "args": args}
         who = (caller["lifecycle"], caller["role"])
         misrouted = decide(PLATFORM_QUERY, **presented)
         assert misrouted == {"allow": False, "rule": "default_deny"}, who
-        if tool in PLATFORM_ONLY or tool not in role_tools:
-            assert decide(**presented) == {"allow": False, "rule": "default_deny"}, who
+        own = (
+            {"allow": True, "rule": holds[tool]}
+            if tool in holds
+            else {"allow": False, "rule": "default_deny"}
+        )
+        assert decide(**presented) == own, who
 
 
 def test_unknown_tool_is_denied_by_default(decide):
@@ -453,7 +558,9 @@ def test_pattern_with_a_backtick_cannot_inject_policy(tmp_path_factory, blueprin
 
 def test_uppercase_protected_branch_still_protects(tmp_path_factory, blueprint):
     """`protected: [Main]` must deny `main`: branches are lowercased at emit
-    time to match the lowercased input."""
+    time to match the lowercased input. The blueprint declares no branch
+    pattern, so the protection is what refuses — the example's pattern
+    would refuse `main` on its own."""
     blueprint["policies"]["branch_protection"] = {"protected": ["Main"]}
     decision = _eval_bundle(
         tmp_path_factory,
@@ -1154,25 +1261,6 @@ def test_no_contract_tree_means_no_contract_fact(decide_automated):
 # -- the contract tree's authority is not looser, and it revokes like authority
 
 
-def test_the_contract_author_cannot_merge(decide_contract_tree):
-    """Authority not looser: the deliver-capable contract-author role
-    gains `git.open_pr` into its tree and nothing else — `git.merge_pr`
-    stays platform-only."""
-    as_author = decide_contract_tree(
-        **ephemeral(
-            "contract-authoring",
-            "contract-author",
-            tool="git.merge_pr",
-            args={"number": 4},
-        )
-    )
-    assert as_author == {"allow": False, "rule": "default_deny"}
-    as_platform = decide_contract_tree(
-        PLATFORM_QUERY, lifecycle="platform", tool="git.merge_pr", args={"number": 4}
-    )
-    assert as_platform == {"allow": True, "rule": "platform_git_merge_pr"}
-
-
 def test_deny_paths_still_bind_the_contract_author(decide_contract_tree):
     """The blueprint's deny_paths outrank every grant for the contract
     author too: owning the contract tree buys no reach into a denied surface."""
@@ -1265,46 +1353,38 @@ def test_a_human_may_resolve_the_merge_gate(decide):
     assert budget == {"allow": True, "rule": "gate_resolve_budget_approve"}
 
 
-def test_a_human_may_start_cancel_wake_pause_resume_apply_and_delete(decide):
-    start = decide(**human("owner", "run.start", workflow="implement", number=4))
+def test_a_human_may_start_a_review_but_never_a_scope(decide):
+    """The console offers a person the starts it may make; scoping stays
+    the heartbeat's own initiative, so a person's scope start matches no
+    rule."""
+    review = decide(**human("owner", "run.start", workflow="review", number=4))
     scope = decide(**human("owner", "run.start", workflow="scope"))
-    cancel = decide(**human("owner", "run.cancel", run_id="run-1"))
-    wake = decide(**human("owner", "heartbeat.wake"))
-    pause = decide(**human("owner", "heartbeat.pause", reason="reading the ledger"))
-    resume = decide(**human("owner", "heartbeat.resume", reason="read"))
-    apply = decide(**human("owner", "blueprint.apply"))
-    delete = decide(**human("owner", "company.delete", purge_remote=False))
-    assert start == {"allow": True, "rule": "run_start_implement"}
+    assert review == {"allow": True, "rule": "run_start_review"}
     assert scope == {"allow": False, "rule": "default_deny"}
-    assert cancel == {"allow": True, "rule": "run_cancel"}
-    assert wake == {"allow": True, "rule": "heartbeat_wake"}
-    assert pause == {"allow": True, "rule": "heartbeat_pause"}
-    assert resume == {"allow": True, "rule": "heartbeat_resume"}
-    assert apply == {"allow": True, "rule": "blueprint_apply"}
-    assert delete == {"allow": True, "rule": "company_delete"}
 
 
 def test_a_delete_names_whether_it_purges_and_each_answer_has_its_rule(decide):
-    """Like a verdict: the rule says which delete was allowed, and a delete
-    that does not say whether it purges the repository is not."""
+    """Like a verdict: the rule says which delete was allowed (the plain
+    delete's rule is among the acts below), and a delete that does not say
+    whether it purges the repository is not."""
     purge = decide(**human("owner", "company.delete", purge_remote=True))
     unsaid = decide(**human("owner", "company.delete"))
     assert purge == {"allow": True, "rule": "company_delete_purge_remote"}
     assert unsaid == {"allow": False, "rule": "default_deny"}
 
 
-# Every act a person takes on the company through the console, as the
-# console puts it to policy, with the rule that allows it to a human the
-# company names.
+# A person's acts on the company through the console, as the console puts
+# them to policy, with the rule that allows each to a human the company
+# names. With the tests above, every act's allow rule is proven once.
 HUMAN_ACTS = [
-    ("gate.resolve", {"gate": "merge", "approved": True}, "gate_resolve_merge_approve"),
+    ("gate.resolve", {"gate": "budget", "approved": False}, "gate_resolve_budget_reject"),
     ("run.start", {"workflow": "implement", "number": 4}, "run_start_implement"),
     ("run.cancel", {"run_id": "run-1"}, "run_cancel"),
     ("heartbeat.wake", {}, "heartbeat_wake"),
     ("heartbeat.pause", {"reason": "mine now"}, "heartbeat_pause"),
     ("heartbeat.resume", {"reason": "mine now"}, "heartbeat_resume"),
     ("blueprint.apply", {}, "blueprint_apply"),
-    ("company.delete", {"purge_remote": True}, "company_delete_purge_remote"),
+    ("company.delete", {"purge_remote": False}, "company_delete"),
 ]
 
 
@@ -1314,7 +1394,7 @@ HUMAN_ACTS = [
 def test_an_unlisted_human_is_denied_by_name(decide, tool, args, rule):
     """A verified person the company did not name is refused by a rule that
     says so — an audit row, not an unfired allow — whatever the act; the
-    same act by a human the company names is allowed."""
+    same act by a human the company names is allowed by the act's rule."""
     assert decide(**human("owner", tool, **args)) == {"allow": True, "rule": rule}
     stranger = decide(**human("stranger", tool, **args))
     assert stranger == {"allow": False, "rule": "human_not_recognized"}
@@ -1322,8 +1402,9 @@ def test_an_unlisted_human_is_denied_by_name(decide, tool, args, rule):
 
 def test_an_agent_cannot_claim_human_authority(decide):
     """The rules key on the lifecycle: an agent presenting a human's name
-    and verdict gets nothing, and a human presenting an agent's call gets
-    nothing — each call allowed to its rightful caller."""
+    and verdict gets nothing, and a human presenting the PM's whole call,
+    its role included, gets nothing — each call allowed to its rightful
+    caller."""
     verdict = human("owner", "gate.resolve", gate="merge", approved=True)
     assert decide(**verdict) == {"allow": True, "rule": "gate_resolve_merge_approve"}
     as_pm = decide(**{**verdict, **standing("pm")})
@@ -1331,7 +1412,7 @@ def test_an_agent_cannot_claim_human_authority(decide):
 
     ticket = standing("pm", tool="issues.create", args={"title": "t", "body": "b"})
     assert decide(**ticket) == {"allow": True, "rule": "role_pm_issues_create"}
-    as_human = decide(**{**ticket, **human("owner", ticket["tool"], **ticket["args"])})
+    as_human = decide(**{**ticket, "lifecycle": "human", "agent_id": "owner"})
     assert as_human == {"allow": False, "rule": "default_deny"}
 
 
