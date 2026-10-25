@@ -23,13 +23,22 @@ from common.identity import (
     LIFECYCLE_HUMAN,
     LIFECYCLE_PLATFORM,
     LIFECYCLE_STANDING,
+    ORCHESTRATOR_ID,
+    PLATFORM_ROLE,
 )
-from common.topology import CONSOLE_TOKEN_AUDIENCE, PLATFORM_NAMESPACE, TOKEN_AUDIENCE
+from common.topology import (
+    COMPANY_NAMESPACE,
+    CONSOLE_TOKEN_AUDIENCE,
+    PLATFORM_NAMESPACE,
+    TOKEN_AUDIENCE,
+)
 
 pytestmark = pytest.mark.anyio
 
 PLATFORM_NS = PLATFORM_NAMESPACE
-COMPANY_NS = "hello-saas"
+COMPANY = "hello-saas"
+# The company's standing conductor.
+CONDUCTOR = "pm-1"
 
 
 @pytest.fixture
@@ -51,12 +60,12 @@ class Audit:
 
 class Instances:
     def get(self, service_account: str):
-        if service_account == "implementer-1":
+        if service_account == CONDUCTOR:
             return {
-                "agent_id": "implementer-1",
-                "role": "implementer",
-                "company": COMPANY_NS,
-                "namespace": COMPANY_NS,
+                "agent_id": CONDUCTOR,
+                "role": "pm",
+                "company": COMPANY,
+                "namespace": COMPANY_NAMESPACE,
             }
         return None
 
@@ -82,7 +91,7 @@ OWNER = Principal.of(f"system:serviceaccount:{PLATFORM_NS}:human-owner")
 STRANGER = Principal.of(f"system:serviceaccount:{PLATFORM_NS}:human-stranger")
 WORKER = Principal.of(f"system:serviceaccount:{PLATFORM_NS}:orchestrator-worker")
 CONSOLE = Principal.of(f"system:serviceaccount:{PLATFORM_NS}:console")
-AGENT = Principal.of(f"system:serviceaccount:{COMPANY_NS}:implementer-1")
+AGENT = Principal.of(f"system:serviceaccount:{COMPANY_NAMESPACE}:{CONDUCTOR}")
 OIDC = Principal.of("alice@example.com")
 
 REVIEWS = {
@@ -173,16 +182,54 @@ async def test_a_workloads_token_does_not_verify_for_the_console_audience(consol
 
 
 async def test_the_gateway_maps_workloads_through_the_registry(gateway, reviewer):
+    """The orchestrator's ServiceAccount is the platform identity; a
+    standing agent's is its `agent_instances` row, namespace included."""
     worker = await gateway.authenticate("Bearer t-worker", "/mcp")
     agent = await gateway.authenticate("Bearer t-agent", "/mcp")
-    assert worker is not None and worker.lifecycle == LIFECYCLE_PLATFORM
-    assert agent is not None and agent.lifecycle == LIFECYCLE_STANDING
+    assert worker is not None
+    assert (worker.agent_id, worker.role, worker.lifecycle) == (
+        ORCHESTRATOR_ID,
+        PLATFORM_ROLE,
+        LIFECYCLE_PLATFORM,
+    )
+    assert agent is not None
+    assert (agent.agent_id, agent.role, agent.company, agent.lifecycle) == (
+        CONDUCTOR,
+        "pm",
+        COMPANY,
+        LIFECYCLE_STANDING,
+    )
+    assert agent.namespace == COMPANY_NAMESPACE
     assert set(reviewer.audiences) == {TOKEN_AUDIENCE}
 
 
 async def test_a_human_is_refused_at_the_gateway(gateway, audit):
     assert await gateway.authenticate("Bearer t-owner-at-gateway", "/mcp") is None
     assert audit.rules == [("authn_unknown_service_account", OWNER.username)]
+    assert audit.events[0].decision == "deny"
+
+
+class Unreachable:
+    """A TokenReview that never answers: the API server is down, or the
+    verifier lost its way to it."""
+
+    async def review(self, token: str, audience: str) -> Principal | None:
+        raise ConnectionError("kube-apiserver unreachable")
+
+
+async def test_an_unreachable_token_review_refuses_the_caller(settings, audit, reviewer):
+    """When TokenReview cannot answer, the token is refused and audited as
+    `authn_review_unavailable`: an API server that is down never widens
+    who the verifier trusts. The same token verifies once it answers."""
+    down = Authenticator(
+        settings, audit, Instances(), Participants(), reviewer=Unreachable()
+    )
+    assert await down.authenticate("Bearer t-agent", "/mcp") is None
+    assert audit.rules == [("authn_review_unavailable", "unknown")]
+    assert audit.events[0].decision == "deny"
+
+    up = Authenticator(settings, audit, Instances(), Participants(), reviewer=reviewer)
+    assert await up.authenticate("Bearer t-agent", "/mcp") is not None
 
 
 async def test_an_identity_providers_user_is_refused_at_the_gateway(gateway, audit):
@@ -193,7 +240,7 @@ async def test_an_identity_providers_user_is_refused_at_the_gateway(gateway, aud
 
 class Companies:
     def applied(self) -> str | None:
-        return "hello-saas"
+        return COMPANY
 
 
 async def test_the_console_reads_as_the_console_at_the_mcp_gateway_only(
@@ -212,7 +259,7 @@ async def test_the_console_reads_as_the_console_at_the_mcp_gateway_only(
         "console",
         "console",
         LIFECYCLE_CONSOLE,
-        "hello-saas",
+        COMPANY,
     )
     assert await gateway.authenticate("Bearer t-console", "/chat") is None
     assert audit.rules == [("authn_unknown_service_account", CONSOLE.username)]

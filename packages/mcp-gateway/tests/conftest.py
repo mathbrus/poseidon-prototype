@@ -3,10 +3,10 @@ GitHub API behind one httpx.MockTransport, the real MCP app served over an
 in-process ASGI transport, and a local bare git repo standing in for
 TARGET_REPO (real git subprocesses, no network).
 
-The OPA stub mirrors the *compiled* policy shape:
-per-company and platform decision paths, role rules keyed on
-lifecycle+company+role, run binding read from the enriched input — and the
-test tokens resolve through a fake TokenReview (workload identity)."""
+The callers are the ones a cluster has: the platform identity, the
+console, the standing conductor `pm-1`, and the run's ephemeral agents,
+bound to `RUN_ID` under the conductor the way the orchestrator binds them.
+Their tokens resolve through a fake TokenReview (workload identity)."""
 
 import base64
 import json
@@ -21,8 +21,23 @@ import pytest
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
+from blueprint.tools import (
+    ARCHITECTURE_REQUEST,
+    GIT_CLOSE_PR,
+    ISSUES_CLOSE,
+    ISSUES_DISMISS,
+    REPO_PURGE,
+    RUN_SCOPED,
+    SANDBOX_TOOLS,
+)
 from common.authn import Principal, ServiceAccount
-from common.topology import CONSOLE_SERVICE_ACCOUNT, PLATFORM_NAMESPACE
+from common.policy import DEFAULT_DENY, PLATFORM_DECISION_PATH, company_decision_path
+from common.topology import (
+    COMPANY_NAMESPACE,
+    CONSOLE_SERVICE_ACCOUNT,
+    ORCHESTRATOR_SERVICE_ACCOUNT,
+    PLATFORM_NAMESPACE,
+)
 from mcp_gateway.app import create_app
 from mcp_gateway.config import McpGatewaySettings
 from mcp_gateway.git_backend import GITHUB_API_URL
@@ -52,24 +67,75 @@ BRANCH_PATTERN = r"^feature/[a-z0-9-]+$"
 FEATURE_BRANCH_RE = re.compile(BRANCH_PATTERN)
 
 COMPANY = "hello-saas"
-COMPANY_NS = "hello-saas"
-PLATFORM_NS = PLATFORM_NAMESPACE
-AGENT_ID = "implementer-1"
-COMPANY_DECISION = "/v1/data/poseidon/authz/hello_saas/decision"
-PLATFORM_DECISION = "/v1/data/poseidon/platform/decision"
+RUN_ID = "run-01TESTULID"
+# The standing agent every run's ephemeral agents are spawned under.
+CONDUCTOR = "pm-1"
+DELIVERY_CREW = "feature-delivery"
+REVIEW_CREW = "feature-review"
+COMPANY_DECISION = f"/v1/data/{company_decision_path(COMPANY)}"
+PLATFORM_DECISION = f"/v1/data/{PLATFORM_DECISION_PATH}"
+
+
+def ephemeral_id(crew: str, role: str, run_id: str = RUN_ID) -> str:
+    """An ephemeral agent's id, as the orchestrator derives it."""
+    return f"{crew}-{role}-{run_id}"
+
+
+def ephemeral_service_account(agent_id: str) -> str:
+    """The per-run ServiceAccount the orchestrator creates for an ephemeral
+    agent: the id lowercased, as a Kubernetes name must be."""
+    return f"ephemeral-{agent_id}".lower()[:63].rstrip("-")
+
+
+# The run's ephemeral implementer, the caller of the sandbox tools and of
+# `git.open_pr`, and its ephemeral reviewer.
+AGENT_ID = ephemeral_id(DELIVERY_CREW, "implementer")
+REVIEWER_ID = ephemeral_id(REVIEW_CREW, "reviewer")
+
+
+def bind_ephemeral(
+    participants: InMemoryRunParticipants,
+    crew: str,
+    role: str,
+    run_id: str = RUN_ID,
+    parent: str = CONDUCTOR,
+) -> str:
+    """Bind an ephemeral agent to its run the way the orchestrator does: one
+    `run_participants` row, under its parent, in the company namespace,
+    keyed by the ServiceAccount its token names. Returns the agent id."""
+    agent_id = ephemeral_id(crew, role, run_id)
+    participants.add(
+        agent_id,
+        run_id,
+        parent,
+        crew,
+        role,
+        company=COMPANY,
+        namespace=COMPANY_NAMESPACE,
+        service_account=ephemeral_service_account(agent_id),
+    )
+    return agent_id
 
 
 class FakeReviewer:
     """TokenReview double: the test tokens resolve to the same
-    ServiceAccounts the kind cluster would report."""
+    ServiceAccounts the kind cluster would report. A test adds a caller of
+    its own to `accounts`."""
 
-    accounts = {
-        AGENT_TOKEN: ServiceAccount(COMPANY_NS, AGENT_ID),
-        WORKER_TOKEN: ServiceAccount(PLATFORM_NS, "orchestrator-worker"),
-        PM_TOKEN: ServiceAccount(COMPANY_NS, "pm-1"),
-        REVIEWER_TOKEN: ServiceAccount(COMPANY_NS, "ephemeral-reviewer-01x"),
-        CONSOLE_TOKEN: ServiceAccount(PLATFORM_NS, CONSOLE_SERVICE_ACCOUNT),
-    }
+    def __init__(self) -> None:
+        self.accounts = {
+            AGENT_TOKEN: ServiceAccount(
+                COMPANY_NAMESPACE, ephemeral_service_account(AGENT_ID)
+            ),
+            WORKER_TOKEN: ServiceAccount(
+                PLATFORM_NAMESPACE, ORCHESTRATOR_SERVICE_ACCOUNT
+            ),
+            PM_TOKEN: ServiceAccount(COMPANY_NAMESPACE, CONDUCTOR),
+            REVIEWER_TOKEN: ServiceAccount(
+                COMPANY_NAMESPACE, ephemeral_service_account(REVIEWER_ID)
+            ),
+            CONSOLE_TOKEN: ServiceAccount(PLATFORM_NAMESPACE, CONSOLE_SERVICE_ACCOUNT),
+        }
 
     async def review(self, token: str, audience: str) -> Principal | None:
         account = self.accounts.get(token)
@@ -86,16 +152,45 @@ SANDBOX_RESPONSES = {
     "/bundle": {"bundle_b64": "YnVuZGxl", "base_ref": "main"},
 }
 
+# What the OPA stub lets each test caller call, by lifecycle and role.
+ALLOWED = {
+    ("platform", "platform"): {
+        "/admin/sandboxes",
+        "/admin/sandboxes.delete",
+        "repo.archive",
+        "repo.read_file",
+        "repo.present",
+        "sandbox.run_tests",
+        "git.merge_pr",
+        GIT_CLOSE_PR,
+        ISSUES_CLOSE,
+    },
+    ("console", "console"): {REPO_PURGE},
+    ("standing", "pm"): {
+        "issues.create",
+        "issues.read",
+        "issues.comment",
+        ISSUES_DISMISS,
+    },
+    ("ephemeral", "implementer"): {*SANDBOX_TOOLS, ARCHITECTURE_REQUEST, "git.open_pr"},
+    ("ephemeral", "reviewer"): {"git.read", "git.comment"},
+}
+
 
 class Backends:
     """Scriptable stand-ins for OPA, the sandbox tool server and GitHub.
 
-    The OPA stub mirrors the compiled-bundle shape (compiler/rego.py):
-    company callers query their company package (per-role rules with
-    `run_binding_verified` for run-scoped tools, the blueprint's branch and
-    path denies), the platform lifecycle queries its own package. `decide`
-    reads the *enriched* input, exactly like the real bundles. `force_allow`
-    short-circuits it for tests that need an allow despite no registration.
+    The OPA stub is not the compiled policy: it lets each test caller call
+    the few tools the tests drive (`ALLOWED`) and refuses the rest, so the
+    tests watch the gateway's own work — which decision path it asks, which
+    facts it verifies and injects into the input, how it audits and
+    explains a refusal. It reads those facts the way a compiled bundle
+    does: a run-scoped tool needs `run_binding_verified`; `git.open_pr`
+    reads the changed `paths`; `architecture.request` and `issues.dismiss`
+    read the counts and facts the gateway injects. Which role may call
+    what is proven against real bundles, in the compiler's tests.
+    `force_allow` short-circuits it for tests that need an allow despite
+    no registration.
     """
 
     def __init__(self) -> None:
@@ -105,108 +200,56 @@ class Backends:
         self.github_calls: list[tuple[str, dict, dict]] = []
         self.force_allow = False
         self.sandbox_error: int | None = None
-        self.github_error: int | None = None
 
     def decide(self, policy_input: dict, path: str) -> dict:
         if self.force_allow:
             return {"allow": True, "rule": "forced_allow"}
-        tool = policy_input["tool"]
-        args = policy_input.get("args", {})
-        if path == PLATFORM_DECISION:
-            if policy_input.get("lifecycle") != "platform":
-                return {"allow": False, "rule": "default_deny"}
-            if tool in (
-                "repo.archive",
-                "repo.read_file",
-                "repo.present",
-                "/admin/sandboxes",
-                "/admin/sandboxes.delete",
-                "sandbox.run_tests",
-                "git.merge_pr",
-                "git.close_pr",
-                "issues.close",
-            ):
-                return {"allow": True, "rule": f"platform_{tool}"}
-            return {"allow": False, "rule": "default_deny"}
-        if path != COMPANY_DECISION:
-            # An uninstalled company package: OPA answers with no result;
-            # the handler below turns this marker into that answer.
-            return {"no_result": True}
-        if policy_input.get("lifecycle") == "console":
-            # The compiled console rule: the purge of the declared
-            # repository at its base ref, and nothing else here.
-            if (
-                tool == "repo.purge"
-                and args.get("repo") == REPO
-                and args.get("base_ref") == "main"
-            ):
-                return {"allow": True, "rule": "console_repo_purge"}
-            return {"allow": False, "rule": "default_deny"}
-        if (
-            policy_input.get("lifecycle") == "standing"
-            and policy_input.get("company") == COMPANY
-            and policy_input.get("role") == "pm"
-        ):
-            if tool in (
-                "issues.create",
-                "issues.read",
-                "issues.comment",
-            ):
-                return {"allow": True, "rule": f"role_pm_{tool}"}
-            if tool == "issues.dismiss":
-                # The compiled limits, read off the enriched facts.
-                target = policy_input.get("dismiss_target")
-                if target is None or "dismissals" not in policy_input:
-                    return {"allow": False, "rule": "issues_dismiss_facts_missing"}
-                if policy_input["workflow"] != "scope" or not policy_input["run_live"]:
-                    return {"allow": False, "rule": "issues_dismiss_not_scoping"}
-                if target["bootstrap"]:
-                    return {"allow": False, "rule": "issues_dismiss_bootstrap_ticket"}
-                if target["in_flight"]:
-                    return {"allow": False, "rule": "issues_dismiss_in_flight"}
-                if policy_input["dismissals"] >= 3:
-                    return {"allow": False, "rule": "issues_dismiss_over_cap"}
-                return {"allow": True, "rule": "role_pm_issues_dismiss"}
-            return {"allow": False, "rule": "default_deny"}
-        if (
-            policy_input.get("lifecycle") == "ephemeral"
-            and policy_input.get("company") == COMPANY
-            and policy_input.get("crew_template") == "feature-review"
-            and policy_input.get("role") == "reviewer"
-        ):
-            if tool in ("git.read", "git.comment", "issues.comment"):
-                return {"allow": True, "rule": f"crew_feature_review_reviewer_{tool}"}
-            return {"allow": False, "rule": "default_deny"}
-        if (
-            policy_input.get("lifecycle") == "standing"
-            and policy_input.get("company") == COMPANY
-            and policy_input.get("role") == "implementer"
-        ):
-            if tool.startswith("sandbox.") and policy_input.get("run_binding_verified"):
-                return {"allow": True, "rule": f"role_implementer_{tool}"}
-            if tool == "architecture.request" and policy_input.get(
-                "run_binding_verified"
-            ):
-                # The compiled per-run cap, reading the enriched count
-                # exactly like the real bundle.
-                if policy_input.get("architecture_requests", 1) >= 1:
-                    return {"allow": False, "rule": "architecture_request_over_cap"}
-                return {
-                    "allow": True,
-                    "rule": f"crew_feature_delivery_implementer_{tool}",
-                }
-            if tool == "git.open_pr":
-                branch = args.get("branch", "")
-                if branch.lower() in {"main", "master"}:
-                    return {"allow": False, "rule": "git_open_pr_protected_branch"}
-                if not FEATURE_BRANCH_RE.match(branch):
-                    return {"allow": False, "rule": "git_open_pr_branch_pattern"}
-                if "paths" not in args:
-                    return {"allow": False, "rule": "git_open_pr_paths_missing"}
-                if any(p.startswith(".github/workflows/") for p in args["paths"]):
-                    return {"allow": False, "rule": "git_open_pr_denied_paths"}
-                return {"allow": True, "rule": "role_implementer_git_open_pr"}
-        return {"allow": False, "rule": "default_deny"}
+        tool, args = policy_input["tool"], policy_input["args"]
+        lifecycle, role = policy_input["lifecycle"], policy_input["role"]
+        platform = lifecycle == "platform"
+        if (path == PLATFORM_DECISION) != platform:
+            return deny(DEFAULT_DENY)
+        if tool not in ALLOWED.get((lifecycle, role), ()):
+            return deny(DEFAULT_DENY)
+        if tool in RUN_SCOPED and not policy_input["run_binding_verified"]:
+            return deny(DEFAULT_DENY)
+        refusal = self._refusal(tool, args, policy_input)
+        if refusal:
+            return deny(refusal)
+        caller = lifecycle if lifecycle == role else f"{lifecycle}_{role}"
+        return {"allow": True, "rule": f"{caller}_{tool}"}
+
+    @staticmethod
+    def _refusal(tool: str, args: dict, policy_input: dict) -> str | None:
+        """The rule that refuses an otherwise allowed call, read off its
+        arguments and the facts the gateway injected."""
+        if tool == "git.open_pr":
+            branch = args.get("branch", "")
+            if branch.lower() in {"main", "master"}:
+                return "git_open_pr_protected_branch"
+            if not FEATURE_BRANCH_RE.match(branch):
+                return "git_open_pr_branch_pattern"
+            if "paths" not in args:
+                return "git_open_pr_paths_missing"
+            if any(p.startswith(".github/workflows/") for p in args["paths"]):
+                return "git_open_pr_denied_paths"
+        if tool == ARCHITECTURE_REQUEST and policy_input["architecture_requests"] >= 1:
+            return "architecture_request_over_cap"
+        if tool == ISSUES_DISMISS:
+            target = policy_input.get("dismiss_target")
+            if target is None:
+                return "issues_dismiss_facts_missing"
+            if policy_input["workflow"] != "scope" or not policy_input["run_live"]:
+                return "issues_dismiss_not_scoping"
+            if target["bootstrap"]:
+                return "issues_dismiss_bootstrap_ticket"
+            if target["in_flight"]:
+                return "issues_dismiss_in_flight"
+            if policy_input["dismissals"] >= 3:
+                return "issues_dismiss_over_cap"
+        if tool == REPO_PURGE and (args["repo"], args["base_ref"]) != (REPO, "main"):
+            return DEFAULT_DENY
+        return None
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         if request.url.host == "opa.test":
@@ -215,8 +258,6 @@ class Backends:
                 self.policy_inputs.append(policy_input)
                 self.decision_paths.append(request.url.path)
                 decision = self.decide(policy_input, request.url.path)
-                if decision.get("no_result"):
-                    return httpx.Response(200, json={})
                 return httpx.Response(200, json={"result": decision})
             # Any other path: no document there (matches real OPA).
             return httpx.Response(200, json={})
@@ -227,8 +268,6 @@ class Backends:
             self.sandbox_calls.append((path, json.loads(request.content)))
             return httpx.Response(200, json=SANDBOX_RESPONSES[path])
         if request.url.host == urlsplit(GITHUB_API_URL).hostname:
-            if self.github_error is not None:
-                return httpx.Response(self.github_error, json={"message": "github boom"})
             payload = json.loads(request.content) if request.content else {}
             self.github_calls.append((request.url.path, payload, dict(request.headers)))
             return self._github(request, payload)
@@ -353,6 +392,10 @@ class Backends:
         return httpx.Response(404, json={"message": f"unstubbed {method} {path}"})
 
 
+def deny(rule: str) -> dict:
+    return {"allow": False, "rule": rule}
+
+
 @pytest.fixture
 def anyio_backend():
     return "asyncio"
@@ -381,29 +424,20 @@ def settings() -> McpGatewaySettings:
 
 @pytest.fixture
 def instances() -> InMemoryAgentInstances:
-    """The registry rows workload identity maps ServiceAccounts through —
-    seeded with the standing agents the test tokens resolve to."""
+    """The `agent_instances` rows standing ServiceAccounts map through: the
+    conductor."""
     store = InMemoryAgentInstances()
-    store.upsert(
-        AGENT_ID,
-        COMPANY,
-        "implementer",
-        "implementer",
-        namespace=COMPANY_NS,
-    )
-    store.upsert(
-        "pm-1",
-        COMPANY,
-        "pm",
-        "pm",
-        namespace=COMPANY_NS,
-    )
+    store.upsert(CONDUCTOR, COMPANY, CONDUCTOR, "pm", namespace=COMPANY_NAMESPACE)
     return store
 
 
 @pytest.fixture
 def participants() -> InMemoryRunParticipants:
-    return InMemoryRunParticipants()
+    """The `run_participants` rows ephemeral ServiceAccounts map through:
+    the run's implementer, bound to `RUN_ID` under the conductor."""
+    store = InMemoryRunParticipants()
+    bind_ephemeral(store, DELIVERY_CREW, "implementer")
+    return store
 
 
 @pytest.fixture
@@ -422,7 +456,7 @@ def companies() -> InMemoryCompanies:
     store.upsert(
         COMPANY,
         {
-            "namespace": COMPANY_NS,
+            "namespace": COMPANY_NAMESPACE,
             "repo": {"url": REPO, "base_ref": "main"},
             "documents": {
                 "strategy": "docs/STRATEGY.md",
@@ -444,6 +478,11 @@ def companies() -> InMemoryCompanies:
 
 
 @pytest.fixture
+def reviewer() -> FakeReviewer:
+    return FakeReviewer()
+
+
+@pytest.fixture
 async def app(
     settings: McpGatewaySettings,
     backends: Backends,
@@ -453,6 +492,7 @@ async def app(
     companies: InMemoryCompanies,
     filed: InMemoryFiledTickets,
     runs: InMemoryRuns,
+    reviewer: FakeReviewer,
 ):
     stub_client = httpx.AsyncClient(transport=httpx.MockTransport(backends.handler))
     application = create_app(
@@ -465,7 +505,7 @@ async def app(
         runs=runs,
         companies=companies,
         filed=filed,
-        token_reviewer=FakeReviewer(),
+        token_reviewer=reviewer,
     )
     async with application.state.fastmcp.session_manager.run():
         yield application
@@ -492,14 +532,16 @@ async def mcp_session(app, token: str):
                 yield session
 
 
-async def register_sandbox(app, run_id: str, token: str = WORKER_TOKEN) -> httpx.Response:
+async def register_sandbox(
+    app, run_id: str, token: str = WORKER_TOKEN, namespace: str = COMPANY_NAMESPACE
+) -> httpx.Response:
     """Register a run's sandbox exactly as the orchestrator does — namespace
     included, because the registration's namespace is what a standing
     caller's run binding is verified against."""
     async with http_client(app, token) as client:
         return await client.post(
             "/admin/sandboxes",
-            json={"run_id": run_id, "url": SANDBOX_URL, "namespace": COMPANY_NS},
+            json={"run_id": run_id, "url": SANDBOX_URL, "namespace": namespace},
         )
 
 

@@ -15,6 +15,7 @@ from conftest import (
     BRANCH_PATTERN,
     GIT_TOKEN,
     PR_URL,
+    RUN_ID,
     WORKER_TOKEN,
     audit_events,
     git,
@@ -26,8 +27,6 @@ from common.repos import repo_slug
 from common.topology import PLATFORM_NAMESPACE
 
 pytestmark = pytest.mark.anyio
-
-RUN_ID = "run-01TESTULID"
 
 
 def tool_payload(result) -> dict:
@@ -220,19 +219,6 @@ async def test_read_pr_answers_the_base_branchs_tip(app, backends):
     assert backends.github_calls[-1][0].endswith("/git/ref/heads/main")
 
 
-async def test_agent_token_cannot_archive(app, target_repo, audit):
-    async with mcp_session(app, AGENT_TOKEN) as session:
-        result = await session.call_tool(
-            "repo.archive",
-            {"run_id": RUN_ID, "repo": str(target_repo), "ref": "main"},
-        )
-
-    assert result.isError
-    assert "default_deny" in result.content[0].text
-    event = audit_events(audit)[-1]
-    assert event["tool"] == "repo.archive" and event["decision"] == "deny"
-
-
 # --- git.open_pr: happy path ----------------------------------------------------
 
 
@@ -268,7 +254,7 @@ async def test_feature_branch_pr_is_pushed_and_opened(
     event = audit_events(audit)[-1]
     assert event["tool"] == "git.open_pr" and event["run_id"] == RUN_ID
     assert event["decision"] == "allow"
-    assert event["rule"] == "role_implementer_git_open_pr"
+    assert event["rule"] == "ephemeral_implementer_git.open_pr"
     assert event["backend_status"] == "ok"
 
 
