@@ -15,15 +15,17 @@ import httpx
 import pytest
 from conftest import (
     AGENT_ID,
+    AGENT_TOKEN,
     COMPANY,
     CONDUCTOR,
     DELIVERY_CREW,
+    PM_TOKEN,
     RUN_ID,
     ephemeral_id,
     ephemeral_service_account,
 )
 
-from common.authn import Authenticator, Principal, ServiceAccount
+from common.authn import Authenticator, ServiceAccount
 from common.topology import COMPANY_NAMESPACE, TOKEN_AUDIENCE
 from registry.memory import InMemoryAuditStore
 
@@ -35,39 +37,24 @@ CREW_SA = ephemeral_service_account(AGENT_ID)
 UNBOUND_SA = ephemeral_service_account(
     ephemeral_id(DELIVERY_CREW, "implementer", "run-01OTHER")
 )
-
-
-class FakeReviewer:
-    """Scriptable TokenReview: token -> ServiceAccount, recording calls."""
-
-    def __init__(self, accounts: dict[str, ServiceAccount]) -> None:
-        self.accounts = accounts
-        self.calls: list[tuple[str, str]] = []
-
-    async def review(self, token: str, audience: str) -> Principal | None:
-        self.calls.append((token, audience))
-        if audience != AUD:
-            return None
-        account = self.accounts.get(token)
-        return None if account is None else Principal(account.username, account)
+CONDUCTOR_BEARER = f"Bearer {PM_TOKEN}"
+CREW_BEARER = f"Bearer {AGENT_TOKEN}"
 
 
 @pytest.fixture
-def tokenreview() -> FakeReviewer:
-    return FakeReviewer(
+def authenticator(settings, audit, instances, participants, reviewer):
+    """The gateway's authenticator over the conftest's registry rows: the
+    conductor and the run's ephemeral implementer, plus the tokens of
+    callers no row maps — same-named ServiceAccounts in another namespace,
+    and another run's implementer."""
+    reviewer.accounts.update(
         {
-            "sa-conductor": ServiceAccount(COMPANY_NAMESPACE, CONDUCTOR),
             "sa-impostor": ServiceAccount("evil-ns", CONDUCTOR),
-            "sa-crew": ServiceAccount(COMPANY_NAMESPACE, CREW_SA),
             "sa-crew-impostor": ServiceAccount("evil-ns", CREW_SA),
             "sa-unbound-crew": ServiceAccount(COMPANY_NAMESPACE, UNBOUND_SA),
         }
     )
-
-
-@pytest.fixture
-def authenticator(settings, audit, instances, participants, tokenreview):
-    return Authenticator(settings, audit, instances, participants, reviewer=tokenreview)
+    return Authenticator(settings, audit, instances, participants, reviewer=reviewer)
 
 
 def rules(audit: InMemoryAuditStore) -> list[str]:
@@ -80,7 +67,7 @@ def rules(audit: InMemoryAuditStore) -> list[str]:
 async def test_same_sa_name_in_another_namespace_is_rejected(authenticator, audit):
     """The anti-impersonation contract: a token from the wrong namespace is refused
     even when the ServiceAccount name matches a real instance."""
-    assert await authenticator.authenticate("Bearer sa-conductor", "/mcp") is not None
+    assert await authenticator.authenticate(CONDUCTOR_BEARER, "/mcp") is not None
     assert await authenticator.authenticate("Bearer sa-impostor", "/mcp") is None
     assert rules(audit) == ["authn_namespace_mismatch"]
 
@@ -93,15 +80,15 @@ async def test_missing_credential_is_401_but_not_audited(authenticator, audit):
     assert audit.events == []
 
 
-async def test_token_review_is_cached(authenticator, tokenreview):
+async def test_token_review_is_cached(authenticator, reviewer):
     for _ in range(3):
-        assert await authenticator.authenticate("Bearer sa-crew", "/mcp")
-    assert len(tokenreview.calls) == 1
+        assert await authenticator.authenticate(CREW_BEARER, "/mcp")
+    assert reviewer.reviews == 1
 
 
 async def test_no_reviewer_fails_closed(settings, audit, instances, participants):
     lone = Authenticator(settings, audit, instances, participants, reviewer=None)
-    assert await lone.authenticate("Bearer sa-crew", "/mcp") is None
+    assert await lone.authenticate(CREW_BEARER, "/mcp") is None
     assert rules(audit) == ["authn_unknown_token"]
 
 
@@ -109,7 +96,7 @@ async def test_no_reviewer_fails_closed(settings, audit, instances, participants
 
 
 async def test_crew_sa_with_live_row_is_accepted(authenticator):
-    identity = await authenticator.authenticate("Bearer sa-crew", "/mcp")
+    identity = await authenticator.authenticate(CREW_BEARER, "/mcp")
     assert identity is not None
     assert identity.lifecycle == "ephemeral"
     # The row is the whole identity: the canonical agent_id (the SA name
@@ -135,10 +122,10 @@ async def test_row_termination_revokes_before_ttl(authenticator, participants, a
     """The revocation-before-expiry guarantee, cache-shaped: the token is
     still valid and its TokenReview still cached, but the registry row is
     re-read on every call — terminating it kills the identity now."""
-    assert await authenticator.authenticate("Bearer sa-crew", "/mcp") is not None
+    assert await authenticator.authenticate(CREW_BEARER, "/mcp") is not None
 
     participants.terminate(AGENT_ID)
-    assert await authenticator.authenticate("Bearer sa-crew", "/mcp") is None
+    assert await authenticator.authenticate(CREW_BEARER, "/mcp") is None
     assert rules(audit) == ["authn_unknown_service_account"]
 
 
@@ -154,9 +141,9 @@ async def test_standing_row_deletion_revokes_despite_a_warm_cache(
 ):
     """The cache proves token->SA only; firing a standing agent (its
     instance row deleted) bites on the very next call."""
-    assert await authenticator.authenticate("Bearer sa-conductor", "/mcp") is not None
+    assert await authenticator.authenticate(CONDUCTOR_BEARER, "/mcp") is not None
     instances.delete(CONDUCTOR)
-    assert await authenticator.authenticate("Bearer sa-conductor", "/mcp") is None
+    assert await authenticator.authenticate(CONDUCTOR_BEARER, "/mcp") is None
     assert rules(audit) == ["authn_unknown_service_account"]
 
 

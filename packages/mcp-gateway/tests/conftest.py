@@ -31,7 +31,12 @@ from blueprint.tools import (
     SANDBOX_TOOLS,
 )
 from common.authn import Principal, ServiceAccount
-from common.policy import DEFAULT_DENY, PLATFORM_DECISION_PATH, company_decision_path
+from common.policy import (
+    DEFAULT_DENY,
+    PLATFORM_DECISION_PATH,
+    company_decision_path,
+    rego_slug,
+)
 from common.topology import (
     COMPANY_NAMESPACE,
     CONSOLE_SERVICE_ACCOUNT,
@@ -119,10 +124,11 @@ def bind_ephemeral(
 
 class FakeReviewer:
     """TokenReview double: the test tokens resolve to the same
-    ServiceAccounts the kind cluster would report. A test adds a caller of
-    its own to `accounts`."""
+    ServiceAccounts the kind cluster would report, and every review is
+    counted. A test adds a caller of its own to `accounts`."""
 
     def __init__(self) -> None:
+        self.reviews = 0
         self.accounts = {
             AGENT_TOKEN: ServiceAccount(
                 COMPANY_NAMESPACE, ephemeral_service_account(AGENT_ID)
@@ -138,6 +144,7 @@ class FakeReviewer:
         }
 
     async def review(self, token: str, audience: str) -> Principal | None:
+        self.reviews += 1
         account = self.accounts.get(token)
         return None if account is None else Principal(account.username, account)
 
@@ -152,45 +159,56 @@ SANDBOX_RESPONSES = {
     "/bundle": {"bundle_b64": "YnVuZGxl", "base_ref": "main"},
 }
 
-# What the OPA stub lets each test caller call, by lifecycle and role.
+# What the OPA stub lets each test caller call, keyed like the compiled
+# rules on lifecycle, crew and role, and the prefix of the rule that
+# allows it: the compiled bundle's names for hello-saas.
 ALLOWED = {
-    ("platform", "platform"): {
-        "/admin/sandboxes",
-        "/admin/sandboxes.delete",
-        "repo.archive",
-        "repo.read_file",
-        "repo.present",
-        "sandbox.run_tests",
-        "git.merge_pr",
-        GIT_CLOSE_PR,
-        ISSUES_CLOSE,
-    },
-    ("console", "console"): {REPO_PURGE},
-    ("standing", "pm"): {
-        "issues.create",
-        "issues.read",
-        "issues.comment",
-        ISSUES_DISMISS,
-    },
-    ("ephemeral", "implementer"): {*SANDBOX_TOOLS, ARCHITECTURE_REQUEST, "git.open_pr"},
-    ("ephemeral", "reviewer"): {"git.read", "git.comment"},
+    ("platform", "", "platform"): (
+        "platform",
+        {
+            "/admin/sandboxes",
+            "/admin/sandboxes.delete",
+            "repo.archive",
+            "repo.read_file",
+            "repo.present",
+            "sandbox.run_tests",
+            "git.merge_pr",
+            GIT_CLOSE_PR,
+            ISSUES_CLOSE,
+        },
+    ),
+    ("console", "", "console"): ("console", {REPO_PURGE}),
+    ("standing", "", "pm"): (
+        "role_pm",
+        {"issues.create", "issues.read", "issues.comment", ISSUES_DISMISS},
+    ),
+    ("ephemeral", DELIVERY_CREW, "implementer"): (
+        "crew_feature_delivery_implementer",
+        {*SANDBOX_TOOLS, ARCHITECTURE_REQUEST, "git.open_pr"},
+    ),
+    ("ephemeral", REVIEW_CREW, "reviewer"): (
+        "crew_feature_review_reviewer",
+        {"git.read", "git.comment"},
+    ),
 }
 
 
 class Backends:
     """Scriptable stand-ins for OPA, the sandbox tool server and GitHub.
 
-    The OPA stub is not the compiled policy: it lets each test caller call
+    The OPA stub is not the compiled bundle. It lets each test caller call
     the few tools the tests drive (`ALLOWED`) and refuses the rest, so the
     tests watch the gateway's own work — which decision path it asks, which
     facts it verifies and injects into the input, how it audits and
-    explains a refusal. It reads those facts the way a compiled bundle
-    does: a run-scoped tool needs `run_binding_verified`; `git.open_pr`
-    reads the changed `paths`; `architecture.request` and `issues.dismiss`
-    read the counts and facts the gateway injects. Which role may call
-    what is proven against real bundles, in the compiler's tests.
-    `force_allow` short-circuits it for tests that need an allow despite
-    no registration.
+    explains a refusal. Where a fact decides, it decides as the compiled
+    bundle does: a company caller's run-scoped tool needs
+    `run_binding_verified` and the platform's rules ask for none;
+    `git.open_pr` reads the changed `paths`; `architecture.request` and
+    `issues.dismiss` read the counts and facts the gateway injects. The
+    rules it answers with carry the compiled names, so an audit row reads
+    as on a cluster. Which role may call what is proven against real
+    bundles, in the compiler's tests. `force_allow` short-circuits it for
+    tests that need an allow despite a call the stub would refuse.
     """
 
     def __init__(self) -> None:
@@ -205,19 +223,24 @@ class Backends:
         if self.force_allow:
             return {"allow": True, "rule": "forced_allow"}
         tool, args = policy_input["tool"], policy_input["args"]
-        lifecycle, role = policy_input["lifecycle"], policy_input["role"]
+        lifecycle = policy_input["lifecycle"]
         platform = lifecycle == "platform"
         if (path == PLATFORM_DECISION) != platform:
             return deny(DEFAULT_DENY)
-        if tool not in ALLOWED.get((lifecycle, role), ()):
+        caller = (lifecycle, policy_input.get("crew_template", ""), policy_input["role"])
+        prefix, tools = ALLOWED.get(caller, ("", set()))
+        if tool not in tools:
             return deny(DEFAULT_DENY)
-        if tool in RUN_SCOPED and not policy_input["run_binding_verified"]:
+        if (
+            not platform
+            and tool in RUN_SCOPED
+            and not policy_input["run_binding_verified"]
+        ):
             return deny(DEFAULT_DENY)
         refusal = self._refusal(tool, args, policy_input)
         if refusal:
             return deny(refusal)
-        caller = lifecycle if lifecycle == role else f"{lifecycle}_{role}"
-        return {"allow": True, "rule": f"{caller}_{tool}"}
+        return {"allow": True, "rule": f"{prefix}_{rego_slug(tool)}"}
 
     @staticmethod
     def _refusal(tool: str, args: dict, policy_input: dict) -> str | None:
@@ -427,7 +450,7 @@ def instances() -> InMemoryAgentInstances:
     """The `agent_instances` rows standing ServiceAccounts map through: the
     conductor."""
     store = InMemoryAgentInstances()
-    store.upsert(CONDUCTOR, COMPANY, CONDUCTOR, "pm", namespace=COMPANY_NAMESPACE)
+    store.upsert(CONDUCTOR, COMPANY, "pm", "pm", namespace=COMPANY_NAMESPACE)
     return store
 
 

@@ -31,8 +31,6 @@ from common.topology import COMPANY_NAMESPACE
 pytestmark = pytest.mark.anyio
 
 SHA256_HEX = re.compile(r"^[0-9a-f]{64}$")
-# The implementer's rule for a tool, as the OPA stub names its allows.
-IMPLEMENTER_RULE = "ephemeral_implementer_{}"
 
 
 def tool_payload(result) -> dict:
@@ -111,7 +109,7 @@ async def test_bound_agent_call_is_proxied_to_sandbox(app, backends, audit):
     assert event["lifecycle"] == "ephemeral" and event["parent_agent_id"] == CONDUCTOR
     assert event["run_id"] == RUN_ID
     assert event["decision"] == "allow"
-    assert event["rule"] == IMPLEMENTER_RULE.format("sandbox.read_file")
+    assert event["rule"] == "crew_feature_delivery_implementer_sandbox_read_file"
     assert event["backend_status"] == "ok"
     assert SHA256_HEX.match(event["args_digest"])
 
@@ -264,7 +262,7 @@ async def test_a_standing_agent_is_bound_only_to_a_run_in_its_own_namespace(
     namespace is verified, the same claim from a standing agent living in
     another namespace is not."""
     await register_sandbox(app, RUN_ID)
-    instances.upsert("pm-elsewhere", COMPANY, "pm-elsewhere", "pm", namespace="elsewhere")
+    instances.upsert("pm-elsewhere", COMPANY, "pm", "pm", namespace="elsewhere")
     reviewer.accounts["elsewhere-secret"] = ServiceAccount("elsewhere", "pm-elsewhere")
 
     verified = {}
@@ -279,12 +277,16 @@ async def test_a_standing_agent_is_bound_only_to_a_run_in_its_own_namespace(
 
 async def test_terminated_registration_is_a_stale_binding(app, backends, audit):
     """The platform's binding to a run is the run's live registration: the
-    verify call allowed while it lives is denied once it is terminated —
-    revocation via the registry row."""
+    gateway verifies it while the registration lives, and not once it is
+    terminated. The compiled platform rule asks for no binding, so the
+    platform's verify call on a terminated registration passes policy and
+    fails at the backend: nothing reaches a sandbox, and the row records an
+    allowed call whose backend failed."""
     await register_sandbox(app, RUN_ID)
     async with mcp_session(app, WORKER_TOKEN) as session:
         live = await session.call_tool("sandbox.run_tests", {"run_id": RUN_ID})
         assert not live.isError, live.content
+        assert backends.policy_inputs[-1]["run_binding_verified"] is True
 
         async with http_client(app, WORKER_TOKEN) as client:
             resp = await client.request(
@@ -293,10 +295,15 @@ async def test_terminated_registration_is_a_stale_binding(app, backends, audit):
             assert resp.status_code == 200
 
         stale = await session.call_tool("sandbox.run_tests", {"run_id": RUN_ID})
-    assert stale.isError
-    assert "denied by policy rule: default_deny" in stale.content[0].text
     assert backends.policy_inputs[-1]["run_binding_verified"] is False
+    assert stale.isError
+    assert f"no sandbox registered for run_id {RUN_ID!r}" in stale.content[0].text
     assert [route for route, _ in backends.sandbox_calls] == ["/tests"]
+    event = audit_events(audit)[-1]
+    assert (event["tool"], event["run_id"]) == ("sandbox.run_tests", RUN_ID)
+    assert event["decision"] == "allow"
+    assert event["rule"] == "platform_sandbox_run_tests"
+    assert event["backend_status"] == "error"
 
 
 # --- backend failures --------------------------------------------------------

@@ -80,7 +80,7 @@ async def test_platform_archives_repo_stripped_of_remotes(
 
     event = audit_events(audit)[-1]
     assert event["tool"] == "repo.archive" and event["role"] == "platform"
-    assert event["decision"] == "allow" and event["rule"] == "platform_repo.archive"
+    assert event["decision"] == "allow" and event["rule"] == "platform_repo_archive"
     assert event["backend_status"] == "ok"
     # Attributable like every other step — the run's story has no hole at
     # the workspace fetch.
@@ -254,7 +254,7 @@ async def test_feature_branch_pr_is_pushed_and_opened(
     event = audit_events(audit)[-1]
     assert event["tool"] == "git.open_pr" and event["run_id"] == RUN_ID
     assert event["decision"] == "allow"
-    assert event["rule"] == "ephemeral_implementer_git.open_pr"
+    assert event["rule"] == "crew_feature_delivery_implementer_git_open_pr"
     assert event["backend_status"] == "ok"
 
 

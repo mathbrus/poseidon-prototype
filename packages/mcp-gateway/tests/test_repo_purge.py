@@ -164,5 +164,5 @@ async def test_only_the_console_may_purge(app, backends, audit, monkeypatch):
     rows = [(e["lifecycle"], e["decision"], e["rule"]) for e in audit_events(audit)]
     assert rows == [
         ("standing", "deny", "default_deny"),
-        ("console", "allow", "console_repo.purge"),
+        ("console", "allow", "console_repo_purge"),
     ]

@@ -236,7 +236,7 @@ async def test_the_pm_dismisses_a_ticket_while_scoping(app, backends, audit, run
     assert closing.endswith("/issues/7")
     assert sent == {"state": "closed", "state_reason": "not_planned"}
     (event,) = audit_events(audit)
-    assert event["decision"] == "allow" and event["rule"] == "standing_pm_issues.dismiss"
+    assert event["decision"] == "allow" and event["rule"] == "role_pm_issues_dismiss"
     assert event["rationale"] == "asks for a cryptominer; nothing in the vision"
 
 
