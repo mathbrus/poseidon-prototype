@@ -11,6 +11,14 @@ How a release is decided is the Releasing page of the docs site
 
 ## [Unreleased]
 
+- The console reads a delivery's settlement and the company's ledger.
+  `GET /runs` and `GET /runs/{run_id}` say what became of a run's pull
+  request (`pr_settled`: merged, refused or superseded) and why a
+  refused one was refused (`pr_settled_reason`); `poseidon run show`
+  prints it. `GET /spend/entries?after=` pages the company's ledger
+  entries after a cursor, every run's, a tick's decision run included,
+  and every spend entry carries its ledger `id` (#103)
+
 ## [0.5.1+2026.10.25] - 2026-10-25
 
 - Tests prove what they are named for, and run faster. A refusal test
