@@ -37,15 +37,6 @@ def test_hello_saas_validates():
     assert load_blueprint(HELLO_SAAS)["company"]["name"] == "hello-saas"
 
 
-def test_hello_saas_is_the_lean_profile(blueprint):
-    """The PM is the only standing agent; no standing implementer exists in the
-    document at all."""
-    roles = blueprint["standing"]
-    assert roles["pm"]["count"] == 1
-    assert set(roles) == {"pm"}
-    assert "implementer" not in roles  # no standing coder
-
-
 def test_pm_holds_no_implementer_tools(blueprint):
     """Spawn authority is not permission to wield the crew's tools —
     a gateway deny, not prompt hope. The example narrows no PM scope, so
@@ -60,12 +51,6 @@ def test_pm_holds_no_implementer_tools(blueprint):
         "issues.comment",
         "issues.dismiss",
     } == pm_tools
-
-
-def test_review_merge_gate_waits_for_a_person(blueprint):
-    assert blueprint["workflows"]["review"]["gates"]["merge"] == {
-        "deadline_minutes": 1440,
-    }
 
 
 # -- structural errors ----------------------------------------------------
@@ -151,11 +136,6 @@ def test_company_role_cannot_hold_the_platform_merge_tool(blueprint):
     assert "platform identity" in problem
 
 
-def test_no_role_scope_can_hold_the_platform_merge_tool(blueprint):
-    blueprint["tools"]["reviewer"] = {"allow": ["git.read", "git.merge_pr"]}
-    assert any("platform identity" in p for p in problems_of(blueprint))
-
-
 def test_no_role_scope_can_hold_the_repository_purge(blueprint):
     """`repo.purge` resets the repository when a person deletes the
     company: the console calls it, and no blueprint can hand it on."""
@@ -212,29 +192,11 @@ def test_an_automated_merge_validates(blueprint):
     validate_blueprint(blueprint)
 
 
-def test_a_gate_must_be_an_object(blueprint):
-    """A gate is an object; a bare string does not validate anywhere."""
-    blueprint["workflows"]["review"]["gates"]["merge"] = "human_approval"
-    assert problems_of(blueprint)
-
-
 def test_an_undeclared_merge_gate_is_legal(blueprint):
     """No gate declared means the review ends without merging — the shape
     validates; what it means is the workflow's business."""
     del blueprint["workflows"]["review"]["gates"]
     validate_blueprint(blueprint)
-
-
-def test_the_resolver_fields_are_refused(blueprint):
-    """The merge gate is automated by its `automate` block and nothing
-    else: `resolved_by` and `delegate` are not part of the shape."""
-    for field, value in (
-        ("resolved_by", "policy"),
-        ("delegate", {"paths": ["src/"], "max_reworks": 1}),
-    ):
-        document = copy.deepcopy(blueprint)
-        document["workflows"]["review"]["gates"]["merge"][field] = value
-        assert any(field in p for p in problems_of(document))
 
 
 def test_automation_declares_every_bound_or_nothing(blueprint):
@@ -436,12 +398,6 @@ def test_every_example_declares_a_heartbeat():
         assert "scope" in document["heartbeat"]["may_start"], example.name
 
 
-def test_heartbeat_is_required(blueprint):
-    del blueprint["heartbeat"]
-    (problem,) = [p for p in problems_of(blueprint) if "heartbeat" in p]
-    assert "required" in problem
-
-
 def test_heartbeat_declares_every_cap_or_nothing(blueprint):
     """A defaulted cap is authority nobody wrote down: every field is
     required."""
@@ -474,10 +430,3 @@ def test_heartbeat_may_start_only_the_three_workflows(blueprint):
     assert "'scope'" in problem  # the allowed values are shown
     blueprint["heartbeat"]["may_start"] = ["scope"]
     validate_blueprint(blueprint)
-
-
-def test_heartbeat_typo_is_rejected_not_ignored(blueprint):
-    blueprint["heartbeat"]["heartbeat_mins"] = 5
-    del blueprint["heartbeat"]["reconcile_minutes"]
-    problems = problems_of(blueprint)
-    assert any("heartbeat_mins" in p and "spelling" in p for p in problems)

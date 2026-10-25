@@ -52,7 +52,7 @@ The catalog holds five roles and four crews, rendered on [Roles and crews](../..
 - Every problem is reported in one error: `tests/test_blueprint.py::test_every_problem_is_reported_together`.
 - A typo'd key is an error, never ignored: `tests/test_blueprint.py::test_typo_in_a_key_is_rejected_not_ignored`.
 - A tool scope narrows the catalog and never widens it: `tests/test_blueprint.py::test_a_tool_scope_cannot_widen_the_catalog`.
-- No role, in the catalog or a blueprint, holds a platform-only tool: `tests/test_catalog.py::test_no_role_carries_a_platform_only_tool`, `tests/test_blueprint.py::test_no_role_scope_can_hold_the_platform_merge_tool`.
+- No role, in the catalog or a blueprint, holds a platform-only tool: `tests/test_catalog.py::test_no_role_carries_a_platform_only_tool`, `tests/test_blueprint.py::test_company_role_cannot_hold_the_platform_merge_tool`.
 - Every catalog tool is a known tool: `tests/test_catalog.py::test_every_role_scope_is_a_known_tool`.
 - The implementer can deliver and the reviewer cannot: `tests/test_catalog.py::test_implementer_can_deliver_and_reviewer_cannot`.
 - `.github/`, `deny_paths` and the contract tree are never automated: `tests/test_blueprint.py::test_ci_configuration_can_never_be_automated`, `::test_a_deny_path_can_never_be_automated`, `::test_the_contract_tree_can_never_be_automated`.
