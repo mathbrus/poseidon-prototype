@@ -11,6 +11,8 @@ How a release is decided is the Releasing page of the docs site
 
 ## [Unreleased]
 
+## [0.5.1+2026.10.25] - 2026-10-25
+
 - Tests prove what they are named for, and run faster. A refusal test
   names the rule that refused and shows the rightful caller allowed; a
   spend or retry bound comes from the applied blueprint; a read of the
