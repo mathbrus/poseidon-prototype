@@ -59,11 +59,12 @@ Logging writes JSON to stdout, and also exports over OTLP when `OTEL_EXPORTER_OT
 
 - The console refuses a workload, and a gateway refuses a human. Both refusals are audited: `tests/test_authn.py::test_a_workload_is_refused_at_the_console`, `::test_a_human_is_refused_at_the_gateway`.
 - Workload mode cannot run without the registry readers: `tests/test_authn.py::test_workload_mode_needs_the_registry_readers`.
+- A TokenReview that cannot answer refuses the caller, audited: `tests/test_authn.py::test_an_unreachable_token_review_refuses_the_caller`.
 - A deleted registry row revokes the identity before the cache expires: `packages/mcp-gateway/tests/test_authn.py::test_row_termination_revokes_before_ttl`.
 - Platform event names are unique and use known sources: `tests/test_audit.py::test_platform_event_names_are_spelled_once`.
 - A rationale longer than the limit fails validation: `tests/test_audit.py::test_a_rationale_is_bounded`.
 - A company with no served bundle is denied, not an error: `tests/test_opa.py::test_evaluate_fails_closed_when_no_policy_is_served`.
-- Only `approved` and `automated` release a gate: `tests/test_workflows.py::test_only_a_human_approval_or_automation_releases`.
+- Only `approved` and `automated` release a gate: `tests/test_workflows.py::test_only_a_human_verdict_or_automation_releases`.
 - An empty suite is green only when the run is unscoped: `tests/test_verify.py::test_an_empty_suite_is_green_only_unscoped`.
 - The chart's ports and token audience equal `topology.py`: the "chart's ports and token audience" step in `.github/workflows/ci.yml`.
 - Every image runs as uid 10001, the `RUN_AS_UID` in `podsecurity.py` and the `useradd` line in the root `Dockerfile`: the "Images run as a non-root user" step in CI.

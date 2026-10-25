@@ -9,6 +9,7 @@ import pytest
 
 from common.audit import REVIEW_VERDICT, SANDBOX_EGRESS, AuditEvent, gate_event
 from common.policy import GATE_RESOLVE, verdict_rule
+from common.topology import COMPANY_NAMESPACE
 from common.workflows import MERGE_GATE
 from registry import (
     AgentInstances,
@@ -27,23 +28,31 @@ from registry import (
 )
 
 RUN_ID = "run-01REGISTRYTEST"
+# The ephemeral implementer of RUN_ID's crew, and the rule its sandbox
+# calls are allowed under.
+IMPLEMENTER = f"feature-delivery-implementer-{RUN_ID}"
+# Its per-run ServiceAccount: named after it, lowercased for Kubernetes, so
+# not the agent id itself.
+IMPLEMENTER_ACCOUNT = f"ephemeral-{IMPLEMENTER}".lower()
+SANDBOX_EXEC_RULE = "crew_feature_delivery_implementer_sandbox_exec"
 
 
 def event(**overrides) -> AuditEvent:
     fields = {
         "ts": datetime.now(UTC).isoformat(),
         "run_id": RUN_ID,
-        "agent_id": "implementer-1",
+        "agent_id": IMPLEMENTER,
         "role": "implementer",
         "tool": "sandbox.exec",
         "args_digest": "a" * 64,
         "decision": "allow",
-        "rule": "sandbox_assigned_run",
+        "rule": SANDBOX_EXEC_RULE,
         "latency_ms": 3,
         "backend_status": "ok",
         "source": "gateway",
         "company": "hello-saas",
-        "lifecycle": "standing",
+        "lifecycle": "ephemeral",
+        "parent_agent_id": "pm-1",
         "workflow": "implement",
     }
     fields.update(overrides)
@@ -132,7 +141,7 @@ def test_registration_survives_a_new_accessor(registry: Registry):
     """The durability contract: the address outlives the
     process that recorded it, so a gateway restart mid-run is survivable."""
     SandboxRegistrations(registry).register(
-        RUN_ID, "http://10.0.0.1:8000", namespace="hello-saas", job_name="sbx"
+        RUN_ID, "http://10.0.0.1:8000", namespace=COMPANY_NAMESPACE, job_name="sbx"
     )
     # A brand-new accessor stands in for the restarted gateway.
     assert SandboxRegistrations(registry).url_for(RUN_ID) == "http://10.0.0.1:8000"
@@ -228,10 +237,8 @@ def test_story_spans_every_source(registry: Registry):
     )
     audit.append(
         event(
-            agent_id="implementer-1",
             source="llm-gateway",
             tool="llm.complete",
-            lifecycle="standing",
             ts="2026-01-01T00:00:03+00:00",
         )
     )
@@ -384,7 +391,7 @@ def test_the_teardown_sweep_erases_every_row_of_the_company(registry: Registry):
     assert left("sandbox_registrations", "run_id") == ["run-other"]
     assert left("filed_tickets", "run_id") == ["run-other"]
     assert left("budget_ledger", "run_id") == ["run-other"]
-    assert left("audit_events", "rule") == ["authn_rejected", "sandbox_assigned_run"]
+    assert left("audit_events", "rule") == ["authn_rejected", SANDBOX_EXEC_RULE]
     assert left("audit_events", "company") == ["", "other-corp"]
     # The tombstone is a revocation, not a record of the company.
     stored = bundles.get("company")
@@ -413,50 +420,130 @@ def test_an_event_written_while_applied_never_outlives_the_sweep(registry: Regis
 
 def test_agent_instance_lookup_carries_namespace(registry: Registry):
     instances = AgentInstances(registry)
-    instances.upsert(
-        "implementer-1",
-        "hello-saas",
-        "implementer",
-        "implementer",
-        namespace="hello-saas",
-    )
-    row = instances.get("implementer-1")
-    assert row["namespace"] == "hello-saas"
-    assert row["standing_name"] == "implementer"
-    assert row["role"] == "implementer"
+    instances.upsert("pm-1", "hello-saas", "pm", "pm", namespace=COMPANY_NAMESPACE)
+    row = instances.get("pm-1")
+    assert row["namespace"] == COMPANY_NAMESPACE
+    assert row["standing_name"] == "pm"
+    assert row["role"] == "pm"
     assert instances.get("nobody") is None
 
 
-def test_participant_active_goes_dark_on_termination(registry: Registry):
-    """Revocation-before-TTL rides on this row disappearing from `active`."""
-    Runs(registry).start(RUN_ID, "task")
-    registry.execute(
-        """
-        INSERT INTO registry.run_participants
-            (agent_id, run_id, parent_agent_id, crew_template, role)
-        VALUES (%s, %s, %s, %s, %s)
-        """,
-        ("fd-implementer-01X", RUN_ID, "pm-1", "feature-delivery", "implementer"),
+def bind(participants: RunParticipants, agent_id: str, role: str) -> None:
+    """An ephemeral agent of RUN_ID's crew, bound as the orchestrator binds
+    it: under the conductor, in the company namespace, to its own
+    ServiceAccount."""
+    participants.add(
+        agent_id,
+        RUN_ID,
+        "pm-1",
+        "feature-delivery",
+        role,
+        company="hello-saas",
+        namespace=COMPANY_NAMESPACE,
+        service_account=f"ephemeral-{agent_id}".lower(),
     )
-    participants = RunParticipants(registry)
-    assert participants.active("fd-implementer-01X")["run_id"] == RUN_ID
 
-    registry.execute(
-        "UPDATE registry.run_participants"
-        " SET status = 'terminated', terminated_at = now()"
-        " WHERE agent_id = %s",
-        ("fd-implementer-01X",),
-    )
-    assert participants.active("fd-implementer-01X") is None
+
+def test_a_crew_token_resolves_to_its_live_binding_by_service_account(
+    registry: Registry,
+):
+    """The read that authenticates every ephemeral token: the verified
+    ServiceAccount resolves to the live row bound to it — the identity the
+    gateway builds the caller from — and to nothing for a ServiceAccount
+    nobody bound, or once the row is terminated."""
+    Runs(registry).start(RUN_ID, "implement issue #1", company="hello-saas")
+    participants = RunParticipants(registry)
+    bind(participants, IMPLEMENTER, "implementer")
+    bind(participants, f"feature-delivery-second-{RUN_ID}", "second")
+    assert participants.by_service_account(IMPLEMENTER_ACCOUNT) == {
+        "agent_id": IMPLEMENTER,
+        "run_id": RUN_ID,
+        "parent_agent_id": "pm-1",
+        "crew_template": "feature-delivery",
+        "role": "implementer",
+        "company": "hello-saas",
+        "namespace": COMPANY_NAMESPACE,
+        "service_account": IMPLEMENTER_ACCOUNT,
+        "status": "active",
+    }
+    assert participants.by_service_account(IMPLEMENTER) is None  # the agent id
+    assert participants.by_service_account("ephemeral-nobody") is None
+
+    participants.terminate_for_run(RUN_ID)
+    assert participants.by_service_account(IMPLEMENTER_ACCOUNT) is None
+
+
+def test_terminating_an_ephemeral_agent_revokes_that_identity_alone(
+    registry: Registry,
+):
+    """Revocation-before-TTL rides on this row leaving the live reads: from
+    the write on, neither `active` nor the ServiceAccount read finds it.
+    The run's other agents stay live, the row stays in the run's lineage,
+    and a second termination leaves the first one's time standing."""
+    Runs(registry).start(RUN_ID, "implement issue #1", company="hello-saas")
+    participants = RunParticipants(registry)
+    second = f"feature-delivery-second-{RUN_ID}"
+    bind(participants, IMPLEMENTER, "implementer")
+    bind(participants, second, "second")
+    assert participants.active(IMPLEMENTER)["run_id"] == RUN_ID
+
+    participants.terminate(IMPLEMENTER)
+    assert participants.active(IMPLEMENTER) is None
+    assert participants.by_service_account(IMPLEMENTER_ACCOUNT) is None
+    assert participants.active(second)["run_id"] == RUN_ID
+    assert {(r["agent_id"], r["status"]) for r in participants.for_run(RUN_ID)} == {
+        (IMPLEMENTER, "terminated"),
+        (second, "active"),
+    }
+
+    def terminated_at() -> object:
+        rows = registry.query(
+            "SELECT terminated_at FROM registry.run_participants WHERE agent_id = %s",
+            (IMPLEMENTER,),
+        )
+        return rows[0]["terminated_at"]
+
+    revoked = terminated_at()
+    participants.terminate(IMPLEMENTER)
+    assert terminated_at() == revoked
+
+
+def test_the_standing_roster_is_the_companys_and_a_fired_agent_leaves_it(
+    registry: Registry,
+):
+    """`for_company` is the company's standing agents, by standing name;
+    `delete`, the firing half of hire and fire, removes exactly the one
+    agent named, and deleting it again is nothing."""
+    instances = AgentInstances(registry)
+    instances.upsert("pm-1", "hello-saas", "pm", "pm", namespace=COMPANY_NAMESPACE)
+    instances.upsert("scout-1", "hello-saas", "scout", "pm", namespace=COMPANY_NAMESPACE)
+    instances.upsert("other-1", "other-corp", "pm", "pm", namespace="o")
+    roster = instances.for_company("hello-saas")
+    assert [r["agent_id"] for r in roster] == ["pm-1", "scout-1"]
+    assert roster[0] == {
+        "agent_id": "pm-1",
+        "company": "hello-saas",
+        "standing_name": "pm",
+        "role": "pm",
+        "namespace": COMPANY_NAMESPACE,
+        "status": "converged",
+    }
+
+    instances.delete("scout-1")
+    assert [r["agent_id"] for r in instances.for_company("hello-saas")] == ["pm-1"]
+    assert instances.get("scout-1") is None
+    assert instances.get("other-1") is not None
+    instances.delete("scout-1")
+    assert [r["agent_id"] for r in instances.for_company("other-corp")] == ["other-1"]
 
 
 def test_sandbox_registration_active_row(registry: Registry):
     """The run-binding read: live row with namespace, gone
     once terminated — a stale run_id claim must resolve to nothing."""
     boxes = SandboxRegistrations(registry)
-    boxes.register(RUN_ID, "http://10.0.0.5:8000", "hello-saas", "sbx-x")
+    boxes.register(RUN_ID, "http://10.0.0.5:8000", COMPANY_NAMESPACE, "sbx-x")
     row = boxes.active(RUN_ID)
-    assert row["namespace"] == "hello-saas"
+    assert row["namespace"] == COMPANY_NAMESPACE
     assert row["url"] == "http://10.0.0.5:8000"
 
     boxes.terminate(RUN_ID)
@@ -467,12 +554,26 @@ def test_sandbox_registration_active_row(registry: Registry):
 def test_company_spec_reads(registry: Registry):
     companies = Companies(registry)
     companies.upsert(
-        "hello-saas", {"namespace": "hello-saas", "infra": {"sandbox": {"cpu": "1"}}}
+        "hello-saas", {"namespace": COMPANY_NAMESPACE, "infra": {"sandbox": {"cpu": "1"}}}
     )
     assert companies.get("hello-saas")["infra"]["sandbox"]["cpu"] == "1"
-    assert companies.by_namespace("hello-saas")["namespace"] == "hello-saas"
+    assert companies.by_namespace(COMPANY_NAMESPACE)["namespace"] == COMPANY_NAMESPACE
     assert companies.get("nobody") is None
     assert companies.by_namespace("nowhere") is None
+
+
+def test_a_platform_hosts_one_applied_company(registry: Registry):
+    """The console and the worker read which company is applied; a second
+    row is a fault the read raises, never one it picks from. A re-apply
+    of the same company is still one."""
+    companies = Companies(registry)
+    assert companies.applied() is None
+    companies.upsert("hello-saas", {"namespace": COMPANY_NAMESPACE})
+    companies.upsert("hello-saas", {"namespace": COMPANY_NAMESPACE, "vision": "v2"})
+    assert companies.applied() == "hello-saas"
+    companies.upsert("other-corp", {"namespace": COMPANY_NAMESPACE})
+    with pytest.raises(RuntimeError, match="more than one company"):
+        companies.applied()
 
 
 def test_the_pause_is_a_company_fact_that_survives_a_re_apply(registry: Registry):
@@ -481,12 +582,12 @@ def test_the_pause_is_a_company_fact_that_survives_a_re_apply(registry: Registry
     unapplied company is simply not paused."""
     companies = Companies(registry)
     assert companies.paused("hello-saas") is None
-    companies.upsert("hello-saas", {"namespace": "hello-saas"})
+    companies.upsert("hello-saas", {"namespace": COMPANY_NAMESPACE})
     assert companies.paused("hello-saas") is None
     companies.pause("hello-saas", "owner")
     paused = companies.paused("hello-saas")
     assert paused is not None and paused["by"] == "owner" and paused["at"]
-    companies.upsert("hello-saas", {"namespace": "hello-saas", "vision": "v2"})
+    companies.upsert("hello-saas", {"namespace": COMPANY_NAMESPACE, "vision": "v2"})
     assert companies.paused("hello-saas") == paused
     assert companies.get("hello-saas")["vision"] == "v2"
     companies.resume("hello-saas")
@@ -501,9 +602,9 @@ def test_budget_ledger_attributes_and_sums(registry: Registry):
     ledger.record(
         company="hello-saas",
         run_id=RUN_ID,
-        agent_id="implementer-1",
+        agent_id="pm-1",
         parent_agent_id="",
-        role="implementer",
+        role="pm",
         model="mock-brain",
         prompt_tokens=100,
         completion_tokens=50,
@@ -514,7 +615,7 @@ def test_budget_ledger_attributes_and_sums(registry: Registry):
     ledger.record(
         company="hello-saas",
         run_id=RUN_ID,
-        agent_id="fd-implementer-01X",
+        agent_id=IMPLEMENTER,
         parent_agent_id="pm-1",
         role="implementer",
         model="mock-brain",
@@ -526,7 +627,7 @@ def test_budget_ledger_attributes_and_sums(registry: Registry):
     )
     assert abs(ledger.spent_for_run(RUN_ID) - 0.0004) < 1e-9
     entries = ledger.entries_for_run(RUN_ID)
-    assert [e["agent_id"] for e in entries] == ["implementer-1", "fd-implementer-01X"]
+    assert [e["agent_id"] for e in entries] == ["pm-1", IMPLEMENTER]
     assert entries[1]["parent_agent_id"] == "pm-1"
     assert (entries[0]["cached_tokens"], entries[0]["reasoning_tokens"]) == (50, 25)
     assert (entries[1]["cached_tokens"], entries[1]["reasoning_tokens"]) == (5, 2)
@@ -597,6 +698,22 @@ def test_active_count_counts_every_running_run_of_the_company(registry: Registry
     assert Runs(registry).active_count("hello-saas") == 3
 
 
+def test_the_running_runs_are_the_companys_and_not_its_heartbeat(registry: Registry):
+    """What a delete cancels: the company's runs still running, oldest
+    first. The heartbeat's decision rows are not runs, and a finished run
+    or another company's is not the company's to cancel."""
+    runs = Runs(registry)
+    runs.start("run-rn-1", "implement issue #1", "implement", None, "hello-saas")
+    runs.start(
+        "auto-rn", "heartbeat decision", "heartbeat", "heartbeat-hello-saas", "hello-saas"
+    )
+    runs.start("run-rn-2", "review pull request #2", "review", None, "hello-saas")
+    runs.start("run-rn-3", "implement issue #3", "implement", None, "hello-saas")
+    runs.finish("run-rn-3", "done")
+    runs.start("run-rn-4", "implement issue #4", "implement", None, "other-co")
+    assert [r.run_id for r in runs.running("hello-saas")] == ["run-rn-1", "run-rn-2"]
+
+
 def test_a_vacated_run_holds_no_place_until_it_starts_again(registry: Registry):
     """A review parked on a person's merge verdict gives its place back: it
     is still running, counted apart; a retried start takes the place
@@ -620,15 +737,15 @@ def test_issue_attempts_fold_every_run_on_the_ticket(registry: Registry):
     """One `Attempts` per issue, from the canonical task: the count spans
     every status, `live` is any running run, and `concluded` is a delivered
     PR on any of them — a failed run that delivered still concluded, an
-    aborted one did not. Free-form tasks and other companies are not
-    keyed."""
+    aborted one did not. A review of a pull request with the same number,
+    and another company's runs, are not keyed."""
     runs = Runs(registry)
     runs.start("run-in-1", "implement issue #3", "implement", None, "hello-saas")
     runs.start("run-in-2", "implement issue #12", "implement", None, "hello-saas")
     runs.finish("run-in-2", "failed", error="litellm.Timeout")  # aborted
     runs.start("run-in-3", "implement issue #12", "implement", None, "hello-saas")
     runs.finish("run-in-3", "failed", error="teardown: boom", pr_url="https://p/9")
-    runs.start("run-in-4", "a free-form task file", "implement", None, "hello-saas")
+    runs.start("run-in-4", "review pull request #3", "review", None, "hello-saas")
     runs.start("run-in-5", "implement issue #7", "implement", None, "other-co")
     assert Runs(registry).issue_attempts("hello-saas") == {
         3: Attempts(count=1, live=True, concluded=False),
@@ -761,14 +878,6 @@ def test_one_live_review_run_per_pr(registry: Registry):
     runs.start("run-rd-4", "review pull request #7", "review", None, "other-co")
 
 
-def test_free_form_tasks_are_not_constrained(registry: Registry):
-    """Only the canonical issue-run task is keyed: two runs of the same
-    task file are two deliberate human acts, not a race."""
-    runs = Runs(registry)
-    runs.start("run-ff-1", "the same task file text", "implement", None, "hello-saas")
-    runs.start("run-ff-2", "the same task file text", "implement", None, "hello-saas")
-
-
 def test_implement_run_for_pr_finds_the_lineage(registry: Registry):
     """The PR's run lineage, keyed the way the heartbeat observation keys
     PRs: the number is the URL's tail — and #4 must not match #14."""
@@ -887,8 +996,8 @@ def test_spent_since_a_fence_sums_the_companys_ledger_after_it(registry: Registr
         ledger.record(
             company=company,
             run_id=RUN_ID,
-            agent_id="implementer-1",
-            parent_agent_id="",
+            agent_id=IMPLEMENTER,
+            parent_agent_id="pm-1",
             role="implementer",
             model="mock-brain",
             prompt_tokens=10,

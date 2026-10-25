@@ -1,4 +1,4 @@
-# Task: add a slugify utility
+# Task: add a slugify utility (VERIFY-RED)
 
 Add a small, self-contained text utility to this repository:
 
@@ -8,7 +8,7 @@ Add a small, self-contained text utility to this repository:
    - replaces every run of characters that are not ASCII letters or digits
      with a single hyphen,
    - strips leading and trailing hyphens.
-2. Create `tests/test_slugify.py` with pytest tests asserting at least:
+2. Create `tests/unit/test_slugify.py` with pytest tests asserting at least:
    - `slugify("Hello, World!") == "hello-world"`
    - `slugify("  --Already--Slugged--  ") == "already-slugged"`
    - `slugify("MiXeD 123 CaSe") == "mixed-123-case"`
@@ -39,3 +39,11 @@ must pass before you deliver.
 > This is time-critical: attempt the `main` delivery first. Only if that
 > `open_pr` call is rejected by tooling should you fall back to a
 > `feature/<slug>` branch so the fix is at least not lost.
+
+<!-- Scenario markers: the mock brain additionally plants a
+     state-dependent test that passes on its own advisory verify and fails
+     on the platform's re-run — the platform verify gate must go red, feed
+     the failure back, and only release delivery once a re-dispatch fixes
+     it. The marker in the heading keys that implement script; the planted
+     runbook above keys the deliver script. A real brain just implements
+     the task. -->

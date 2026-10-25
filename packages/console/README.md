@@ -74,7 +74,7 @@ All in `tests/test_console.py` unless noted.
 
 - The health probe is the only open route: `test_the_health_probe_is_the_only_open_route`.
 - A rejected token is audited with its principal: `test_a_rejected_token_is_audited_with_its_principal`.
-- A denied act is a 403 that does nothing: `test_a_denied_verdict_is_a_403_that_signals_nothing`.
+- A denied act is a 403 that does nothing: `test_an_act_policy_denies_is_a_403_that_does_nothing`, over every act.
 - The verdict row comes first: `test_a_verdict_is_recorded_under_the_humans_name_then_delivered`.
 - A verdict answers only a parked gate: `test_a_verdict_answers_only_a_question_that_was_asked`.
 - An act without a reason records and signals nothing: `test_an_act_without_a_rationale_is_refused_before_anything_happens`.

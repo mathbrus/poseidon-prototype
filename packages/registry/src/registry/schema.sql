@@ -87,7 +87,7 @@ CREATE TABLE IF NOT EXISTS registry.runs (
     -- Learned once, never read from the git host again.
     pr_settled  text,
     -- Why a refused delivery was refused, in the platform's words: the
-    -- retry's brief carries it.
+    -- retry's task carries it.
     pr_settled_reason text,
     verdict     text,
     ticket_urls jsonb NOT NULL DEFAULT '[]'::jsonb,
@@ -100,8 +100,8 @@ CREATE TABLE IF NOT EXISTS registry.runs (
 -- key and the constraint is structural: the heartbeat, a replayed
 -- workflow and a human `poseidon start implement <n>` cannot race their way into two
 -- live runs for the same ticket — the second insert dies here, not in a
--- check-then-act. Only running issue-shaped implement runs are
--- constrained; free-form task runs and finished runs are not.
+-- check-then-act. Only running implement runs are constrained, and every
+-- implement run's task is a ticket's; finished runs are not.
 CREATE UNIQUE INDEX IF NOT EXISTS runs_one_live_issue_run
     ON registry.runs (company, task)
     WHERE status = 'running' AND workflow = 'implement'

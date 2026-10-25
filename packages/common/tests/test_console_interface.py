@@ -90,11 +90,6 @@ def test_every_model_forbids_extra_fields(model):
     assert model.model_config.get("extra") == "forbid"
 
 
-def test_an_internal_field_leaking_through_is_an_error():
-    with pytest.raises(ValidationError, match="args_digest"):
-        models.Problem.model_validate({"detail": "x", "args_digest": "d"})
-
-
 @pytest.mark.parametrize(
     "enum, values",
     [

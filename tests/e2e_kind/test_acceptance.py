@@ -9,66 +9,67 @@ What the suite proves, and where:
 
   1 declarative   test_reconciler_lifecycle (apply / edit), test_delete
                   (teardown with the failed post-teardown call, no row and
-                  no workflow history of the company left, a company
-                  applied again with no history, the repository purged);
+                  no workflow history of the company left, the repository
+                  purged, a company applied again with no history);
                   HERE: compile and preview as scripted e2e steps, and
                   compile-is-what's-live (the local compile's
                   content-addressed revision == the served one)
-  2 durable       test_happy_path (kill-worker resume),
-                  test_registry_durability, test_crew_fulfillment
-                  (worker-kill crew sweep); HERE: the killed happy-path run itself
-                  leaked no identity row, no ephemeral pod, no registration
+  2 durable       test_happy_path (kill-worker resume with the crew up,
+                  and the crew swept by the replayed compensation),
+                  test_registry_durability; HERE: the killed happy-path
+                  run's sandbox registration is terminated
   3 SDLC          test_scope + test_review_gate (the strategy scoped into
-                  a ticket, a human's `poseidon start implement <number>`, review
-                  with parked gate, escalation, API approval, platform
-                  merge); test_verify_gate (the platform's own test run, not
-                  the implementer's claim, is the gate of record);
-                  test_audit_story (one run_id reconstructs a run's whole story)
+                  a ticket, implemented, reviewed with a parked gate, a
+                  verdict through the console, platform merge — every run
+                  the heartbeat's); test_verify_gate (the platform's own
+                  test run, not the implementer's claim, is the gate of
+                  record); test_audit_story (one run_id reconstructs a
+                  run's whole story)
   4 governance    test_injection (injection vs compiled policy), test_governance,
                   test_injected_conductor, test_redteam (sandbox containment +
-                  egress), test_containment (agents reach only the gateways;
-                  the Temporal frontend is fenced from every platform pod but
-                  the worker and the console), test_sandbox_k8s (the deadline
-                  kills a runaway); HERE: all six audit sources are real in
-                  this suite execution — nothing seeded
-  5 budgets       test_budgets (refusal at the cap, API-visible park, process-gate
-                  escalation, full {run, parent, agent, role} tuple)
-  6 lean standing test_reconciler_lifecycle (exactly one AgentInstance),
-                  test_scope, test_ephemeral_identity, test_ephemeral_pods,
-                  test_workload_identity; HERE: the registry's standing agents
-                  agrees, and a live minted implementer is denied outside its
-                  compiled allow-list at the gateway
+                  egress, the deadline on every Job), test_containment
+                  (agents reach only the gateways; the Temporal frontend is
+                  fenced from every platform pod but the worker and the
+                  console); HERE: all six audit sources are real in this
+                  suite execution — nothing seeded
+  5 budgets       test_budgets (refusal at the cap, API-visible park, the
+                  person's verdict either way, full {run, parent, agent,
+                  role} tuple)
+  6 one standing  test_reconciler_lifecycle (exactly one AgentInstance),
+                  test_scope, test_ephemeral_identity (a live minted
+                  implementer is denied outside its compiled allow-list),
+                  test_ephemeral_pods, test_workload_identity; HERE: the
+                  registry's standing agents agree
   7 cluster-      by construction, not by a module: `cluster.py` reaches
     neutral       the cluster through the kubectl context and .env alone,
                   and the kind-specific piece is deploy/kind/kind-up.sh.
-  8 unattended    test_heartbeat_redteam (an attacker-filed issue consumed by
-                  the heartbeat dies at the gates; a review that dies
-                  without a verdict is retried once under max_attempts,
-                  then its PR refused and its ticket delivered again,
-                  until the ticket's attempts are spent and it closes as
-                  not planned), test_injected_conductor
-                  (a poisoned strategy cannot route work to a crew outside
-                  may_spawn nor exfiltrate) and test_overnight (the whole
-                  arc — scope, implement, review — with one human act: the
-                  merge approval out; nothing in).
-  9 automation    test_automated (passing work on the automated paths is
-                  scoped, implemented, reviewed and merged with no human
-                  act at all — the arc runs through the merge) and
-                  test_split_oracle_redteam (a steered reviewer smuggling
-                  a carve-out change is refused by the compiled decision,
-                  not the model).
- 10 split oracle  test_split_oracle_redteam (the implementer cannot PR the
+  8 unattended    test_heartbeat_redteam (an issue filed on the repository
+                  is consumed by the heartbeat within its cap; a PR merged
+                  by hand is never reviewed and closes its ticket; a review
+                  that dies without a verdict spends the last attempt,
+                  refuses its PR, and the ticket closes as not planned),
+                  test_injected_conductor (a poisoned strategy cannot route
+                  work to a crew outside may_spawn nor exfiltrate) and
+                  test_review_gate (the whole arc — scope, implement,
+                  review — with one human act: the merge verdict; nothing
+                  in).
+  9 automation    test_automated (the contract-first arc: passing work on
+                  the automated paths is scoped, implemented, reviewed and
+                  merged with no person — the one human act is the
+                  contract's verdict) and test_split_oracle_redteam (a
+                  steered reviewer smuggling a carve-out change is refused
+                  by the compiled decision, not the model).
+ 10 contract tree test_split_oracle_redteam (the implementer cannot PR the
                   contract tree, cannot launder a red baseline to green
                   through a committed collect-ignore, and a steered contract
                   author's gutted spec parks on a human with its deletions
-                  counted) and test_automated's contract arc (the PM files
-                  contract-then-implement, the contract PR parks for one human
-                  merge, then automated work merges on a green base-ref
-                  contract).
+                  counted) and test_automated (the PM files
+                  contract-then-implement, the contract PR parks for one
+                  human verdict, then automated work merges on a green
+                  base-ref contract).
  11 documents     test_documents (a vision-only repository bootstraps both
                   documents through the steward; an architecture request
-                  becomes a stewardship ticket the loop implements; an
-                  implementer cannot deliver into the masterplan and the
+                  becomes a stewardship ticket the platform shapes; the
                   strategy is written once, for the steward too);
                   test_scope (the strategy becomes the company's own
                   ticket; scoping is refused by name at max_open_tickets).
@@ -77,14 +78,14 @@ What the suite proves, and where:
                   cluster issued for the console's audience and refused at
                   the gateways; an agent is refused at the console; a human
                   the company did not name is refused by name; no platform
-                  identity can mint a human's token) and
-                  test_console_redteam (a merge signal delivered straight to
-                  the workflow engine, past the console, releases nothing —
-                  the run fails on `merge_resolve_no_human_verdict` and the
-                  PR is refused, never merged — while the same verdict through the console
-                  merges and names the person); test_review_gate (the release
-                  read the recorded verdict); HERE: the console's rows are
-                  among the six sources.
+                  identity can mint a human's token), test_console_redteam
+                  (a merge signal delivered straight to the workflow
+                  engine, past the console, releases nothing — the run
+                  fails on `merge_resolve_no_human_verdict` and the PR is
+                  refused, never merged) and test_review_gate (the same
+                  verdict through the console merges, names the person,
+                  and the release read the recorded verdict); HERE: the
+                  console's rows are among the six sources.
  13 the pause    test_pause (`poseidon pause` holds the heartbeat and
                   nothing else: a paused tick on a startable backlog starts
                   nothing and names the person, a wake leaves it paused, a
@@ -94,25 +95,25 @@ What the suite proves, and where:
                   sandbox and no place, so a one-place company implements
                   the next ticket while it waits; a person's rejection
                   refuses the delivery with their words on it and the
-                  ticket comes back to be implemented again; a moved base
-                  is verified before the merge — clean, it merges;
-                  conflicting, the delivery is refused and its ticket comes
-                  back; a moved head is refused); test_scope (the PM
+                  ticket comes back to be implemented again; a merge
+                  conflicting with a moved base is refused and its ticket
+                  comes back; a moved head is refused); test_scope (the PM
                   dismisses a planted ticket as not planned, and a
                   bootstrap ticket is refused by name);
                   test_heartbeat_redteam (an abandoned ticket closes as not
-                  planned).
+                  planned); test_split_oracle_redteam (an unanswered park
+                  escalates at half its deadline and expires).
 
 The suite's own discipline is proved too: test_brain_guard (the session
-refuses a paid brain without the explicit opt-in) and test_quiet (the exit
-contract, ordered last: only the standing heartbeat running, asleep on an
-empty backlog; no run non-terminal).
+read the brain the cluster deploys; the refusal rule itself is pinned in
+tests/test_brain_guard.py, without a cluster) and test_quiet (the exit
+contract, ordered last: only the heartbeat running, asleep on an empty
+backlog; no run non-terminal).
 
 The conftest orders this module after every module whose runs it reads:
-the five-source assertion reads what the whole suite really produced.
+the six-source assertion reads what the whole suite really produced.
 """
 
-import asyncio
 import json
 import subprocess
 
@@ -120,30 +121,21 @@ import yaml
 
 from blueprint.tools import RATIONALE_TOOLS
 from common.audit import RATIONALE_EVENTS, SOURCES
-from common.ids import new_run_id
 
 from .blueprints import (
-    HELLO_SAAS,
     bundle_revision_from_cr,
-    pristine_profile,
+    pristine_blueprint,
     suite_document,
 )
 from .cluster import (
     COMPANY,
     COMPANY_NS,
-    audit_story,
+    HELLO_SAAS,
     console,
     console_env,
-    crew_activities,
     events_since,
     kubectl,
-    mcp_call,
-    projected_token,
     psql_json,
-    registry,
-    run_kubectl,
-    sandbox_pods,
-    worker_settings,
 )
 from .conftest import REPO_ROOT
 
@@ -178,10 +170,10 @@ def test_compile_and_preview_close_the_declarative_loop(stack, env, tmp_path):
     against the live registry), an edit previews as exactly that one
     change, and a local compile produces byte-for-byte the bundle revision
     the cluster serves — compile is what's live."""
-    # Preview of the applied document — the profile the suite leaves
+    # Preview of the applied document — the blueprint the suite leaves
     # applied: a converged cluster diffs empty.
     pristine = _poseidon(
-        env, "blueprint", "preview", str(suite_document(pristine_profile()))
+        env, "blueprint", "preview", str(suite_document(pristine_blueprint()))
     )
     assert pristine.returncode == 0, pristine.stderr
     assert f"{COMPANY}: no changes" in pristine.stdout, pristine.stdout
@@ -189,7 +181,7 @@ def test_compile_and_preview_close_the_declarative_loop(stack, env, tmp_path):
 
     # Preview of an edit of the applied document: exactly the edit, nothing
     # else (its repository is the company's own, which cannot change).
-    document = yaml.safe_load(suite_document(pristine_profile()).read_text())
+    document = yaml.safe_load(suite_document(pristine_blueprint()).read_text())
     assert "lead" not in document["standing"]
     document["standing"]["lead"] = {
         "role": "pm",
@@ -221,13 +213,13 @@ def test_compile_and_preview_close_the_declarative_loop(stack, env, tmp_path):
     # Compile-is-what's-live: the revision is a content digest (registry
     # `pack`), so equality here means the served policy is exactly what
     # this working tree's compiler emits from the document the suite
-    # leaves applied — the pristine profile, the example on the suite's
+    # leaves applied — the pristine blueprint, the example on the suite's
     # repository and clock with review off the loop's own initiative.
     from blueprint import load_blueprint
     from compiler import compile_blueprint
     from registry import pack
 
-    plan = compile_blueprint(load_blueprint(suite_document(pristine_profile())))
+    plan = compile_blueprint(load_blueprint(suite_document(pristine_blueprint())))
     _, revision = pack(dict(plan.bundle.files))
     assert revision == bundle_revision_from_cr(), (
         "the cluster serves a bundle this blueprint + compiler do not produce"
@@ -237,30 +229,12 @@ def test_compile_and_preview_close_the_declarative_loop(stack, env, tmp_path):
 # -- 2 durable: the killed run's own leak check ------------------------------
 
 
-def test_the_killed_run_left_nothing_behind(implement_run: dict) -> None:
-    """The happy-path fixture kills the worker mid-run; earlier modules
-    assert the *sandbox*
-    leaked nothing and prove the crew sweep on a separate run. Here the
-    clause is closed on the killed run itself: its participant rows
-    are terminated, its ephemeral pod is gone, its sandbox registration is
-    terminated — no leaked sandbox, identity, or participant row."""
+def test_the_killed_run_left_no_sandbox_registration(implement_run: dict) -> None:
+    """The happy-path fixture kills the worker mid-run; test_happy_path
+    shows its crew and its pods swept. Here the clause is closed on what
+    the run registered: its sandbox registration is terminated, so the
+    gateway serves the run nothing."""
     run_id = implement_run["run_id"]
-
-    participants = psql_json(
-        "SELECT COALESCE(json_agg(p), '[]'::json) FROM ("
-        "SELECT agent_id, status, terminated_at"
-        " FROM registry.run_participants WHERE run_id = :'run_id') p",
-        run_id=run_id,
-    )
-    assert participants, "the crewed run minted no participants at all"
-    for row in participants:
-        assert row["status"] == "terminated", f"leaked participant: {row}"
-        assert row["terminated_at"], f"terminated without a timestamp: {row}"
-
-    # No live pod of any kind still carries the run's label (sandbox Jobs
-    # and ephemeral pods both do).
-    assert sandbox_pods(run_id) == [], "a labelled pod outlived the run"
-
     registrations = psql_json(
         "SELECT COALESCE(json_agg(r), '[]'::json) FROM ("
         "SELECT run_id, terminated_at FROM registry.sandbox_registrations"
@@ -272,10 +246,10 @@ def test_the_killed_run_left_nothing_behind(implement_run: dict) -> None:
         assert row["terminated_at"], f"leaked sandbox registration: {row}"
 
 
-# -- 6 lean standing: the standing agents, from the registry's point of view --------------
+# -- 6 one standing agent, from the registry's point of view -----------------
 
 
-def test_the_registry_roster_is_the_lean_blueprint(stack) -> None:
+def test_the_registry_roster_is_the_blueprints_one_standing_agent(stack) -> None:
     """`exactly one standing AgentInstance` is asserted against the CRs in
     test_reconciler_lifecycle; the registry — which is what gateway authn
     enriches from — must agree, and must still agree at the end of the
@@ -288,7 +262,7 @@ def test_the_registry_roster_is_the_lean_blueprint(stack) -> None:
     )
     assert [(r["agent_id"], r["role"], r["namespace"]) for r in rows] == [
         ("pm-1", "pm", COMPANY_NS)
-    ], f"the registry's standing agents are not the lean blueprint's: {rows}"
+    ], f"the registry's standing agents are not the blueprint's: {rows}"
     # The console reads the same roster, the conductor marked.
     agents = console().agents().agents
     assert [(a.agent_id, a.standing_name, a.role, a.conductor) for a in agents] == [
@@ -308,124 +282,10 @@ def test_the_registry_roster_is_the_lean_blueprint(stack) -> None:
     assert instances == ["pm"], instances
 
 
-def test_live_implementer_cannot_exceed_its_compiled_allowlist(
-    stack, env: dict, tmp_path
-) -> None:
-    """Criterion 6's last clause, live: a *real bound* implementer — its own
-    per-run ServiceAccount, a projected token, an identity row, full
-    pipeline — is denied the tools outside its compiled allow-list at the
-    gateway (deny by rule, audited), while its in-scope surface still
-    answers. test_crew_fulfillment proves the same mid-run on a live
-    implementer; this is the bound-identity proof in isolation."""
-    from registry import Runs
-
-    run_id = new_run_id()
-    repo = env.get("TARGET_REPO", "github.com/example/repo")
-
-    with registry() as db:
-        crew = crew_activities(db, worker_settings(env, tmp_path))
-        Runs(db).start(run_id, "implementer scope check", "implement", None, COMPANY)
-        sa_name = None
-        try:
-            bound = asyncio.run(
-                crew.bind_participant(
-                    {
-                        "run_id": run_id,
-                        "company": COMPANY,
-                        "crew_template": "feature-delivery",
-                        "role": "implementer",
-                        "parent_agent_id": "pm-1",
-                    }
-                )
-            )
-            sa_name = bound["service_account"]
-            kubectl("-n", COMPANY_NS, "create", "serviceaccount", sa_name)
-            token = projected_token(COMPANY_NS, sa_name)
-
-            # Positive control: the implementer's in-scope surface answers
-            # (policy allow; the backend errors because no sandbox exists —
-            # a denied *identity* would never reach the backend).
-            control = mcp_call(
-                env, token, "sandbox.list_dir", {"run_id": run_id, "path": "."}
-            )
-            assert control.isError
-            assert "denied by policy" not in control.content[0].text
-            assert "no sandbox registered" in control.content[0].text
-
-            # Out of scope: PM-only and platform-only tools, denied by rule.
-            for tool, args in (
-                (
-                    "issues.create",
-                    {
-                        "run_id": run_id,
-                        "repo": repo,
-                        "title": "x",
-                        "body": "y",
-                        "rationale": "red-team: probing the allowlist",
-                    },
-                ),
-                (
-                    "git.merge_pr",
-                    {"run_id": run_id, "repo": repo, "number": 1, "sha": "0" * 40},
-                ),
-                # The implementer never grades its own homework: closing a
-                # ticket or a pull request is the platform's alone.
-                (
-                    "issues.close",
-                    {
-                        "run_id": run_id,
-                        "repo": repo,
-                        "number": 1,
-                        "reason": "completed",
-                        "rationale": "red-team: closing my own ticket",
-                    },
-                ),
-                (
-                    "git.close_pr",
-                    {
-                        "run_id": run_id,
-                        "repo": repo,
-                        "number": 1,
-                        "delete_branch": False,
-                        "rationale": "red-team: closing a rival pull request",
-                    },
-                ),
-            ):
-                denied = mcp_call(env, token, tool, args)
-                assert denied.isError, f"{tool} was not refused"
-                assert "default_deny" in denied.content[0].text, (
-                    f"{tool}: {denied.content[0].text}"
-                )
-
-            # Every deny is a first-class audit event under the bound
-            # identity — gateway deny, not prompt hope, reconstructable.
-            denies = {
-                e["tool"]
-                for e in audit_story(run_id)
-                if e["source"] == "gateway"
-                and e["decision"] == "deny"
-                and e["agent_id"] == bound["agent_id"]
-            }
-            assert {
-                "issues.create",
-                "git.merge_pr",
-                "issues.close",
-                "git.close_pr",
-            } <= denies, denies
-        finally:
-            asyncio.run(crew.revoke_participants(run_id))
-            if sa_name:
-                run_kubectl("-n", COMPANY_NS, "delete", "serviceaccount", sa_name)
-            db.execute(
-                "DELETE FROM registry.run_participants WHERE run_id = %s", (run_id,)
-            )
-            db.execute("DELETE FROM registry.runs WHERE run_id = %s", (run_id,))
-
-
 # -- 4 governance: every audit source, real, in this suite execution ---------
 
 
-def test_all_five_audit_sources_are_real_in_this_suite(
+def test_all_six_audit_sources_are_real_in_this_suite(
     stack, db_session_start: str
 ) -> None:
     """Criterion 4's audit clause with no seeding anywhere: within this
@@ -433,7 +293,8 @@ def test_all_five_audit_sources_are_real_in_this_suite(
     real producers wrote every source in the closed audit-source vocabulary —
     gateway tool decisions, llm-gateway metering/cap refusals, sandbox-infra
     egress denies, process-gate escalations/verdicts, process-lifecycle
-    mint/revoke — and each source correlates to runs by run_id.
+    mint/revoke, console acts — and each source correlates to runs by
+    run_id.
 
     Runs alone against a fresh cluster this fails by design: it reads what
     the whole suite produced. Run the full acceptance suite."""

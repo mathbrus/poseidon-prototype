@@ -58,7 +58,7 @@ BRAIN=$(kubectl -n "$PLATFORM_NS" get deployment/llm-proxy \
   -o 'jsonpath={.spec.template.spec.containers[0].image}' 2>/dev/null || true)
 PROBLEM=$(uv run python -c '
 import sys
-from tests.e2e_kind.conftest import paid_brain_problem
+from tests.brain_guard import paid_brain_problem
 print(paid_brain_problem(sys.argv[1], sys.argv[2] or None) or "")
 ' "$BRAIN" "${POSEIDON_ALLOW_PAID:-}")
 if [ -n "$PROBLEM" ]; then

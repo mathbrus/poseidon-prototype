@@ -128,8 +128,8 @@ def contract_deletions(
 
 def contract_edit_comment(deletions: dict[str, int]) -> str:
     """The human-facing warning, posted on the PR by the platform: the
-    merge signal's reader sees what the oracle edit removes before they
-    approve it."""
+    person giving the merge verdict sees what the contract edit removes
+    before they approve it."""
     return (
         "**Contract tree edited.** This pull request changes the "
         "contract/acceptance tests automated merges are graded by, so it "
@@ -154,7 +154,7 @@ def rework_body(
     attempt: int,
     review_run_id: str,
 ) -> str:
-    """The ticket is the rework implementer's whole brief — the implement
+    """The ticket is the rework implementer's whole task — the implement
     crew reads tickets, not PRs — so it carries the failure, the findings,
     and the changed surface."""
     changed = "\n".join(f"- {p}" for p in paths) or "(none recorded)"
@@ -433,9 +433,8 @@ class ReviewActivities:
         failing PR's implement run consumed. The rework bound must follow
         the *chain*, not the single PR: every rework delivers a fresh PR,
         so a per-PR count would reset to zero each round and the loop
-        would never terminate. A PR outside any chain (fresh work, an
-        unattributable PR, a free-form ticket) is depth 0 with itself as
-        root.
+        would never terminate. A PR outside any chain (fresh work, or a
+        PR no implement run delivered) is depth 0 with itself as root.
 
         Read from the *consumed* ticket, not from any freely-filed one, so
         a standalone ticket forging a low depth changes nothing (proven in
@@ -514,9 +513,9 @@ class ReviewActivities:
         deletions: dict[str, int],
         workflow_id: str,
     ) -> None:
-        """The oracle-edit surfacing, both channels at once: a platform
-        comment on the PR (what the human reads before resolving the merge
-        signal) and a `review.contract_edit` audit event carrying the same
+        """The contract-edit surfacing, both channels at once: a platform
+        comment on the PR (what the human reads before giving the merge
+        verdict) and a `review.contract_edit` audit event carrying the same
         counts — a gutted spec must be impossible to approve silently."""
         async with GatewayClient(
             self._settings.mcp_gateway_url, self._settings.gateway_token()

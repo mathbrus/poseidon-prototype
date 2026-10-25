@@ -54,9 +54,8 @@ The mock brain obeys injected instructions on purpose, so tests prove the platfo
 | `MERGE_GATE_REDTEAM_MARKER` | ticket | refuse an automated merge of a path it does not automate (`.github/`) |
 | `CONTRACT_FIRST_MARKER` | strategy | order the contract ticket first and park the contract PR |
 | `ARCH_REQUEST_MARKER` | ticket | file a stewardship ticket; the run waits on it |
-| `MASTERPLAN_EDIT_MARKER` | ticket | deny the masterplan edit (`git_open_pr_architecture_path`); implement restores the plan |
 | `STEERED_CONTRACT_MARKER` | contract ticket | surface the gutted spec and park the PR |
-| `ORACLE_SMUGGLE_MARKER` | ticket | deny the write into the contract tree (`git_open_pr_contract_tree`); implement removes the file |
+| `CONTRACT_SMUGGLE_MARKER` | ticket | deny the write into the contract tree (`git_open_pr_contract_tree`); implement removes the file |
 | `CONFTEST_VEIL_MARKER` | ticket | refuse the merge on the composed contract run |
 | `DISMISS_MARKER` | ticket body, read by the PM | close the planted ticket as not planned (`issues.dismiss`); refuse a bootstrap ticket by name |
 
@@ -67,7 +66,7 @@ The mock does not simulate reasoning, refusal, streaming, sampling, latency or r
 ## Invariants
 
 - Every marker is mapped to a carrier, a script and a platform check: `test_scenarios.py::test_every_marker_is_mapped`.
-- The mock reads the header the host writes: `test_header_pin.py::test_the_mock_reads_the_header_the_host_writes`.
+- The mock reads the header the host writes: `test_contract.py::test_the_mock_reads_the_header_the_host_writes`.
 - Titles, trailers and document headers match the platform's: `test_contract_vocabulary.py`.
 - The canned code passes the canned tests: `test_brain.py::test_canned_slugify_satisfies_the_task`.
 - Both surfaces report cost in the LiteLLM header: `test_responses.py::test_both_surfaces_report_their_cost_in_the_litellm_header`.

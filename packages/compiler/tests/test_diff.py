@@ -1,5 +1,5 @@
-"""Preview: standing_name, fire and reorg are blueprint diffs, and you can read them
-before they converge."""
+"""Preview: hiring and firing a standing agent are blueprint diffs, and you
+can read them before they converge."""
 
 from compiler import (
     EMPTY,
@@ -52,11 +52,13 @@ def test_a_small_edit_shows_a_minimal_diff(blueprint):
 
 
 def test_the_firing_diff_is_a_deletion(blueprint):
-    """Firing a standing agent is a blueprint edit — the live demo of
-    fire-as-diff: the standing agents the blueprint no longer names is deleted."""
-    snapshot = live(("pm", "pm"), ("implementer", "implementer"))
+    """Firing a standing agent is a blueprint edit: a live hire the
+    blueprint no longer names is deleted, and nothing else changes."""
+    snapshot = live(("pm", "pm"), ("lead", "pm"))
     diff = diff_plan(compile_blueprint(blueprint, snapshot=snapshot), snapshot)
-    assert [(c.agent_id, c.action) for c in diff.changes] == [("implementer-1", "delete")]
+    assert [(c.agent_id, c.action, c.details) for c in diff.changes] == [
+        ("lead-1", "delete", ("no longer hired",))
+    ]
 
 
 def test_existing_agent_ids_are_preserved(blueprint):

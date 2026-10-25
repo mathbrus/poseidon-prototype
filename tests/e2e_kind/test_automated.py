@@ -1,16 +1,15 @@
 """The automated capstone: the company delivers its own work — merge and
-all — with zero human acts.
+all — with one human act, and that act is the contract's.
 
-The overnight capstone (`test_overnight`) proved the company runs its own
-slice to the human merge gate: one human act, the approval out. An
-automated merge gate removes that act for the paths it automates, so the
-whole arc has *no* human act at all.
-
-Everything is the standing heartbeat's: it scopes the slice the strategy
-names, implements the ticket (a PR appears), reviews the delivered PR, and
-— because the change is in the automated paths, the independent review
-passed, and the platform's own checks are green — merges it. No approval,
-no signal, no command. The autonomy runs through the merge.
+Everything is the heartbeat's: it scopes the slice the strategy names into
+an ordered pair of tickets — the contract first, the implementation second
+— implements each (a PR appears), reviews each delivered PR, and merges.
+The contract PR edits the contract tree, so no automation may merge it: it
+parks for a person, whose verdict is the arc's one human act. The
+implementation then merges with no person at all — the change is in the
+automated paths, the independent review passed, the head suite and the
+contract tree as it stands on `main` are both green — under the compiled
+`merge.resolve` decision. The autonomy runs through the merge.
 
 What the platform still refuses is proven where it is exact and cheap, not
 by paying for more unattended cluster runs here:
@@ -27,42 +26,41 @@ reviewer holds a shell in its sandbox, so the platform verifies the head
 before any reviewer holds it. A red pull request carrying the tampering
 reviewer's marker files rework with no reviewer dispatched at all.
 
-So this capstone pins the one thing only a full unattended cluster run can
-show: passing work on the automated paths reaches `main` with no human
-anywhere.
-
 The conftest orders this module after the other capstones, so its runs
 are added last. Applies `examples/hello-saas-automated.yaml` (automated
-merge) for the module and restores the pristine profile after.
+merge) for the module and restores the pristine blueprint after.
 """
 
 import re
 import secrets
+from collections import Counter
 
 import pytest
 import yaml
 
 from common.audit import LIFECYCLE_FULFILL, REVIEW_VERDICT
-from common.policy import HEARTBEAT_START, MERGE_RESOLVE
+from common.policy import GATE_RESOLVE, HEARTBEAT_WAKE, MERGE_RESOLVE
 from common.tasks import review_run_task
 from mock_brain.brain import (
     CONTRACT_FIRST_MARKER,
     CONTRACT_TEST_PATH,
-    NEXT_SLICE_MARKER,
     TAMPERING_REVIEW_MARKER,
 )
 
-from .blueprints import AUTOMATED, may_start, restore_pristine
+from .blueprints import may_start, restore_pristine
 from .cluster import (
+    AUTOMATED,
     audit_story,
     await_run,
-    bare_heartbeat_id,
     console,
+    db_now,
+    human_acts_since,
     participants,
+    per_run_cap,
     run_spend,
 )
 from .conftest import (
-    apply_profile,
+    apply_and_settle,
     assert_merge_closed_tickets,
     close_issue,
     close_pr,
@@ -77,7 +75,6 @@ from .conftest import (
     run_ticket,
     scope_via_heartbeat,
     target_slug,
-    wake_until_run_started,
 )
 
 
@@ -109,163 +106,41 @@ def _implement(number: int) -> dict:
     return implement
 
 
-@pytest.fixture(scope="module")
-def automated_overnight(stack: None, baseline_env: dict) -> dict:
-    """Nothing in, nothing out: let the company scope, implement, review,
-    and MERGE its own PR on the automated paths with no command. Hand back
-    every artifact for the assertions.
-
-    Depends on the session `baseline_env`: the automated blueprint declares
-    `contract_tests`, so the unattended merge needs the contract tree on the
-    base ref — without it the composed verify is red and the arc reworks
-    instead of merging."""
-    env = baseline_env
-    apply_profile(AUTOMATED, env)
-    nonce = secrets.token_hex(3)
-    result: dict = {"env": env, "heartbeat_id": bare_heartbeat_id()}
-    try:
-        scope, titles = _scope_tickets(env, open_slice_strategy(nonce, NEXT_SLICE_MARKER))
-        result["scope"] = scope
-        (issue_number,) = titles
-        result["issue_number"] = issue_number
-        implement = _implement(issue_number)
-        result["implement"] = implement
-        number = pr_number(implement["pr_url"])
-        assert number is not None, f"not a PR url: {implement['pr_url']!r}"
-        result["pr_number"] = number
-        # The implement's finishing nudge wakes the heartbeat onto the
-        # delivered PR; it reviews it and — automated paths, review passed,
-        # checks green — MERGES it. No human signal is sent.
-        wake_until_run_started(review_run_task(number), "review")
-        result["review"] = await_run(review_run_task(number), terminal=True)
-        result["merged_pr"] = github_api(
-            env, "GET", f"/repos/{target_slug(env)}/pulls/{number}"
+def _pr_files(env: dict, number: int) -> list[str]:
+    return [
+        f["filename"]
+        for f in github_api(
+            env, "GET", f"/repos/{target_slug(env)}/pulls/{number}/files"
         ).json()
-        result["merged_files"] = [
-            f["filename"]
-            for f in github_api(
-                env, "GET", f"/repos/{target_slug(env)}/pulls/{number}/files"
-            ).json()
-        ]
-        yield result
-    finally:
-        close_issue(env, result.get("issue_number"))
-        close_pr(env, result.get("pr_number") or 0)
-        restore_strategy(env)
-        restore_pristine()
-
-
-def test_the_company_scoped_implemented_and_reviewed_unattended(
-    automated_overnight: dict,
-):
-    """All three runs are the heartbeat's — auto-minted run ids, no human
-    command started any of them."""
-    for key in ("scope", "implement", "review"):
-        assert automated_overnight[key]["run_id"].startswith("auto-"), key
-    assert automated_overnight["review"]["workflow"] == "review"
-
-
-def test_the_automated_pr_merged_with_no_human_act(automated_overnight: dict):
-    """The headline: the PR is merged on GitHub, and no human ever touched
-    anything. The review run finished done and the PR is merged."""
-    assert automated_overnight["review"]["status"] == "done", automated_overnight[
-        "review"
     ]
-    assert automated_overnight["merged_pr"]["merged"] is True, (
-        "the automated PR did not merge unattended"
-    )
 
 
-def test_the_merged_work_fell_in_the_automated_paths(automated_overnight: dict):
-    """The implementer put the slice where the bounds said a merge is
-    automated: every file of the merged PR is under one of the blueprint's
-    `automate.paths` — the paths the bounds named, not a guess."""
-    gate = yaml.safe_load(AUTOMATED.read_text())["workflows"]["review"]["gates"]["merge"]
-    automated = gate["automate"]["paths"]
-    files = automated_overnight["merged_files"]
-    assert files, "the merged PR changed no files"
-    outside = [f for f in files if not any(f.startswith(p) for p in automated)]
-    assert outside == [], f"merged files outside the automated paths: {outside}"
-
-
-def test_the_merge_was_automated_not_released_by_a_human(automated_overnight: dict):
-    """The merge was released by the compiled decision, not a human gate.
-    The review's story carries an `automated` gate outcome and a
-    merge.resolve allow — and NO human gate_approved event."""
-    story = audit_story(automated_overnight["review"]["run_id"])
-    gate_rules = gate_merge_rules(story)
-    assert "gate_automated" in gate_rules, gate_rules
-    assert "gate_approved" not in gate_rules, "a human approval sneaked in"
-    resolves = [e for e in story if e["tool"] == MERGE_RESOLVE]
-    assert resolves and resolves[-1]["decision"] == "allow", resolves
-    assert resolves[-1]["rule"] == "merge_resolve_automated"
-    assert any(e["tool"] == "git.merge_pr" for e in story), "no merge tool call"
-
-
-def test_the_automated_merge_closed_the_ticket(automated_overnight: dict):
-    """A merge no human released still closes what it fulfilled: the
-    scoped ticket is closed by the platform after the merge."""
-    assert_merge_closed_tickets(
-        automated_overnight["env"],
-        audit_story(automated_overnight["review"]["run_id"]),
-        automated_overnight["pr_number"],
-        [automated_overnight["issue_number"]],
-    )
-
-
-def test_both_quality_layers_were_recorded(automated_overnight: dict):
-    """The merge did not skip the layers: the reviewer's verdict was
-    journaled (allow) and the platform's own decision saw the real facts —
-    the run_id ties findings, verdict, checks and merge into one story."""
-    story = audit_story(automated_overnight["review"]["run_id"])
-    verdicts = [e for e in story if e["tool"] == REVIEW_VERDICT]
-    assert verdicts and verdicts[-1]["decision"] == "allow", verdicts
-    assert any(e["tool"] == HEARTBEAT_START and e["decision"] == "allow" for e in story)
-
-
-def test_automated_arc_had_no_human_act(automated_overnight: dict):
-    """The claim, as an invariant: every run ran under an auto- id, the
-    merge happened, and it was automated — never released by a human
-    gate signal."""
-    story = audit_story(automated_overnight["review"]["run_id"])
-    assert any(e["tool"] == "git.merge_pr" for e in story), "no merge happened"
-    assert not any(
-        e["source"] == "process-gate" and e["rule"] == "gate_approved" for e in story
-    ), "the merge was released by a human, not automated"
-
-
-# --- the contract-first arc: the split oracle's capstone --------------------
-#
-# The automated arc above proves automated work merges unattended. This proves
-# the shape the split oracle adds: the company writes the *spec* first, under
-# different hands and different authority, and only then implements against
-# it. The whole arc has exactly one human act — the merge of the contract PR
-# — and everything else is the platform's. The heartbeat sequences it: the
-# PM files contract-then-implement in one scope run, the loop implements
-# the lower-numbered contract ticket first, its review parks for the human,
-# and `max_concurrent_runs: 1` holds the implementation until that review
-# is over: a park whose pull request edits the contract tree keeps its
-# place, where any other park gives it back.
+# The heartbeat sequences the arc: the PM files contract-then-implement in
+# one scope run, the loop implements the lower-numbered contract ticket
+# first, its review parks for the human, and `max_concurrent_runs: 1` holds
+# the implementation until that review is over: a park whose pull request
+# edits the contract tree keeps its place, where any other park gives it
+# back.
 
 
 @pytest.fixture(scope="module")
 def contract_first(stack: None, baseline_env: dict) -> dict:
-    """One contract merge out, nothing else. Reset `main` to the
-    pre-contract state, let the strategy name a contract-first slice, and
-    let the platform run the whole arc: the PM files the ordered pair, the
+    """One verdict out, nothing else. Reset `main` to the pre-contract
+    state, let the strategy name a contract-first slice, and let the
+    platform run the whole arc: the PM files the ordered pair, the
     contract crew authors the spec, its PR parks for the single human
-    merge, and then the implementation auto-merges on a green base-ref
-    contract — no other command."""
+    verdict, and then the implementation merges on a green base-ref
+    contract with no person at all."""
     env = baseline_env
-    apply_profile(AUTOMATED, env)
+    apply_and_settle(AUTOMATED, env)
     # The declared deviation from the session baseline: the tree is declared
     # by the blueprint but deleted from `main`, so an implementation cannot
     # merge until the spec lands — which is the whole point of sequencing
     # the contract first. The arc itself puts the tree back (the one human
-    # merge), so the module exits at baseline.
+    # verdict), so the module exits at baseline.
     delete_repo_file(env, CONTRACT_TEST_PATH, "capstone: reset to pre-contract state")
     nonce = secrets.token_hex(3)
-    result: dict = {"env": env}
+    result: dict = {"env": env, "since": db_now()}
     numbers: list[int] = []
     try:
         scope, titles = _scope_tickets(
@@ -276,6 +151,7 @@ def contract_first(stack: None, baseline_env: dict) -> dict:
         numbers = list(titles)
         contract_issue = next(n for n, t in titles.items() if t.startswith("Contract:"))
         implement_issue = next(n for n, t in titles.items() if t.startswith("Implement:"))
+        result["implement_issue"] = implement_issue
 
         # --- the contract run: author the spec, one human merges it --------
         contract_impl = _implement(contract_issue)
@@ -297,12 +173,16 @@ def contract_first(stack: None, baseline_env: dict) -> dict:
         result["implement_review_run_id"] = i_review_run
         result["implement_review"] = i_review
 
+        # The arc is over: every act a person made during it, counted now,
+        # before the module's teardown applies anything.
+        result["human_acts"] = human_acts_since(result["since"])
         result["contract_merged"] = github_api(
             env, "GET", f"/repos/{target_slug(env)}/pulls/{contract_pr}"
         ).json()
         result["implement_merged"] = github_api(
             env, "GET", f"/repos/{target_slug(env)}/pulls/{impl_pr}"
         ).json()
+        result["implement_files"] = _pr_files(env, impl_pr)
         yield result
     finally:
         for issue in numbers:
@@ -312,6 +192,19 @@ def contract_first(stack: None, baseline_env: dict) -> dict:
                 close_pr(env, pr)
         restore_strategy(env)
         restore_pristine()
+
+
+def test_every_run_of_the_arc_was_the_heartbeats(contract_first: dict):
+    """No human started anything: the scope, both implements and both
+    reviews ran under auto-minted ids."""
+    runs = {
+        "scope": contract_first["scope"]["run_id"],
+        "contract implement": contract_first["contract_implement"]["run_id"],
+        "contract review": contract_first["contract_review_run_id"],
+        "implement": contract_first["implement"]["run_id"],
+        "implement review": contract_first["implement_review_run_id"],
+    }
+    assert all(run_id.startswith("auto-") for run_id in runs.values()), runs
 
 
 def test_the_pm_filed_contract_then_implement(contract_first: dict):
@@ -329,18 +222,18 @@ def test_the_pm_filed_contract_then_implement(contract_first: dict):
 
 
 def test_the_contract_was_authored_by_the_contract_crew(contract_first: dict):
-    """The spec came from different hands: the authoring run's participants
-    are the contract-authoring crew, a template the delivery crew does not
-    contain — positional independence, not a promise."""
+    """The spec came from different hands: the authoring run's ephemeral
+    agents are the contract-authoring crew, whose role the delivery crew
+    does not hold — positional independence, not a promise."""
     run_id = contract_first["contract_implement"]["run_id"]
     crews = {p.crew for p in participants(run_id)}
     assert crews == {"contract-authoring"}, crews
 
 
-def test_the_contract_pr_needed_the_one_human_merge(contract_first: dict):
+def test_the_contract_pr_needed_the_one_human_verdict(contract_first: dict):
     """Positional containment at merge: the contract PR is never an
-    automated merge, so it parked and the human's approval is what merged it —
-    the spec changes under a person's hand, by construction."""
+    automated merge, so it parked and the person's verdict is what merged
+    it — the spec changes under a person's hand, by construction."""
     story = audit_story(contract_first["contract_review_run_id"])
     rules = gate_merge_rules(story)
     assert "gate_automation_declined" in rules, rules
@@ -351,7 +244,9 @@ def test_the_contract_pr_needed_the_one_human_merge(contract_first: dict):
     )
 
 
-def test_the_implementation_auto_merged_on_a_green_contract(contract_first: dict):
+def test_the_implementation_merged_on_a_green_contract_with_no_person(
+    contract_first: dict,
+):
     """The payoff: with the spec now on `main`, the implementation merged
     with no human command — the compiled decision released it, and the
     base-ref contract run against the head is what made it safe."""
@@ -363,32 +258,85 @@ def test_the_implementation_auto_merged_on_a_green_contract(contract_first: dict
     )
     gate_rules = gate_merge_rules(story)
     assert "gate_automated" in gate_rules, gate_rules
-    assert "gate_approved" not in gate_rules, (
-        "a human approval sneaked into the implement merge"
-    )
+    assert "gate_approved" not in gate_rules, "a person's verdict sneaked in"
     resolves = [e for e in story if e["tool"] == MERGE_RESOLVE]
     assert resolves and resolves[-1]["decision"] == "allow", resolves
     assert resolves[-1]["rule"] == "merge_resolve_automated", resolves[-1]
-
-
-def test_contract_arc_had_exactly_one_human_act(contract_first: dict):
-    """The claim as an invariant: across every run, the only human act was
-    the contract merge. The implementation's merge was automated, and
-    nothing else asked for a person."""
-    impl_story = audit_story(contract_first["implement_review_run_id"])
-    assert not any(
-        e["source"] == "process-gate" and e["rule"] == "gate_approved" for e in impl_story
-    ), "the implementation was merged by a human, not automated"
-    assert any(e["tool"] == "git.merge_pr" for e in impl_story), (
-        "no unattended merge happened"
+    assert any(e["tool"] == "git.merge_pr" and e["decision"] == "allow" for e in story), (
+        "no merge tool call"
     )
 
 
+def test_the_merged_work_fell_in_the_automated_paths(contract_first: dict):
+    """The implementer put the slice where the bounds said a merge is
+    automated: every file of the merged PR is under one of the blueprint's
+    `automate.paths` — the paths the bounds named, not a guess."""
+    gate = yaml.safe_load(AUTOMATED.read_text())["workflows"]["review"]["gates"]["merge"]
+    automated = gate["automate"]["paths"]
+    files = contract_first["implement_files"]
+    assert files, "the merged PR changed no files"
+    outside = [f for f in files if not any(f.startswith(p) for p in automated)]
+    assert outside == [], f"merged files outside the automated paths: {outside}"
+
+
+def test_the_automated_merge_closed_the_ticket(contract_first: dict):
+    """A merge no person released still closes what it fulfilled: the
+    implementation's ticket is closed by the platform after the merge."""
+    assert_merge_closed_tickets(
+        contract_first["env"],
+        audit_story(contract_first["implement_review_run_id"]),
+        contract_first["implement_pr"],
+        [contract_first["implement_issue"]],
+    )
+
+
+def test_both_quality_layers_came_before_the_release(contract_first: dict):
+    """The merge skipped no layer: the platform verified the head before
+    any reviewer held it, the reviewer's verdict was journaled (a pass),
+    the contract tree as it stands on `main` was run against the head
+    after it, and only then did `merge.resolve` release the merge — one
+    run_id, in that order."""
+    story = audit_story(contract_first["implement_review_run_id"])
+    verifies = [
+        i
+        for i, e in enumerate(story)
+        if e["tool"] == "sandbox.run_tests"
+        and e["lifecycle"] == "platform"
+        and e["decision"] == "allow"
+    ]
+    verdicts = [i for i, e in enumerate(story) if e["tool"] == REVIEW_VERDICT]
+    releases = [
+        i
+        for i, e in enumerate(story)
+        if e["tool"] == MERGE_RESOLVE and e["decision"] == "allow"
+    ]
+    assert len(verifies) >= 2, "the head suite and the contract replay both run"
+    assert verdicts and story[verdicts[-1]]["decision"] == "allow", verdicts
+    assert releases, "the merge was never released"
+    assert min(verifies) < verdicts[-1] < max(verifies) < releases[-1], (
+        verifies,
+        verdicts,
+        releases,
+    )
+
+
+def test_the_arc_had_exactly_one_human_act(contract_first: dict):
+    """The claim as an invariant, counted at the console: across every run
+    of the arc a person did one thing — the contract's verdict. The rest
+    of the console's record is the harness's wakes, standing in for the
+    looks the loop would take on its own."""
+    acts = Counter(contract_first["human_acts"])
+    assert acts.pop(GATE_RESOLVE, 0) == 1, contract_first["human_acts"]
+    assert set(acts) <= {HEARTBEAT_WAKE}, contract_first["human_acts"]
+
+
 def test_the_contract_arc_stayed_within_budget(contract_first: dict):
-    """Bounded money across every run of the arc."""
+    """Bounded money across every run of the arc: each was metered, and
+    each stayed under the applied blueprint's per-run cap."""
+    cap = per_run_cap()
     for key in ("scope", "contract_implement", "implement"):
         spend = run_spend(contract_first[key]["run_id"])
-        assert 0 <= spend < 5.0, f"{key} overspent: {spend}"
+        assert 0 < spend < cap, f"{key} overspent: {spend}"
 
 
 # -- a reviewer that tampers with its sandbox moves no check ----------------
@@ -411,7 +359,7 @@ def tampered_review(stack: None, baseline_env: dict) -> dict:
     reviews the PR on its own nor implements the rework ticket the
     platform files; the module closes both."""
     env = baseline_env
-    apply_profile(may_start(AUTOMATED, "scope"), env)
+    apply_and_settle(may_start(AUTOMATED, "scope"), env)
     nonce = secrets.token_hex(3)
     result: dict = {"env": env}
     try:

@@ -5,12 +5,13 @@ Sequencing, compensation and durability are workflow concerns, proven
 live by the kind e2e suite (worker-kill included)."""
 
 import asyncio
+import socket
 from typing import Any
 
 import pytest
 
 from common.tasks import issue_run_task
-from common.topology import PLATFORM_NAMESPACE
+from common.topology import COMPANY_NAMESPACE
 from orchestrator.activities.implement import ImplementActivities
 from orchestrator.config import WorkerSettings
 from registry.memory import (
@@ -24,7 +25,7 @@ RUN_ID = "run-test-0001"
 # What an applied hello-saas blueprint records (the Company CR spec's infra
 # section) — the SandboxPolicy source.
 APPLIED_SPEC = {
-    "namespace": "hello-saas",
+    "namespace": COMPANY_NAMESPACE,
     "repo": {"url": "github.com/example/repo", "base_ref": "main"},
     "vision": "ship it",
     "infra": {
@@ -43,18 +44,18 @@ APPLIED_SPEC = {
 
 class FakeBackend:
     def __init__(self) -> None:
-        self.provisioned: list[tuple[str, SandboxPolicy]] = []
+        self.provisioned: list[tuple[str, bytes, SandboxPolicy]] = []
         self.destroyed: list[str] = []
         self.destroy_error: Exception | None = None
 
     def provision(
         self, run_id: str, workspace_tar: bytes, policy: SandboxPolicy
     ) -> SandboxHandle:
-        self.provisioned.append((run_id, policy))
+        self.provisioned.append((run_id, workspace_tar, policy))
         return SandboxHandle(
             run_id=run_id,
             url="http://192.168.0.9:8000",
-            namespace="hello-saas",
+            namespace=COMPANY_NAMESPACE,
             job_name="poseidon-sbx-run-test-0001",
             pod_name="poseidon-sbx-run-test-0001-abcde",
         )
@@ -63,24 +64,6 @@ class FakeBackend:
         if self.destroy_error is not None:
             raise self.destroy_error
         self.destroyed.append(handle.job_name)
-
-
-def settings(tmp_path) -> WorkerSettings:
-    token_file = tmp_path / "token"
-    token_file.write_text("projected-token")
-    return WorkerSettings(
-        opa_url="http://opa.test:8181",
-        platform_namespace=PLATFORM_NAMESPACE,
-        agent_image="poseidon-agent-host:abc123",
-        model="mock-brain",
-        egress_proxy_url="http://127.0.0.1:3128",
-        egress_proxy_key="egress-key",
-        timeout_profile="default",
-        temporal_address="temporal.test:7233",
-        gateway_token_file=str(token_file),
-        mcp_gateway_url="http://gateway.test:8080",
-        sandbox_image="poseidon-sandbox:abc123",
-    )
 
 
 @pytest.fixture
@@ -203,7 +186,7 @@ def test_sandbox_policy_comes_from_the_applied_blueprint(activities):
     policy = activities._sandbox_policy(RUN_ID)
     assert policy.image == "poseidon-sandbox:abc123"
     assert policy.deadline_s == 3600
-    # The declared test command, and nothing else: no proxy is configured.
+    # The sandbox runs the test command the company declared.
     assert policy.env["TEST_CMD"] == "pytest -q"
     # The per-run egress credential rides the same env, minted from the
     # worker's proxy settings.
@@ -223,28 +206,90 @@ def test_provision_without_an_applied_blueprint_fails_closed(settings, backend, 
     lone = ImplementActivities(settings, backend, runs, InMemoryCompanies())
     with pytest.raises(RuntimeError, match="no company is applied"):
         lone._sandbox_policy(RUN_ID)
-    assert backend.provisioned == []
 
 
-def test_sandbox_policy_injects_per_run_proxy_credentials(activities, settings):
-    # localhost, not a service name: the sandbox has no DNS, so the proxy
-    # host is resolved here and the env carries an address.
-    settings.egress_proxy_url = "http://localhost:3128"
+def test_provision_sandbox_provisions_under_the_policy_then_registers_it(
+    activities, backend, monkeypatch, fake_gateway
+):
+    """The sandbox is provisioned from the run's workspace under the
+    compiled policy, then registered at the gateway — its address,
+    namespace and Job — so the run's sandbox calls reach it; the handle
+    is what the workflow keeps for teardown."""
+    import orchestrator.activities.implement as module
+
+    registered: list[tuple[Any, ...]] = []
+
+    async def register_sandbox(self, run_id, url, namespace, job_name):
+        registered.append((run_id, url, namespace, job_name, len(backend.provisioned)))
+
+    monkeypatch.setattr(
+        module, "GatewayClient", fake_gateway(register_sandbox=register_sandbox)
+    )
+    handle = asyncio.run(activities.provision_sandbox(RUN_ID, b"workspace-tar"))
+
+    ((run_id, workspace_tar, policy),) = backend.provisioned
+    assert (run_id, workspace_tar) == (RUN_ID, b"workspace-tar")
+    assert policy == activities._sandbox_policy(RUN_ID)
+    # Registered after the sandbox exists, under the address it answers on.
+    assert registered == [
+        (
+            RUN_ID,
+            "http://192.168.0.9:8000",
+            COMPANY_NAMESPACE,
+            "poseidon-sbx-run-test-0001",
+            1,
+        )
+    ]
+    assert handle == {
+        "run_id": RUN_ID,
+        "url": "http://192.168.0.9:8000",
+        "namespace": COMPANY_NAMESPACE,
+        "job_name": "poseidon-sbx-run-test-0001",
+        "pod_name": "poseidon-sbx-run-test-0001-abcde",
+    }
+
+
+@pytest.fixture
+def dns(monkeypatch) -> dict[str, str]:
+    """The names the worker's resolver answers, host to address — so no
+    test asks a real one."""
+    from sandbox.egressproxy import credentials
+
+    names: dict[str, str] = {}
+
+    class Resolver:
+        @staticmethod
+        def gethostbyname(host: str) -> str:
+            if host not in names:
+                raise socket.gaierror(f"{host}: Name or service not known")
+            return names[host]
+
+    monkeypatch.setattr(credentials, "socket", Resolver)
+    return names
+
+
+def test_sandbox_policy_injects_per_run_proxy_credentials(activities, settings, dns):
+    # A service name: the sandbox has no DNS, so the proxy host is resolved
+    # here and the env carries an address.
+    dns["egress-proxy.test"] = "10.96.0.12"
+    settings.egress_proxy_url = "http://egress-proxy.test:3128"
     settings.egress_proxy_key = "test-key"
     env = activities._sandbox_policy(RUN_ID).env
     assert env["HTTPS_PROXY"].startswith(f"http://{RUN_ID}:")
-    assert env["HTTPS_PROXY"].endswith("@127.0.0.1:3128")
+    assert env["HTTPS_PROXY"].endswith("@10.96.0.12:3128")
     # Distinct runs get distinct credentials — that is the attribution.
     other = activities._sandbox_policy("run-other").env
     assert other["HTTPS_PROXY"] != env["HTTPS_PROXY"]
 
 
-def test_sandbox_policy_fails_when_the_proxy_host_does_not_resolve(activities, settings):
+def test_sandbox_policy_fails_when_the_proxy_host_does_not_resolve(
+    activities, settings, dns
+):
     """Provisioning with an unresolvable proxy would hand the sandbox a
     hostname it has no resolver for — fail here, where there is one."""
     from sandbox.egressproxy.credentials import ProxyUnresolvable
 
-    settings.egress_proxy_url = "http://nothing.invalid:3128"
+    settings.egress_proxy_url = "http://egress-proxy.test:3128"
     settings.egress_proxy_key = "test-key"
     with pytest.raises(ProxyUnresolvable):
         activities._sandbox_policy(RUN_ID)

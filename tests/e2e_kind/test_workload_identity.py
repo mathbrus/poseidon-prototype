@@ -7,9 +7,12 @@ mounted projected token round-trips against the gateway from inside its
 pod. The happy-path suite passing on this cluster is the full-system proof;
 these tests isolate the credential path.
 
-Negative half: a token from the wrong service account, the wrong
-namespace, or with the wrong audience is rejected *and audited* — the
-audit store must show an `authn_*` deny for it.
+Negative half: a token with the wrong audience is rejected *and audited*
+— the audit store shows the `authn_*` deny this test caused. A
+ServiceAccount the registry does not know and one named like an agent in
+another namespace are the authentication's own tests
+(`packages/common/tests/test_authn.py`,
+`packages/mcp-gateway/tests/test_authn.py`).
 """
 
 import time
@@ -21,10 +24,10 @@ from .cluster import (
     COMPANY_NS,
     PLATFORM_NS,
     authn_denies,
+    db_now,
     gateway_url,
     kubectl,
     projected_token,
-    run_kubectl,
 )
 
 
@@ -33,11 +36,13 @@ def gateway_status(env: dict[str, str], token: str | None) -> int:
     return httpx.get(f"{gateway_url(env)}/mcp", headers=headers, timeout=10).status_code
 
 
-def wait_for_authn_deny(rule: str, principal: str) -> list[dict[str, Any]]:
-    """The gateway's own audit of a refused token, once it lands."""
+def wait_for_authn_deny(rule: str, principal: str, since: str) -> list[dict[str, Any]]:
+    """The gateway's own audit of a token refused after `since` (a
+    `db_now` value taken before the call), once it lands — never an
+    earlier test's deny of the same principal."""
     deadline = time.monotonic() + 30
     while time.monotonic() < deadline:
-        events = authn_denies(rule, principal, "gateway")
+        events = authn_denies(rule, principal, "gateway", since)
         if events:
             return events
         time.sleep(1)
@@ -47,33 +52,45 @@ def wait_for_authn_deny(rule: str, principal: str) -> list[dict[str, Any]]:
 # -- positive: projected tokens are the working credential ------------------
 
 
+def _declared_env(namespace: str, deployment: str) -> dict[str, str]:
+    """A deployment's container env as declared: each name, and the Secret
+    it is read from (empty for a literal value)."""
+    rows = kubectl(
+        "-n",
+        namespace,
+        "get",
+        f"deployment/{deployment}",
+        "-o",
+        "jsonpath={range .spec.template.spec.containers[0].env[*]}"
+        '{.name}|{.valueFrom.secretKeyRef.name}{"\\n"}{end}',
+    ).splitlines()
+    return dict(row.split("|", 1) for row in rows if row)
+
+
 def test_no_static_gateway_credential_in_cluster_pods(stack: None) -> None:
     """The workload-identity contract ('all callers authenticate with projected
     tokens') held structurally: neither the worker nor the agent pod
-    carries a bearer-token env var, so every green run on this cluster rode
-    the projected tokens."""
-    worker_env = kubectl(
-        "-n",
-        PLATFORM_NS,
-        "get",
-        "deployment/orchestrator-worker",
-        "-o",
-        "jsonpath={.spec.template.spec.containers[0].env[*].name}",
-    ).split()
-    assert "ORCHESTRATOR_BEARER_TOKEN" not in worker_env
-    assert "GATEWAY_TOKEN_FILE" in worker_env
+    carries a token in its env — each reads the projected token file — so
+    every green run on this cluster rode the projected tokens. The two
+    secrets the worker reads are the registry's address and the egress
+    proxy's key it hands each sandbox, and no gateway accepts either."""
+    worker = _declared_env(PLATFORM_NS, "orchestrator-worker")
+    assert "GATEWAY_TOKEN_FILE" in worker
+    assert not [name for name in worker if name.endswith("_TOKEN")], worker
+    assert {name for name, secret in worker.items() if secret} == {
+        "EGRESS_PROXY_KEY",
+        "REGISTRY_DSN",
+    }
 
-    # The lean-standing profile's one standing agent: the PM.
-    agent_env = kubectl(
-        "-n",
-        COMPANY_NS,
-        "get",
-        "deployment/pm",
-        "-o",
-        "jsonpath={.spec.template.spec.containers[0].env[*].name}",
-    ).split()
-    assert "AGENT_BEARER_TOKEN" not in agent_env
-    assert "GATEWAY_TOKEN_FILE" in agent_env
+    # The blueprint's one standing agent: the PM. Nothing credential-shaped
+    # at all, and nothing read from a Secret.
+    agent = _declared_env(COMPANY_NS, "pm")
+    assert "GATEWAY_TOKEN_FILE" in agent
+    shaped = [
+        name for name in agent if name.endswith(("_TOKEN", "_KEY")) and name != "GPG_KEY"
+    ]
+    assert not shaped, agent
+    assert not any(agent.values()), agent
 
 
 def test_orchestrator_projected_token_is_accepted(stack: None, env) -> None:
@@ -116,35 +133,12 @@ def test_agent_pod_token_round_trips_from_inside(stack: None) -> None:
 # -- negative: wrong principal, namespace, audience — rejected and audited --
 
 
-def test_wrong_service_account_is_rejected_and_audited(stack: None, env) -> None:
-    token = projected_token("default", "default")
-    assert gateway_status(env, token) == 401
-    events = wait_for_authn_deny(
-        "authn_unknown_service_account", "system:serviceaccount:default:default"
-    )
-    assert all(e["decision"] == "deny" for e in events)
-
-
-def test_wrong_namespace_same_name_is_rejected_and_audited(stack: None, env) -> None:
-    """A ServiceAccount named like a real instance but living elsewhere
-    verifies fine at the API server and must still map to nothing."""
-    run_kubectl("-n", "default", "create", "serviceaccount", "pm-1")  # idempotent
-    try:
-        token = projected_token("default", "pm-1")
-        assert gateway_status(env, token) == 401
-        wait_for_authn_deny(
-            "authn_namespace_mismatch",
-            "system:serviceaccount:default:pm-1",
-        )
-    finally:
-        run_kubectl("-n", "default", "delete", "serviceaccount", "pm-1")
-
-
 def test_wrong_audience_is_rejected(stack: None, env) -> None:
     """A token for another audience — even from the right ServiceAccount —
     fails the TokenReview and is audited as a rejected token."""
     token = projected_token(
         PLATFORM_NS, "orchestrator-worker", audience="not-the-gateway"
     )
+    since = db_now()
     assert gateway_status(env, token) == 401
-    wait_for_authn_deny("authn_token_rejected", "unknown")
+    wait_for_authn_deny("authn_token_rejected", "unknown", since)

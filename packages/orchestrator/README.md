@@ -158,7 +158,6 @@ none yet.
 - A paused tick starts nothing:
   `test_heartbeat_workflow.py::test_a_paused_tick_looks_at_nothing_and_a_resumed_one_starts_work`.
 - Deleting the company stops its heartbeat, and the stop writes nothing:
-  `test_deleting_the_company_stops_a_running_loop`,
   `test_a_deleted_companys_heartbeat_completes_and_writes_nothing`.
 - A tick of a deleted company leaves no row:
   `test_heartbeat_activities.py::test_a_tick_of_a_deleted_company_leaves_no_row`.
@@ -179,10 +178,11 @@ tests per package, as
 
 The [acceptance suite](../../docs/developing/acceptance.md) proves what
 needs a cluster.
-`test_crew_fulfillment.py::test_worker_kill_leaks_no_crew` kills the
-worker mid-run. `test_ephemeral_pods.py` checks the worker's RBAC and
-the label-bounded destroy. `test_verify_gate.py` and
-`test_review_gate.py` drive the two gates end to end.
+`test_happy_path.py` kills the worker mid-run, with the crew up, and
+`test_the_worker_kill_leaked_no_crew` checks the replayed sweep.
+`test_ephemeral_pods.py` checks the worker's RBAC and the label-bounded
+destroy. `test_verify_gate.py` and `test_review_gate.py` drive the two
+gates end to end.
 
 ## Related
 

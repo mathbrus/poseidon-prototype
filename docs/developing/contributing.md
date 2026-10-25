@@ -48,11 +48,41 @@ for p in packages/*/; do uv run pytest "$p" -q; done   # all thirteen, no cluste
 package has its own `tests/conftest.py`, and pytest can't collect several
 modules with the same name into one run.
 
-The registry's tests need a real Postgres. Without `REGISTRY_DSN` they
-skip, and the run is still green. CI runs them against a real database.
+The registry's tests that read or write a database need a real Postgres.
+Without `REGISTRY_DSN` they skip, and the run is still green. CI runs them
+against a real database. Point `REGISTRY_DSN` only at a database you can
+throw away: the tests empty every table.
+
+The acceptance harness has a few rules of its own that need no cluster:
+
+```bash
+uv run pytest tests --ignore=tests/e2e_kind
+```
 
 The end-to-end suite runs against a live cluster:
 [Run the acceptance suite](acceptance.md).
+
+## What a test proves
+
+A test earns its run only if it fails when the claim in its name breaks.
+Hold every test you write or touch to these rules.
+
+- **A refusal names its rule.** Assert the rule that refused, not only that
+  something was refused. Then show that the rightful caller, with the same
+  input, is allowed. Without both, an unrelated refusal passes the test.
+- **A bound comes from the code.** Check spend against the blueprint's
+  cap, and retries against the blueprint's limit, never against a number
+  the test makes up.
+- **A read of history is fenced.** Take a mark before the act, and read
+  only the audit rows after it. On the cluster, the mark is the database's
+  own clock (`db_now()` in `tests/e2e_kind/cluster.py`).
+- **A claim is proven once, at the cheapest level that can prove it.**
+  The compiler's tests decide policy against a real OPA. The orchestrator's
+  tests run the workflows. Each gateway's tests prove its own checks. The
+  acceptance suite proves what only a cluster can: convergence, identity,
+  egress, and the loop end to end.
+- **Watch a new test fail.** Break the code it guards, check that the test
+  fails, then put the code back.
 
 ## Update the golden files
 
@@ -97,7 +127,7 @@ generated reference pages.
 | `lint` | `ruff check` and `ruff format --check`; the version's copies agree |
 | `lock` | `uv lock --check`; an advisory `pip-audit` |
 | `helm` | the chart lints and renders, and a render without secrets fails |
-| `unit` | all thirteen package suites, with a real Postgres |
+| `unit` | all thirteen package suites, with a real Postgres, and the acceptance harness's own rules |
 | `opa` | the example blueprint compiles with no cluster, and the bundle loads in the pinned OPA |
 | `docs` | the site builds strict; the built site is the run's artifact |
 | `images` | all nine images build, install the locked versions, bake in no secret, and run as uid 10001 |

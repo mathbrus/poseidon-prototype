@@ -5,56 +5,37 @@ module walks the one that stays open — a port-forward with cluster
 credentials, beneath any policy — and proves it is harmless: a `merge`
 signal delivered straight to the workflow engine finds no verdict the
 console recorded, `merge.resolve` refuses it by name, the run ends failed
-and the pull request is refused: closed, never merged. Then the same
-verdict through the
-console, on the review of a second PR, merges — and the story names the
-person.
+and the pull request is refused: closed, never merged. The same verdict
+through the console merges and names the person: that is
+`test_review_gate`'s arc.
 
-Two PRs the company delivers under an implement-only profile, then the
-review-only profile applied over them without a sweep — the two open PRs
-are the backlog this module means the loop to have. A review that
-reached a verdict concluded its PR, so the loop reviews each once: the
-review the raw road failed is never retried into the lane the console's
-review needs.
+The pull request is one the world opened, reviewed by a person's start
+under the pristine blueprint — the heartbeat observes only the PRs the
+company delivered, so nothing else touches it.
 """
 
 import asyncio
+import secrets
 
 import pytest
 from temporalio.client import Client
 
-from common.policy import GATE_RESOLVE, MERGE_RESOLVE
+from common.policy import MERGE_RESOLVE, RUN_START
 from common.tasks import review_run_task
 from common.workflows import workflow_id
 
-from .blueprints import (
-    HELLO_SAAS,
-    apply_blueprint,
-    may_start,
-    restore_pristine,
-    wait_for_convergence,
-)
 from .cluster import (
-    HUMAN,
     audit_story,
-    await_bare_heartbeat_asleep,
     await_run,
     console,
-    run_by_task,
     temporal_port_forward,
 )
 from .conftest import (
-    apply_profile,
     await_gate,
-    close_issue,
     close_pr,
-    file_ticket,
     github_api,
-    pr_number,
-    run_ticket,
+    open_world_pr,
     target_slug,
-    ticket_body,
-    wake_until_run_started,
 )
 
 
@@ -72,56 +53,41 @@ def _raw_signal(run_id: str) -> None:
     asyncio.run(send())
 
 
-def _pull(env: dict, number: int) -> dict:
-    return github_api(env, "GET", f"/repos/{target_slug(env)}/pulls/{number}").json()
-
-
 @pytest.fixture(scope="module")
-def delivered(stack: None, baseline_env: dict) -> dict:
-    """Two PRs the company delivered under an implement-only profile, for
-    two reviews — the raw road's and the console's — under the review-only
-    one, applied over the open PRs on purpose: they are the backlog."""
+def raw_review(stack: None, baseline_env: dict) -> dict:
+    """A review a person started on a pull request the world opened,
+    parked on the merge gate, then answered past the console."""
     env = baseline_env
-    import secrets
-
-    apply_profile(may_start(HELLO_SAAS, "implement"), env)
-    prs: list[int] = []
-    issues: list[int] = []
-    for _ in range(2):
-        nonce = secrets.token_hex(3)
-        number = file_ticket(env, f"happy ({nonce})", ticket_body("happy", nonce))
-        issues.append(number)
-        record = run_ticket(number)
-        assert record["status"] == "done" and record["pr_url"], record
-        prs.append(pr_number(record["pr_url"]))
-    apply_blueprint(may_start(HELLO_SAAS, "review"))
-    wait_for_convergence()
-    await_bare_heartbeat_asleep()
+    nonce = secrets.token_hex(3)
+    result: dict = {"env": env}
     try:
-        yield {"env": env, "prs": prs}
+        number = open_world_pr(
+            env,
+            f"feature/raw-{nonce}",
+            {f"docs/raw-{nonce}.md": "# Notes\n"},
+            f"Add notes ({nonce})",
+        )
+        result["pr_number"] = number
+        run_id = console().start_run("review", number).run_id
+        result["run_id"] = run_id
+        task = review_run_task(number)
+        # The workflow writes the run's row; the console knows the run
+        # only from then on.
+        await_run(task, terminal=False, workflow="review")
+        await_gate(run_id, "parked-merge_gate")
+        _raw_signal(run_id)
+        result["record"] = await_run(
+            task, terminal=True, deadline_s=600, workflow="review"
+        )
+        result["pull"] = github_api(
+            env, "GET", f"/repos/{target_slug(env)}/pulls/{number}"
+        ).json()
+        yield result
     finally:
-        for number in prs:
-            close_pr(env, number)
-        for number in issues:
-            close_issue(env, number)
-        restore_pristine()
+        close_pr(env, result.get("pr_number") or 0)
 
 
-@pytest.fixture(scope="module")
-def raw_review(delivered: dict) -> dict:
-    """The first review: parked on the merge gate, then answered past the
-    console."""
-    number = delivered["prs"][0]
-    task = review_run_task(number)
-    wake_until_run_started(task, "review")
-    run_id = run_by_task(task, workflow="review")["run_id"]
-    await_gate(run_id, "parked-merge_gate")
-    _raw_signal(run_id)
-    record = await_run(task, terminal=True, deadline_s=600, workflow="review")
-    return {"run_id": run_id, "record": record, "pr_number": number}
-
-
-def test_a_signal_past_the_console_releases_nothing(raw_review: dict, delivered) -> None:
+def test_a_signal_past_the_console_releases_nothing(raw_review: dict) -> None:
     """The workflow took the signal as a nudge, read the audit store for
     the verdict, found none, and refused by name: no merge, no
     `git.merge_pr` call, and the delivery refused — the PR closed with
@@ -137,57 +103,13 @@ def test_a_signal_past_the_console_releases_nothing(raw_review: dict, delivered)
     assert resolves and resolves[-1]["decision"] == "deny"
     assert resolves[-1]["rule"] == "merge_resolve_no_human_verdict"
     assert not any(e["tool"] == "git.merge_pr" for e in story), "a merge was attempted"
-    assert not any(e["source"] == "console" for e in story), "the console never spoke"
+    # The person who started the review spoke to the console; nobody
+    # answered the gate there.
+    assert not any(e["source"] == "console" and e["tool"] != RUN_START for e in story), (
+        "the console answered the gate"
+    )
     closes = [e for e in story if e["tool"] == "git.close_pr"]
     assert closes and closes[-1]["decision"] == "allow", closes
     assert "no verified human verdict" in (closes[-1]["rationale"] or "")
-    pull = _pull(delivered["env"], raw_review["pr_number"])
+    pull = raw_review["pull"]
     assert pull["state"] == "closed" and pull["merged"] is False
-
-
-def _merge_approval(env: dict, run_id: str):
-    """The run's preview of the approving merge verdict."""
-    return next(
-        view
-        for view in console(env).acts(run_id).acts
-        if view.act == GATE_RESOLVE
-        and view.args.get("gate") == "merge"
-        and view.args.get("approved") is True
-    )
-
-
-def test_the_same_verdict_through_the_console_merges(raw_review: dict, delivered) -> None:
-    """The second PR's review, answered through the console: recorded
-    under the human's name, released by policy on its human path,
-    merged."""
-    env = delivered["env"]
-    number = delivered["prs"][1]
-    task = review_run_task(number)
-    wake_until_run_started(task, "review")
-    run_id = run_by_task(task, workflow="review")["run_id"]
-    assert run_id != raw_review["run_id"]
-    await_gate(run_id, "parked-merge_gate")
-    # The preview says what the act will: the merge verdict is the human's
-    # to give while the run is parked on it.
-    before = _merge_approval(env, run_id)
-    assert before.allowed, before
-    verdict = console(env).resolve(run_id, "merge", True, "red-team: the real road")
-    assert verdict.human == HUMAN
-    # Once answered, the question is no longer asked: refused by state.
-    after = _merge_approval(env, run_id)
-    assert not after.allowed and after.refusal.kind == "state", after
-    assert "not parked" in after.refusal.detail or "no workflow" in after.refusal.detail
-    record = await_run(task, terminal=True, deadline_s=600, workflow="review")
-    assert record["status"] == "done", record
-
-    story = audit_story(run_id)
-    recorded = [
-        e for e in story if e["source"] == "console" and e["tool"] == GATE_RESOLVE
-    ]
-    assert [(e["agent_id"], e["rule"]) for e in recorded] == [
-        (HUMAN, "gate_resolve_merge_approve")
-    ]
-    release = [e for e in story if e["tool"] == MERGE_RESOLVE][-1]
-    assert (release["decision"], release["rule"]) == ("allow", "merge_resolve_human")
-    assert any(e["tool"] == "git.merge_pr" and e["decision"] == "allow" for e in story)
-    assert _pull(env, number)["merged"] is True

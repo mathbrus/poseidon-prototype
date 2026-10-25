@@ -2359,6 +2359,7 @@ dev = [
     { name = "agent-host" },
     { name = "httpx" },
     { name = "openai" },
+    { name = "orchestrator" },
     { name = "pytest" },
 ]
 
@@ -2373,6 +2374,7 @@ dev = [
     { name = "agent-host", editable = "packages/agent-host" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "openai", specifier = ">=1.40" },
+    { name = "orchestrator", editable = "packages/orchestrator" },
     { name = "pytest", specifier = ">=8" },
 ]
 

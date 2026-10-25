@@ -29,10 +29,15 @@ def registry() -> Registry:
 
 
 @pytest.fixture(autouse=True)
-def clean(registry: Registry):
-    """Every table starts empty for the next test — all nine, so no test
-    needs its own cleanup; run_participants goes before runs (the foreign
-    key)."""
+def clean(request: pytest.FixtureRequest):
+    """Every table starts empty for the next test that uses the database —
+    all nine, so no test needs its own cleanup; run_participants goes
+    before runs (the foreign key). A test that does not ask for `registry`
+    needs no database, and runs without one."""
+    if "registry" not in request.fixturenames:
+        yield
+        return
+    registry: Registry = request.getfixturevalue("registry")
     yield
     for table in (
         "audit_events",

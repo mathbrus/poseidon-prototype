@@ -23,14 +23,13 @@ def test_gate_rule_spells_every_outcome_once():
 
 
 def test_gate_rule_refuses_an_unknown_outcome():
-    """`timed_out` is not a gate outcome (an expired park is `expired`),
-    and nothing can write it."""
-    for kind in ("timed_out", "waiting", ""):
+    """A name that is not a gate outcome cannot be written as one."""
+    for kind in ("waiting", "approve", ""):
         with pytest.raises(ValueError, match="not a gate outcome"):
             gate_rule(kind)
 
 
-def test_only_a_human_approval_or_automation_releases():
+def test_only_a_human_verdict_or_automation_releases():
     assert GATE_RELEASING == (GATE_APPROVED, GATE_AUTOMATED)
     assert set(GATE_RELEASING) < set(GATE_OUTCOMES)
 

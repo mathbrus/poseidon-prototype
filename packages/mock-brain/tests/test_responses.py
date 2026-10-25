@@ -41,8 +41,8 @@ PM_TOOLS = [
 ]
 
 
-def post(body: dict, path: str = "/v1/responses") -> dict:
-    resp = client.post(path, json=body)
+def post(body: dict) -> dict:
+    resp = client.post("/v1/responses", json=body)
     assert resp.status_code == 200, resp.text
     return resp.json()
 
@@ -114,11 +114,6 @@ def test_both_surfaces_report_their_cost_in_the_litellm_header():
         assert float(resp.headers["x-litellm-response-cost"]) == pytest.approx(expected)
 
 
-def test_both_path_aliases_serve_the_same_surface():
-    for path in ("/responses", "/v1/responses"):
-        assert post({"model": "m", "input": "hello"}, path=path)["object"] == "response"
-
-
 def test_flattened_tools_key_the_scope_procedure_and_calls_come_back_as_items():
     """The PM script fires on the system prompt with Responses-shaped tools:
     the first completion is a create_issue function_call item the SDK's
@@ -173,8 +168,10 @@ def test_function_call_history_advances_the_script():
     assert item["name"] == "comment_issue"
 
 
-def test_chat_completions_surface_is_unchanged():
-    """The e2e default path must not regress: mock-brain still speaks chat."""
+def test_the_chat_surface_answers_without_the_v1_prefix():
+    """The host's litellm transport posts chat completions to
+    `/chat/completions`, without the `/v1` prefix; the mock answers there
+    with a chat completion."""
     resp = client.post(
         "/chat/completions",
         json={

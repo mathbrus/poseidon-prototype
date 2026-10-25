@@ -16,8 +16,8 @@ def blueprint() -> dict:
 
 @pytest.fixture
 def standing_implementer(blueprint: dict) -> dict:
-    """The blueprint with an implementer hired as a standing agent — the shape
-    the strict lean-standing rule refuses."""
+    """The blueprint with an implementer hired as a standing agent — a shape
+    the compiler refuses: only a spawner may be standing."""
     document = copy.deepcopy(blueprint)
     document["standing"]["implementer"] = {
         "role": "implementer",

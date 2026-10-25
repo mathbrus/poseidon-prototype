@@ -37,6 +37,8 @@ class Console:
 
     def __init__(self) -> None:
         self.requests: list[tuple[str, str, dict | None, str]] = []
+        # Each request's query string, in the same order.
+        self.queries: list[str] = []
         self.answers = golden_answers()
         self.answers[("POST", "/runs/run-2/gates/merge")] = (
             403,
@@ -60,6 +62,7 @@ class Console:
                 request.headers.get("authorization", ""),
             )
         )
+        self.queries.append(request.url.query.decode())
         status, payload = self.answers.get(
             (request.method, request.url.path),
             (404, Problem(detail="no such route").model_dump()),
@@ -298,8 +301,13 @@ def test_spend_is_the_companys_without_a_run_and_a_runs_with_one(runner, console
 
 
 def test_run_story_can_keep_only_the_decisions(runner, console):
-    runner.invoke(cli.app, ["run", "story", REVIEW, "--decisions"])
+    kept = runner.invoke(cli.app, ["run", "story", REVIEW, "--decisions"])
+    assert kept.exit_code == 0, kept.output
     assert console.requests[-1][:2] == ("GET", f"/runs/{REVIEW}/story")
+    assert console.queries[-1] == "decisions=true"
+    whole = runner.invoke(cli.app, ["run", "story", REVIEW])
+    assert whole.exit_code == 0, whole.output
+    assert console.queries[-1] == ""
 
 
 def test_company_delete_names_the_running_runs_then_asks_the_console(runner, console):
@@ -340,9 +348,79 @@ def test_a_purge_asks_for_the_repositorys_name_typed_out(runner, console):
 
 
 def test_company_delete_asks_before_acting(runner, console):
-    result = runner.invoke(cli.app, ["company", "delete"], input="n\n")
-    assert result.exit_code != 0
+    """Without --yes the question is the last step before the act: a no
+    deletes nothing, a yes deletes."""
+    question = "delete hello-saas and erase everything recorded about it?"
+    answered_no = runner.invoke(
+        cli.app, ["company", "delete", "--reason", "done"], input="n\n"
+    )
+    assert answered_no.exit_code == 1
+    assert question in answered_no.output
     assert ("DELETE", "/company") not in [(m, p) for m, p, _, _ in console.requests]
+    answered_yes = runner.invoke(
+        cli.app, ["company", "delete", "--reason", "done"], input="y\n"
+    )
+    assert answered_yes.exit_code == 0, answered_yes.output
+    assert console.requests[-1][:3] == (
+        "DELETE",
+        "/company",
+        {"rationale": "done", "purge_remote": False},
+    )
+
+
+def test_run_cancel_is_an_act_that_carries_the_reason(runner, console):
+    result = runner.invoke(
+        cli.app, ["run", "cancel", REVIEW, "--reason", "superseded by #13"]
+    )
+    assert result.exit_code == 0, result.output
+    assert f"run {REVIEW} cancelled" in result.output
+    assert console.requests[-1][:3] == (
+        "POST",
+        f"/runs/{REVIEW}/cancel",
+        {"rationale": "superseded by #13"},
+    )
+    # No reason, no act: the CLI refuses before the console hears.
+    silent = runner.invoke(cli.app, ["run", "cancel", REVIEW])
+    assert silent.exit_code == 2
+    assert len(console.requests) == 1
+
+
+def test_start_review_asks_for_a_review_of_the_pull_request(runner, console):
+    """With --no-wait it returns once the console accepted the start,
+    printing what the console answered."""
+    started = {
+        **golden("POST /runs"),
+        "workflow": "review",
+        "workflow_id": "review-run-01STARTED",
+    }
+    console.answers[("POST", "/runs")] = (200, started)
+    result = runner.invoke(cli.app, ["start", "review", "43", "--no-wait", "--json"])
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.stdout) == started
+    assert "started review-run-01STARTED" in result.stderr
+    assert console.requests == [
+        ("POST", "/runs", {"workflow": "review", "number": 43}, "Bearer t-owner")
+    ]
+
+
+def test_blueprint_preview_sends_the_file_and_prints_the_diff(runner, console, tmp_path):
+    """A preview is one question to the console, and applies nothing."""
+    blueprint = tmp_path / "company.yaml"
+    blueprint.write_text("company: {name: hello-saas}\n")
+    result = runner.invoke(cli.app, ["blueprint", "preview", str(blueprint)])
+    assert result.exit_code == 0, result.output
+    assert (
+        result.stdout.splitlines()
+        == golden("POST /blueprint/preview")["diff"].splitlines()
+    )
+    assert console.requests == [
+        (
+            "POST",
+            "/blueprint/preview",
+            {"blueprint": "company: {name: hello-saas}\n"},
+            "Bearer t-owner",
+        )
+    ]
 
 
 def test_apply_waits_for_converged_and_says_so(runner, console, tmp_path, monkeypatch):

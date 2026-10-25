@@ -9,10 +9,11 @@ company is left in any table, and Temporal knows none of its workflows.
 The company applied again starts with no history. With `--purge-remote`,
 the repository is reset in place too.
 
-The conftest orders this module after the capstones and before the quiet
-check: the delete erases what the capstones read. Every test ends with
-the company applied again on the baseline repository, so the quiet check
-finds the company it expects.
+One delete carries every claim: it purges as it erases. The conftest
+orders this module after the capstones and before the quiet check: the
+delete erases what the capstones read. The company is applied again on the
+baseline repository before the module ends, so the quiet check finds the
+company it expects.
 """
 
 import asyncio
@@ -34,7 +35,7 @@ from .blueprints import restore_pristine
 from .cluster import (
     COMPANY,
     COMPANY_NS,
-    bare_heartbeat_id,
+    HEARTBEAT_ID,
     console,
     db_now,
     gateway_url,
@@ -46,7 +47,7 @@ from .cluster import (
     psql_json,
     temporal_port_forward,
 )
-from .conftest import github_api, open_world_pr, seed_baseline, target_slug
+from .conftest import file_ticket, github_api, open_world_pr, seed_baseline, target_slug
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -95,7 +96,7 @@ def rows_left(run_ids: list[str]) -> dict[str, int]:
         runs=",".join(run_ids),
         company=COMPANY,
         repo=harness_repo_or_fail(),
-        heartbeat=bare_heartbeat_id(),
+        heartbeat=HEARTBEAT_ID,
     )
     return json.loads(counts)
 
@@ -120,7 +121,21 @@ def executions_left(deadline_s: int = 120) -> list[str]:
     return asyncio.run(poll())
 
 
-def test_a_delete_revokes_and_erases_the_company(stack: None, env: dict):
+@pytest.fixture(scope="module")
+def deleted(stack: None, env: dict) -> dict:
+    """One delete, with `purge_remote`, of a company that has a credential
+    in use and a repository with something open on it: a pull request and
+    an issue the world filed. Everything the assertions read about the
+    company is taken before it goes. The heartbeat is held first, so the
+    open issue never becomes a run; the issue counts as filed only once the
+    git host lists it, as the purge reads the listing."""
+    slug = target_slug(env)
+    nonce = secrets.token_hex(3)
+    console(env).pause("delete: nothing new starts before the company goes")
+    pr = open_world_pr(
+        env, f"feature/purge-{nonce}", {"PURGE.md": "purge me\n"}, f"purge {nonce}"
+    )
+    issue = file_ticket(env, f"purge {nonce}", "an open issue the purge closes")
     # A credential that provably works before the teardown: the standing
     # PM's projected token, exercised through the gateway (the deny is
     # policy answering — authenticated, no binding for this run id).
@@ -131,18 +146,34 @@ def test_a_delete_revokes_and_erases_the_company(stack: None, env: dict):
     )
     assert before.status_code != 401, "the pre-teardown credential must work"
     run_ids = company_run_ids()
-
     # The stop is a console act, and the console answers once the company
-    # is gone: its rows swept, its workflow histories deleted.
-    deleted = console(env).delete_company("delete: revocation and erasure proof")
-    assert deleted.company == COMPANY and deleted.runs_cancelled == []
-    assert deleted.purged_remote is False
+    # is gone: its rows swept, its workflow histories deleted, its
+    # repository reset.
+    answer = console(env).delete_company(
+        "delete: revocation, erasure and purge proof", purge_remote=True
+    )
+    # The env (and its token) stays out of what a failing test prints.
+    return {
+        "slug": slug,
+        "pr": pr,
+        "issue": issue,
+        "agent_token": agent_token,
+        "mcp": mcp,
+        "run_ids": run_ids,
+        "answer": answer,
+    }
+
+
+def test_a_delete_revokes_and_erases_the_company(deleted: dict):
+    answer = deleted["answer"]
+    assert answer.company == COMPANY and answer.runs_cancelled == []
+    assert answer.purged_remote is True
     assert kubectl("get", "companies", "-o", "name") == ""
     assert kubectl("get", "ns", COMPANY_NS, "--ignore-not-found") == ""
 
     # Nothing of the company is left in the registry — the delete's own
     # audit row included; the console's answer was the receipt.
-    assert rows_left(run_ids) == dict.fromkeys(
+    assert rows_left(deleted["run_ids"]) == dict.fromkeys(
         (
             "companies",
             "agent_instances",
@@ -187,11 +218,10 @@ def test_a_delete_revokes_and_erases_the_company(stack: None, env: dict):
     # once the gateway's short authn cache (60s) drains — a failed
     # post-teardown call, as the lifecycle demands. Its rejects name no
     # company: the platform's rows, not the company's.
+    headers = {"Authorization": f"Bearer {deleted['agent_token']}"}
     deadline = time.monotonic() + 120
     while True:
-        after = httpx.get(
-            mcp, headers={"Authorization": f"Bearer {agent_token}"}, timeout=10
-        )
+        after = httpx.get(deleted["mcp"], headers=headers, timeout=10)
         if after.status_code == 401:
             break
         assert time.monotonic() < deadline, (
@@ -200,10 +230,34 @@ def test_a_delete_revokes_and_erases_the_company(stack: None, env: dict):
         time.sleep(5)
 
 
-def test_the_company_applied_again_starts_with_no_history(stack: None, env: dict):
+def test_a_purge_resets_the_repository(deleted: dict, env: dict):
+    """`purge_remote`: every open pull request and issue closed, every
+    branch but main deleted, and main one commit on the empty tree."""
+    slug = deleted["slug"]
+    pull = github_api(env, "GET", f"/repos/{slug}/pulls/{deleted['pr']}").json()
+    assert pull["state"] == "closed"
+    closed = github_api(env, "GET", f"/repos/{slug}/issues/{deleted['issue']}").json()
+    assert (closed["state"], closed["state_reason"]) == ("closed", "not_planned")
+    # The host's listing lags its writes by up to a minute.
+    deadline = time.monotonic() + 120
+    while open_items := github_api(
+        env, "GET", f"/repos/{slug}/issues?state=open&per_page=100"
+    ).json():
+        assert time.monotonic() < deadline, [i["number"] for i in open_items]
+        time.sleep(5)
+    branches = github_api(env, "GET", f"/repos/{slug}/branches?per_page=100").json()
+    assert [b["name"] for b in branches] == ["main"]
+    commits = github_api(env, "GET", f"/repos/{slug}/commits?sha=main").json()
+    assert len(commits) == 1, [c["sha"] for c in commits]
+    assert commits[0]["commit"]["tree"]["sha"] == EMPTY_TREE
+
+
+def test_the_company_applied_again_starts_with_no_history(deleted: dict, env: dict):
     """A new company under the old name inherits nothing: no run, ticket,
     spend or audit row of it predates the apply, so its day starts at $0
-    against the daily cap. What its own first ticks do is its own."""
+    against the daily cap. What its own first ticks do is its own. The
+    purged repository gets its baseline back first."""
+    seed_baseline(env)
     fence = db_now()
     restore_pristine()
     assert console(env).company().paused is None
@@ -225,41 +279,3 @@ def test_the_company_applied_again_starts_with_no_history(stack: None, env: dict
     assert json.loads(older) == dict.fromkeys(
         ("runs", "filed_tickets", "budget_ledger", "audit_events"), 0
     )
-
-
-def test_a_purge_resets_the_repository(stack: None, env: dict):
-    """`purge_remote`: every open pull request and issue closed, every
-    branch but main deleted, and main one commit on the empty tree. The
-    module's finalizer seeds the baseline again and applies the company."""
-    slug = target_slug(env)
-    nonce = secrets.token_hex(3)
-    pr = open_world_pr(
-        env, f"feature/purge-{nonce}", {"PURGE.md": "purge me\n"}, f"purge {nonce}"
-    )
-    issue = github_api(
-        env,
-        "POST",
-        f"/repos/{slug}/issues",
-        json={"title": f"purge {nonce}", "body": "an open issue the purge closes"},
-    )
-    assert issue.status_code == 201, issue.text
-
-    deleted = console(env).delete_company("delete: purge proof", purge_remote=True)
-    assert deleted.purged_remote is True
-
-    assert github_api(env, "GET", f"/repos/{slug}/pulls/{pr}").json()["state"] == "closed"
-    number = issue.json()["number"]
-    closed = github_api(env, "GET", f"/repos/{slug}/issues/{number}").json()
-    assert (closed["state"], closed["state_reason"]) == ("closed", "not_planned")
-    # The host's listing lags its writes by up to a minute.
-    deadline = time.monotonic() + 120
-    while open_items := github_api(
-        env, "GET", f"/repos/{slug}/issues?state=open&per_page=100"
-    ).json():
-        assert time.monotonic() < deadline, [i["number"] for i in open_items]
-        time.sleep(5)
-    branches = github_api(env, "GET", f"/repos/{slug}/branches?per_page=100").json()
-    assert [b["name"] for b in branches] == ["main"]
-    commits = github_api(env, "GET", f"/repos/{slug}/commits?sha=main").json()
-    assert len(commits) == 1, [c["sha"] for c in commits]
-    assert commits[0]["commit"]["tree"]["sha"] == EMPTY_TREE

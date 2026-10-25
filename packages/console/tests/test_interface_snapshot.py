@@ -1,7 +1,7 @@
-"""The committed console interface: the OpenAPI snapshot and the golden
-examples are what the console serves, every example is a valid answer
-of its route, and the breaking-change comparison calls a removed field,
-a retyped one and a narrowed enum breaking."""
+"""The committed console interface's breaking-change comparison: a
+removed field, a retyped one and a narrowed enum are breaking. That the
+committed OpenAPI snapshot and golden examples are what the console
+serves is CI's `scripts/console_interface.py --check`."""
 
 import copy
 import importlib.util
@@ -9,8 +9,6 @@ import json
 from pathlib import Path
 
 import pytest
-
-from common.console import ROUTES
 
 SCRIPT = Path(__file__).resolve().parents[3] / "scripts" / "console_interface.py"
 
@@ -21,20 +19,6 @@ def interface():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
-
-
-def test_the_committed_snapshot_and_examples_are_the_consoles(interface):
-    assert interface.check() == 0
-
-
-@pytest.mark.parametrize("entry", ROUTES, ids=lambda r: f"{r.method} {r.path}")
-def test_every_route_has_a_valid_golden_example(interface, entry):
-    example = json.loads((interface.EXAMPLES / interface.example_name(entry)).read_text())
-    assert example["route"] == f"{entry.method} {entry.path}"
-    entry.response.model_validate(example["response"])
-    body = example["request"]["body"]
-    if entry.request is not None and "blueprint" not in (body or {}):
-        entry.request.model_validate(body)
 
 
 @pytest.fixture(scope="module")

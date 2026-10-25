@@ -8,6 +8,7 @@ import base64
 import httpx
 import pytest
 
+from common.topology import COMPANY_NAMESPACE
 from registry.memory import InMemoryAuditStore
 from sandbox.egressproxy.credentials import (
     ProxyUnresolvable,
@@ -74,10 +75,22 @@ async def _upstream(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
 
 
 class Stack:
-    def __init__(self, proxy_port: int, upstream_port: int, audit: InMemoryAuditStore):
+    def __init__(
+        self,
+        proxy_port: int,
+        upstream_port: int,
+        audit: InMemoryAuditStore,
+        accepted: list[None],
+    ):
         self.proxy_port = proxy_port
         self.upstream_port = upstream_port
         self.audit = audit
+        self._accepted = accepted
+
+    @property
+    def upstream_connections(self) -> int:
+        """How many connections the upstream has accepted."""
+        return len(self._accepted)
 
     @property
     def proxy_url(self) -> str:
@@ -89,7 +102,13 @@ class Stack:
 
 async def _with_stack(scenario):
     audit = InMemoryAuditStore()
-    upstream = await asyncio.start_server(_upstream, "127.0.0.1", 0)
+    accepted: list[None] = []
+
+    async def counted(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
+        accepted.append(None)
+        await _upstream(reader, writer)
+
+    upstream = await asyncio.start_server(counted, "127.0.0.1", 0)
     upstream_port = upstream.sockets[0].getsockname()[1]
 
     # A per-run resolver: RUN_ID's company allows the local
@@ -102,7 +121,7 @@ async def _with_stack(scenario):
     server = await proxy.start()
     proxy_port = server.sockets[0].getsockname()[1]
     try:
-        await scenario(Stack(proxy_port, upstream_port, audit))
+        await scenario(Stack(proxy_port, upstream_port, audit, accepted))
     finally:
         server.close()
         upstream.close()
@@ -192,6 +211,75 @@ def test_connect_tunnel_to_allowlisted_host():
     asyncio.run(_with_stack(scenario))
 
 
+async def _connect(stack: Stack, host: str, credential: str) -> bytes:
+    """A CONNECT to `host` on the upstream's port, authenticated with
+    `run_id:secret`; the head of the proxy's answer."""
+    reader, writer = await asyncio.open_connection("127.0.0.1", stack.proxy_port)
+    auth = base64.b64encode(credential.encode()).decode()
+    writer.write(
+        (
+            f"CONNECT {host}:{stack.upstream_port} HTTP/1.1\r\n"
+            f"Host: {host}:{stack.upstream_port}\r\n"
+            f"Proxy-Authorization: Basic {auth}\r\n\r\n"
+        ).encode()
+    )
+    await writer.drain()
+    head = await reader.readuntil(b"\r\n\r\n")
+    writer.close()
+    return head
+
+
+def test_connect_tunnel_to_a_host_not_allowlisted_is_refused():
+    """`localhost` reaches the very upstream `127.0.0.1` does, but only the
+    latter is on the run's allowlist: the tunnel is refused by name, before
+    the proxy dials anything, and audited under the run."""
+    own = f"{RUN_ID}:{mint(KEY, RUN_ID)}"
+
+    async def scenario(stack: Stack):
+        refused = await _connect(stack, "localhost", own)
+        assert refused.startswith(b"HTTP/1.1 403 Forbidden")
+        assert stack.upstream_connections == 0
+        allowed = await _connect(stack, "127.0.0.1", own)
+        assert allowed.startswith(b"HTTP/1.1 200 Connection Established")
+        denied, _ = stack.events()
+        assert (denied["decision"], denied["rule"], denied["run_id"]) == (
+            "deny",
+            "egress_not_allowlisted",
+            RUN_ID,
+        )
+        assert denied["backend_status"] is None
+
+    asyncio.run(_with_stack(scenario))
+
+
+def test_a_valid_credential_of_another_run_is_refused():
+    """A secret is bound to the run it was minted for. Presented under
+    this run's id, another run's secret fails verification and is audited
+    under the run it claimed; presented under its own run's id, it earns
+    that run's egress — none here — and not this run's."""
+
+    async def scenario(stack: Stack):
+        borrowed = await _connect(
+            stack, "127.0.0.1", f"{RUN_ID}:{mint(KEY, 'run-other')}"
+        )
+        assert borrowed.startswith(b"HTTP/1.1 407")
+        as_itself = await _connect(
+            stack, "127.0.0.1", f"run-other:{mint(KEY, 'run-other')}"
+        )
+        assert as_itself.startswith(b"HTTP/1.1 403 Forbidden")
+        assert stack.upstream_connections == 0
+        own = await _connect(stack, "127.0.0.1", f"{RUN_ID}:{mint(KEY, RUN_ID)}")
+        assert own.startswith(b"HTTP/1.1 200 Connection Established")
+        events = [(e["decision"], e["rule"], e["run_id"]) for e in stack.events()]
+        assert events == [
+            ("deny", "egress_bad_credential", RUN_ID),
+            ("deny", "egress_not_allowlisted", "run-other"),
+            ("allow", "egress_allowlisted", RUN_ID),
+        ]
+
+    asyncio.run(_with_stack(scenario))
+
+
 def test_healthz_answers_without_credentials():
     async def scenario(stack: Stack):
         reader, writer = await asyncio.open_connection("127.0.0.1", stack.proxy_port)
@@ -217,7 +305,7 @@ def test_registry_allowlist_resolves_run_to_company_projection():
     companies.upsert(
         "hello-saas",
         {
-            "namespace": "hello-saas",
+            "namespace": COMPANY_NAMESPACE,
             "infra": {"egress_proxy_allowlist": ["PyPI.org", " files.pythonhosted.org "]},
         },
     )
@@ -225,7 +313,7 @@ def test_registry_allowlist_resolves_run_to_company_projection():
 
     assert allowlist.hosts_for(RUN_ID) == set()  # no registration yet
 
-    sandboxes.register(RUN_ID, "http://10.0.0.9:8000", "hello-saas", "sbx")
+    sandboxes.register(RUN_ID, "http://10.0.0.9:8000", COMPANY_NAMESPACE, "sbx")
     assert allowlist.hosts_for(RUN_ID) == {"pypi.org", "files.pythonhosted.org"}
 
     sandboxes.terminate(RUN_ID)

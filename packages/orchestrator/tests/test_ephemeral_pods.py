@@ -3,6 +3,7 @@ posture, and the provision/destroy activities' binding, audit, and
 label-selector discipline (via a fake provisioner)."""
 
 import asyncio
+import threading
 
 import pytest
 from temporalio.exceptions import ApplicationError
@@ -14,9 +15,13 @@ from common.audit import (
     LIFECYCLE_RECORD_REQUEST,
 )
 from common.policy import CREW_REQUEST
-from common.topology import EPHEMERAL_KIND, PLATFORM_NAMESPACE, TOKEN_MOUNT_DIR
+from common.topology import (
+    COMPANY_NAMESPACE,
+    EPHEMERAL_KIND,
+    PLATFORM_NAMESPACE,
+    TOKEN_MOUNT_DIR,
+)
 from orchestrator.activities.crew import CrewActivities
-from orchestrator.config import WorkerSettings
 from orchestrator.ephemeral_pods import (
     ephemeral_pod_manifest,
     pod_name,
@@ -130,33 +135,23 @@ class FakeProvisioner:
         return [pod_name(ephemeral_agent_id("feature-delivery", "implementer", run_id))]
 
 
-def _crew(settings, participants, audit, provisioner=None, companies=None):
+def _crew(
+    settings,
+    participants,
+    audit,
+    provisioner=None,
+    companies=None,
+    runs=None,
+    ledger=None,
+):
     return CrewActivities(
         settings,
         participants,
         audit,
         companies or _companies(),
-        InMemoryBudgetLedger(),
-        InMemoryRuns(),
+        ledger or InMemoryBudgetLedger(),
+        runs or InMemoryRuns(),
         provisioner,
-    )
-
-
-def settings(tmp_path) -> WorkerSettings:
-    token_file = tmp_path / "token"
-    token_file.write_text("projected")
-    return WorkerSettings(
-        opa_url="http://opa.test:8181",
-        platform_namespace=PLATFORM_NAMESPACE,
-        sandbox_image="poseidon-sandbox:abc123",
-        egress_proxy_url="http://127.0.0.1:3128",
-        egress_proxy_key="egress-key",
-        timeout_profile="default",
-        temporal_address="temporal.test:7233",
-        gateway_token_file=str(token_file),
-        mcp_gateway_url="http://gateway.test:8080",
-        agent_image="poseidon-agent-host:abc123",
-        model="mock-brain",
     )
 
 
@@ -203,27 +198,46 @@ def test_provision_wires_the_projected_identity_and_binds(crew, stores, provisio
     assert event.rule == "ephemeral_pod_provisioned"
 
 
-def test_provision_heartbeats_while_the_pod_comes_up(
-    crew, stores, provisioner, monkeypatch
-):
+def test_provision_heartbeats_while_the_pod_comes_up(settings, stores, monkeypatch):
     """fulfill_crew provisions one pod per agent back to back, and a pod
     can take longer to come up than the activity heartbeat window —
-    liveness must be signalled during the provision call itself."""
+    liveness must be signalled during the provision call itself. The pod
+    here comes up only once the activity has said it is alive, so a beat
+    sent after the call returns never arrives in time."""
     import orchestrator.activities.crew as module
 
-    beats: list[int] = []
+    beat = threading.Event()
     monkeypatch.setattr(module.activity, "in_activity", lambda: True)
-    monkeypatch.setattr(module.activity, "heartbeat", lambda: beats.append(1))
+    monkeypatch.setattr(module.activity, "heartbeat", beat.set)
 
+    class ShortWaits:
+        """The module's asyncio, its waits between beats cut to a blink."""
+
+        def __getattr__(self, name):
+            return getattr(asyncio, name)
+
+        @staticmethod
+        async def wait(tasks, timeout=None):
+            return await asyncio.wait(tasks, timeout=timeout and 0.01)
+
+    monkeypatch.setattr(module, "asyncio", ShortWaits())
+
+    class SlowPod(FakeProvisioner):
+        def provision(self, **kwargs):
+            assert beat.wait(timeout=5), "no heartbeat while the pod came up"
+            return super().provision(**kwargs)
+
+    participants, audit = stores
+    slow = SlowPod()
+    crew = _crew(settings, participants, audit, slow)
     asyncio.run(crew.provision_ephemeral_pod(dict(SPEC)))
-    assert beats, "no heartbeat during pod provisioning"
+    assert len(slow.provisioned) == 1
 
 
 def test_destroy_audits_each_pod(crew, stores, provisioner):
     _, audit = stores
-    deleted = asyncio.run(crew.destroy_ephemeral_pods(RUN_ID))
+    asyncio.run(crew.destroy_ephemeral_pods(RUN_ID))
     assert provisioner.destroyed == [RUN_ID]
-    assert deleted and all(name.startswith("ephemeral-") for name in deleted)
     assert [e.tool for e in audit.events] == [LIFECYCLE_DESTROY_POD]
     assert audit.events[0].rule == "ephemeral_pod_destroyed"
 
@@ -250,7 +264,7 @@ def _companies() -> "InMemoryCompanies":
 
 def _company(agents: list[dict]) -> dict:
     return {
-        "namespace": "hello-saas",
+        "namespace": COMPANY_NAMESPACE,
         "repo": {"url": "github.com/example/repo", "base_ref": "main"},
         "vision": "ship it",
         "ephemeralAgents": agents,
@@ -385,6 +399,59 @@ def test_fulfilment_wins_the_crew_request_decision_as_the_conductor(fulfill_worl
     assert event.lifecycle == "standing" and event.agent_id == "pm-1"
 
 
+@pytest.mark.parametrize(("spent", "headroom"), [(4.99, True), (5.0, False)])
+def test_the_decision_input_counts_the_conductors_crews_and_the_runs_headroom(
+    settings, provisioner, monkeypatch, spent, headroom
+):
+    """The decision input carries what policy needs beyond the caller: the
+    crews the conductor already has standing, and whether this run's own
+    spend is still under the blueprint's per-run cap — at the cap it has
+    no headroom. Another run's spend is not this run's."""
+    import common.opa as opa_module
+
+    opa = FakeOpa({"allow": True, "rule": "role_pm_crew_request"})
+    monkeypatch.setattr(opa_module, "httpx", opa)
+    companies = _companies()
+    companies.upsert(
+        "hello-saas", {**_company([IMPLEMENTER]), "budgets": {"per_run_usd": 5.0}}
+    )
+    ledger = InMemoryBudgetLedger()
+    for run_id, usd in ((RUN_ID, spent), ("run-other", 50.0)):
+        ledger.record(
+            company="hello-saas",
+            run_id=run_id,
+            agent_id="pm-1",
+            parent_agent_id="",
+            role="pm",
+            model="mock-brain",
+            prompt_tokens=1,
+            completion_tokens=1,
+            cached_tokens=0,
+            reasoning_tokens=0,
+            usd=usd,
+        )
+    participants = InMemoryRunParticipants()
+    participants.add(
+        "feature-review-reviewer-run-other",
+        "run-other",
+        "pm-1",
+        "feature-review",
+        "reviewer",
+    )
+    crew = _crew(
+        settings,
+        participants,
+        InMemoryAuditStore(),
+        provisioner,
+        companies,
+        ledger=ledger,
+    )
+    asyncio.run(crew.fulfill_crew(_fulfill_spec()))
+    ((_, payload),) = opa.calls
+    assert payload["input"]["active_spawns"] == 1
+    assert payload["input"]["budget_headroom"] is headroom
+
+
 def test_the_decision_names_the_calling_workflow(fulfill_world):
     """The review workflow fulfils under the same authority with its own
     name in the decision input."""
@@ -491,3 +558,28 @@ def test_a_run_torn_down_mid_provision_gets_no_pod(settings, stores):
     with pytest.raises(EphemeralPodAbandoned):
         asyncio.run(crew.provision_ephemeral_pod(dict(SPEC)))
     assert provisioner.provisioned == [], "a pod was created for a dead run"
+
+
+def test_a_provision_retry_that_outlived_its_run_gets_no_pod(settings, stores):
+    """The guard's other half. A provision retry re-asserts its binding
+    row — one teardown's sweep never saw, say, because the retry bound it
+    after the sweep passed — so the row alone cannot tell a live run from
+    a dead one; the run's own terminal state can, and no retry re-creates
+    that."""
+    from orchestrator.ephemeral_pods import EphemeralPodAbandoned
+
+    participants, audit = stores
+    runs = InMemoryRuns()
+    runs.start(RUN_ID, "implement issue #7", "implement", company="hello-saas")
+    provisioner = FakeProvisioner()
+    crew = _crew(settings, participants, audit, provisioner, runs=runs)
+    # While the run is live, a provision gets its pod.
+    asyncio.run(crew.provision_ephemeral_pod(dict(SPEC)))
+    assert len(provisioner.provisioned) == 1
+
+    runs.finish(RUN_ID, "failed", error="run cancelled")
+    with pytest.raises(EphemeralPodAbandoned):
+        asyncio.run(crew.provision_ephemeral_pod(dict(SPEC)))
+    agent_id = ephemeral_agent_id("feature-delivery", "implementer", RUN_ID)
+    assert participants.active(agent_id) is not None
+    assert len(provisioner.provisioned) == 1, "a pod was created for a dead run"

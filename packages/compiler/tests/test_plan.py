@@ -14,10 +14,14 @@ from conftest import GOLDEN, REPO_ROOT
 from blueprint.catalog import ROLES
 from compiler import compile_blueprint
 from compiler.errors import CompileError
+from compiler.regolden import golden_plan
 
 
 def test_plan_matches_the_golden_file(blueprint):
-    plan = compile_blueprint(blueprint).as_dict()
+    """Same input, the same plan as the one checked in: the diff at preview
+    is only meaningful if nothing wobbles between runs. The bundle files
+    are compared by their sha256; their text is the bundle directory's."""
+    plan = golden_plan(compile_blueprint(blueprint))
     expected = json.loads((GOLDEN / "hello-saas.plan.json").read_text())
     assert plan == expected
 
@@ -29,14 +33,6 @@ def test_bundle_matches_the_golden_files(blueprint):
     bundle_dir = GOLDEN / "hello-saas-bundle"
     on_disk = {p.name: p.read_text() for p in bundle_dir.glob("*.rego")}
     assert on_disk == {**plan.bundle.files, **plan.platform_bundle.files}
-
-
-def test_compilation_is_deterministic(blueprint):
-    """Same inputs, byte-identical plan: the diff at preview is only
-    meaningful if nothing wobbles between runs."""
-    first = json.dumps(compile_blueprint(blueprint).as_dict(), sort_keys=True)
-    second = json.dumps(compile_blueprint(blueprint).as_dict(), sort_keys=True)
-    assert first == second
 
 
 # -- what the plan must contain -------------------------------------------

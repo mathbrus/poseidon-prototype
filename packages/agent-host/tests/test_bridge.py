@@ -19,6 +19,9 @@ from mcp.server.fastmcp import FastMCP
 from agent_host.gateway_client import ToolCallError
 from agent_host.procedures import GatewayBridge
 
+# How long the slow tool takes to answer.
+SLOW_S = 0.3
+
 
 @pytest.fixture(scope="module")
 def mcp_server_url():
@@ -34,7 +37,7 @@ def mcp_server_url():
 
     @server_mcp.tool(name="sandbox.slow")
     async def slow(run_id: str, value: str) -> dict:
-        await anyio.sleep(0.3)
+        await anyio.sleep(SLOW_S)
         return {"echoed": value}
 
     probe = socket.socket()
@@ -87,8 +90,8 @@ def test_bridge_surfaces_tool_errors_as_toolcallerror(mcp_server_url):
 
 
 def test_bridge_reenters_cleanly(mcp_server_url):
-    """Two sequential dispatch lifetimes on one process
-    (plan → implement → deliver each open their own bridge)."""
+    """Two sequential dispatch lifetimes on one process (implement, then
+    deliver, each opening its own bridge)."""
     for round_ in ("a", "b"):
         with GatewayBridge(mcp_server_url, "test-token") as bridge:
             result = bridge.call("sandbox.echo", {"run_id": "r-2", "value": round_})
@@ -98,7 +101,8 @@ def test_bridge_reenters_cleanly(mcp_server_url):
 def test_bridge_multiplexes_concurrent_calls(mcp_server_url):
     """Several tool threads in `call` at once — the SDK fans a batch of
     reads out — share the one session, which serves them concurrently:
-    four 0.3 s calls take well under 1.2 s end to end."""
+    served one at a time, four slow calls take at least four times one
+    call's time end to end; served together, they finish inside it."""
     results: dict[str, dict] = {}
 
     def call(bridge: GatewayBridge, value: str) -> None:
@@ -115,4 +119,4 @@ def test_bridge_multiplexes_concurrent_calls(mcp_server_url):
             t.join(timeout=5)
         elapsed = time.monotonic() - started
     assert {v: r["echoed"] for v, r in results.items()} == {v: v for v in "abcd"}
-    assert elapsed < 0.9, f"calls serialized: {elapsed:.2f}s"
+    assert elapsed < 4 * SLOW_S, f"calls serialized: {elapsed:.2f}s"

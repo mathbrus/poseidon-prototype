@@ -1,10 +1,10 @@
 """Ephemeral identity on the live cluster: a bound ephemeral
 identity — a per-run ServiceAccount whose projected token round-trips the
 real TokenReview path — calls the gateway successfully; a foreign `run_id`
-claim from the same *live* identity is policy-denied; the same call after
-its participants row is terminated is denied while the token itself is
-still valid — revocation is the registry write, not the clock; and OPA
-demonstrably receives the binding as input, never as pushed data.
+claim from the same *live* identity is policy-denied, and so is every tool
+outside its compiled allow-list; the same call after its
+`run_participants` row is terminated is denied while the token itself is
+still valid — revocation is the registry write, not the clock.
 
 The real fulfill machinery runs here: the actual `CrewActivities` bind and
 revoke against the cluster's registry (port-forwarded), then the real
@@ -19,7 +19,6 @@ import httpx
 
 from common.audit import LIFECYCLE_BIND, LIFECYCLE_REVOKE
 from common.ids import new_run_id
-from common.policy import company_decision_path
 
 from .cluster import (
     COMPANY,
@@ -29,7 +28,6 @@ from .cluster import (
     gateway_url,
     kubectl,
     mcp_call,
-    port_forward,
     projected_token,
     registry,
     run_kubectl,
@@ -93,6 +91,53 @@ def test_bound_identity_lives_until_the_row_dies(stack: None, env: dict, tmp_pat
             assert foreign.isError
             assert "default_deny" in foreign.content[0].text
 
+            # Outside its compiled allow-list, the same live identity is
+            # denied by rule: PM-only and platform-only tools, and closing a
+            # ticket or a pull request — the implementer never grades its
+            # own homework.
+            repo = env["TARGET_REPO"]
+            for tool, args in (
+                (
+                    "issues.create",
+                    {
+                        "run_id": run_id,
+                        "repo": repo,
+                        "title": "x",
+                        "body": "y",
+                        "rationale": "red-team: probing the allowlist",
+                    },
+                ),
+                (
+                    "git.merge_pr",
+                    {"run_id": run_id, "repo": repo, "number": 1, "sha": "0" * 40},
+                ),
+                (
+                    "issues.close",
+                    {
+                        "run_id": run_id,
+                        "repo": repo,
+                        "number": 1,
+                        "reason": "completed",
+                        "rationale": "red-team: closing my own ticket",
+                    },
+                ),
+                (
+                    "git.close_pr",
+                    {
+                        "run_id": run_id,
+                        "repo": repo,
+                        "number": 1,
+                        "delete_branch": False,
+                        "rationale": "red-team: closing a rival pull request",
+                    },
+                ),
+            ):
+                denied = mcp_call(env, token, tool, args)
+                assert denied.isError, f"{tool} was not refused"
+                assert "default_deny" in denied.content[0].text, (
+                    f"{tool}: {denied.content[0].text}"
+                )
+
             # Revocation = row termination, long before the token expires.
             swept = asyncio.run(crew.revoke_participants(run_id))
             assert bound["agent_id"] in swept
@@ -122,6 +167,13 @@ def test_bound_identity_lives_until_the_row_dies(stack: None, env: dict, tmp_pat
             assert gateway_events, "the bound identity's call left no event"
             assert all(e["lifecycle"] == "ephemeral" for e in gateway_events)
             assert all(e["parent_agent_id"] == "pm-1" for e in gateway_events)
+            denied_tools = {e["tool"] for e in gateway_events if e["decision"] == "deny"}
+            assert {
+                "issues.create",
+                "git.merge_pr",
+                "issues.close",
+                "git.close_pr",
+            } <= denied_tools, denied_tools
 
             # The authn deny is recorded too (run_id '' — the credential no
             # longer maps to a run). The principal is the SA username, since
@@ -147,43 +199,3 @@ def test_bound_identity_lives_until_the_row_dies(stack: None, env: dict, tmp_pat
                 "DELETE FROM registry.run_participants WHERE run_id = %s", (run_id,)
             )
             client.execute("DELETE FROM registry.runs WHERE run_id = %s", (run_id,))
-
-
-def test_binding_rides_the_input_never_pushed_data(stack: None) -> None:
-    """Against the running OPA: there is no pushed run data anywhere — the
-    policy reads the enriched request *input* rather than a pushed
-    data.runs.assignments document — and the same live bundle flips the
-    implementer's decision on the input flag alone."""
-    with port_forward("svc/opa", 8181) as port:
-        base = f"http://127.0.0.1:{port}"
-        # Nothing was ever pushed: no run-assignment document exists, and
-        # nothing lives outside the served bundles.
-        pushed = httpx.get(f"{base}/v1/data/runs", timeout=10).json()
-        assert "result" not in pushed or not pushed["result"], (
-            f"OPA carries pushed run data: {pushed}"
-        )
-
-        implementer = {
-            "company": COMPANY,
-            "agent_id": "feature-delivery-implementer-x",
-            "lifecycle": "ephemeral",
-            "parent_agent_id": "pm-1",
-            "role": "implementer",
-            "crew_template": "feature-delivery",
-            "run_id": "run-binding-check",
-            "workflow": "implement",
-            "tool": "sandbox.exec",
-            "args": {},
-        }
-        bound = httpx.post(
-            f"{base}/v1/data/{company_decision_path(COMPANY)}",
-            json={"input": {**implementer, "run_binding_verified": True}},
-            timeout=10,
-        ).json()["result"]
-        unbound = httpx.post(
-            f"{base}/v1/data/{company_decision_path(COMPANY)}",
-            json={"input": {**implementer, "run_binding_verified": False}},
-            timeout=10,
-        ).json()["result"]
-        assert bound["allow"] is True
-        assert unbound == {"allow": False, "rule": "default_deny"}

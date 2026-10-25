@@ -38,16 +38,19 @@ class Once:
         return None
 
 
-def anyio_backend() -> str:
-    return "asyncio"
-
-
 @pytest.fixture
 async def temporal():
     # The dev server is fetched on first use; a machine that cannot fetch
-    # it skips, like the orchestrator's workflow tests.
+    # it skips, like the orchestrator's workflow tests. Its history service
+    # acknowledges transfer tasks every thirty seconds by default, and a
+    # delete waits on that acknowledgement: ask for one every second.
     try:
-        environment = await WorkflowEnvironment.start_local()
+        environment = await WorkflowEnvironment.start_local(
+            dev_server_extra_args=[
+                "--dynamic-config-value",
+                'history.transferProcessorUpdateAckInterval="1s"',
+            ]
+        )
     except Exception as exc:
         pytest.skip(f"temporal dev server unavailable: {exc}")
     yield environment
@@ -58,9 +61,9 @@ async def listed(client: Client) -> list[str]:
     return [e.id async for e in client.list_workflows(f"TaskQueue = '{TASK_QUEUE}'")]
 
 
-async def until(check, timeout_s: float = 90.0) -> None:
+async def until(check, timeout_s: float = 20.0) -> None:
     """Temporal applies a delete asynchronously, and its listing follows:
-    ask until it says so. The dev server takes about thirty seconds."""
+    ask until it says so."""
     deadline = asyncio.get_running_loop().time() + timeout_s
     while not await check():
         assert asyncio.get_running_loop().time() < deadline, "timed out"

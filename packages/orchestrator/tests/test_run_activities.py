@@ -13,10 +13,11 @@ import pytest
 
 from blueprint.bounds import render_bounds
 from common.audit import LIFECYCLE_REVOKE, gate_event
-from common.tasks import issue_run_task
+from common.topology import COMPANY_NAMESPACE
 from common.workflows import ATTEMPTS_GATE, MERGE_GATE
 from orchestrator.activities.crew import CrewActivities
 from orchestrator.activities.run import RunActivities, attempts_exhausted_comment
+from orchestrator.activities.tickets import refused_comment
 from orchestrator.workflows.base import Timeouts
 from registry.memory import (
     InMemoryAgentInstances,
@@ -33,7 +34,7 @@ RUN_ID = "run-test-0001"
 JOB_HANDLE = {
     "run_id": RUN_ID,
     "url": "http://192.168.0.9:8000",
-    "namespace": "hello-saas",
+    "namespace": COMPANY_NAMESPACE,
     "job_name": "poseidon-sbx-run-test-0001",
     "pod_name": "poseidon-sbx-run-test-0001-abcde",
 }
@@ -41,7 +42,7 @@ JOB_HANDLE = {
 # What an applied hello-saas blueprint records: the three run-shaped
 # workflows, a declared contract tree, and a heartbeat attempt bound.
 APPLIED_SPEC = {
-    "namespace": "hello-saas",
+    "namespace": COMPANY_NAMESPACE,
     "repo": {"url": "github.com/example/repo", "base_ref": "main"},
     "documents": {"strategy": "docs/STRATEGY.md", "architecture": "docs/ARCHITECTURE.md"},
     "budgets": {"per_run_usd": 5.0, "deadline_minutes": 60},
@@ -65,7 +66,7 @@ APPLIED_SPEC = {
 PM = {
     "agent_id": "pm-1",
     "role": "pm",
-    "url": "http://pm.hello-saas.svc.cluster.local:8000",
+    "url": f"http://pm.{COMPANY_NAMESPACE}.svc.cluster.local:8000",
 }
 
 
@@ -102,7 +103,7 @@ def companies() -> InMemoryCompanies:
 @pytest.fixture
 def instances() -> InMemoryAgentInstances:
     store = InMemoryAgentInstances()
-    store.upsert("pm-1", "hello-saas", "pm", "pm", namespace="hello-saas")
+    store.upsert("pm-1", "hello-saas", "pm", "pm", namespace=COMPANY_NAMESPACE)
     return store
 
 
@@ -119,6 +120,27 @@ def audit() -> InMemoryAuditStore:
 @pytest.fixture
 def activities(settings, backend, runs, companies, instances, ledger, audit):
     return RunActivities(settings, backend, runs, companies, instances, ledger, audit)
+
+
+@pytest.fixture
+def participants() -> InMemoryRunParticipants:
+    return InMemoryRunParticipants()
+
+
+@pytest.fixture
+def crewed(settings, backend, runs, companies, instances, ledger, audit, participants):
+    """Run activities whose give-back goes through a crew: the crew
+    activities over `participants`, or the `crew` a test passes."""
+
+    def make(crew: Any = None) -> RunActivities:
+        crew = crew or CrewActivities(
+            settings, participants, audit, companies, ledger, runs
+        )
+        return RunActivities(
+            settings, backend, runs, companies, instances, ledger, audit, crew
+        )
+
+    return make
 
 
 # -- create_run ---------------------------------------------------------------
@@ -152,26 +174,6 @@ def test_exhausted_notice_names_a_human_act_only_where_one_is_left():
     assert "`poseidon start implement <number>`" in attempts_exhausted_comment(
         "implement", 2, 2, bootstrap=True
     )
-
-
-def test_create_run_is_retry_safe(activities, runs):
-    asyncio.run(activities.create_run(RUN_ID, "implement", "attempt one"))
-    asyncio.run(activities.create_run(RUN_ID, "implement", "attempt two"))
-    assert runs.get(RUN_ID).task == "attempt two"
-
-
-def test_create_run_refuses_a_second_live_run_for_the_same_issue(activities, runs):
-    """One live implement run per issue — the registry constraint surfaces
-    here, so neither a heartbeat tick nor a human `poseidon start implement <n>` can
-    duplicate work already in flight."""
-    asyncio.run(activities.create_run(RUN_ID, "implement", issue_run_task(42)))
-    with pytest.raises(RuntimeError, match="one live run per work item"):
-        asyncio.run(
-            activities.create_run("run-elsewhere", "implement", issue_run_task(42))
-        )
-    # The losing run never clobbered the live row.
-    assert runs.get(RUN_ID).status == "running"
-    assert runs.get("run-elsewhere") is None
 
 
 # -- check_budget -------------------------------------------------------------
@@ -348,14 +350,66 @@ def test_unknown_gate_outcome_is_refused_before_it_is_written(activities, audit)
     assert [e for e in audit.events if e.run_id == RUN_ID] == []
 
 
-# -- teardown -----------------------------------------------------------------
+# -- vacate and teardown ------------------------------------------------------
 
 
-def test_teardown_destroys_and_finalizes_done(activities, backend, runs):
+@pytest.fixture
+def unregistered(monkeypatch, fake_gateway) -> list[str]:
+    """The gateway's side of a give-back: the runs whose sandbox
+    registration was retired."""
+    import orchestrator.activities.run as module
+
+    retired: list[str] = []
+
+    async def unregister_sandbox(self, run_id):
+        retired.append(run_id)
+
+    monkeypatch.setattr(
+        module, "GatewayClient", fake_gateway(unregister_sandbox=unregister_sandbox)
+    )
+    return retired
+
+
+@pytest.mark.parametrize("keep_slot", [True, False])
+def test_vacate_gives_back_the_crew_the_sandbox_and_the_place_unless_kept(
+    crewed, participants, backend, runs, unregistered, keep_slot
+):
+    """A run about to wait on a person gives back what it holds: its
+    crew's identities, its sandbox and the sandbox's registration — and
+    its place under `max_concurrent_runs`, unless it keeps it. The run
+    stays running: only teardown finalizes it."""
+    activities = crewed()
+    asyncio.run(activities.create_run(RUN_ID, "review", "review pull request #41"))
+    reviewer = "feature-review-reviewer-" + RUN_ID
+    participants.add(reviewer, RUN_ID, "pm-1", "feature-review", "reviewer")
+
+    asyncio.run(activities.vacate(RUN_ID, dict(JOB_HANDLE), keep_slot))
+
+    assert participants.active(reviewer) is None
+    assert backend.destroyed == [JOB_HANDLE["job_name"]]
+    assert unregistered == [RUN_ID]
+    run = runs.get(RUN_ID)
+    assert (run.status, run.occupies) == ("running", keep_slot)
+
+
+def test_a_vacate_that_fails_keeps_the_place_and_says_so(
+    activities, backend, runs, unregistered
+):
+    """A give-back that failed frees nothing more: the activity raises,
+    the workflow keeps the handle, and teardown tries again."""
+    asyncio.run(activities.create_run(RUN_ID, "review", "review pull request #41"))
+    backend.destroy_error = RuntimeError("apiserver gone")
+    with pytest.raises(RuntimeError, match="apiserver gone"):
+        asyncio.run(activities.vacate(RUN_ID, dict(JOB_HANDLE), False))
+    assert runs.get(RUN_ID).occupies is True
+
+
+def test_teardown_destroys_and_finalizes_done(activities, backend, runs, unregistered):
     asyncio.run(activities.create_run(RUN_ID, "implement", "task"))
     result = {"status": "done", "pr_url": "https://pr", "iterations": 3, "error": None}
     record = asyncio.run(activities.teardown(RUN_ID, dict(JOB_HANDLE), result, None))
     assert backend.destroyed == [JOB_HANDLE["job_name"]]
+    assert unregistered == [RUN_ID]
     assert record["status"] == "done"
     assert record["pr_url"] == "https://pr"
     assert record["iterations"] == 3
@@ -364,12 +418,13 @@ def test_teardown_destroys_and_finalizes_done(activities, backend, runs):
     assert stored.finished_at is not None
 
 
-def test_teardown_records_error_and_still_destroys(activities, backend):
+def test_teardown_records_error_and_still_destroys(activities, backend, unregistered):
     asyncio.run(activities.create_run(RUN_ID, "implement", "task"))
     record = asyncio.run(
         activities.teardown(RUN_ID, dict(JOB_HANDLE), None, "dispatch_agent: boom")
     )
     assert backend.destroyed == [JOB_HANDLE["job_name"]]
+    assert unregistered == [RUN_ID]
     assert record["status"] == "failed"
     assert record["error"] == "dispatch_agent: boom"
 
@@ -388,7 +443,6 @@ def test_teardown_links_the_tickets_a_run_filed(activities, runs):
     result = {
         "status": "done",
         "ticket_urls": ["https://github.test/i/7"],
-        "crew_request_id": "crq-1",
         "iterations": 0,
         "error": None,
     }
@@ -398,7 +452,9 @@ def test_teardown_links_the_tickets_a_run_filed(activities, runs):
     assert runs.get(RUN_ID).ticket_urls == ["https://github.test/i/7"]
 
 
-def test_teardown_surfaces_destroy_failure_as_error(activities, backend):
+def test_teardown_surfaces_destroy_failure_as_error(activities, backend, unregistered):
+    """A destroy that failed is the run's error; the registration is
+    retired all the same."""
     asyncio.run(activities.create_run(RUN_ID, "implement", "task"))
     backend.destroy_error = RuntimeError("apiserver gone")
     record = asyncio.run(
@@ -406,6 +462,7 @@ def test_teardown_surfaces_destroy_failure_as_error(activities, backend):
     )
     assert record["status"] == "failed"
     assert "apiserver gone" in record["error"]
+    assert unregistered == [RUN_ID]
 
 
 def test_teardown_reconstructs_a_missing_run_row(activities):
@@ -416,16 +473,12 @@ def test_teardown_reconstructs_a_missing_run_row(activities):
 
 
 def test_teardown_revokes_participants_on_every_terminal_path(
-    settings, backend, runs, companies, instances, ledger, audit
+    crewed, participants, audit, unregistered
 ):
     """Run-binding termination rides the one compensation anchor: the
     sweep runs before the sandbox destroy, on the failure path (no handle)
     and the success path alike."""
-    participants = InMemoryRunParticipants()
-    crew = CrewActivities(settings, participants, audit, companies, ledger, runs)
-    activities = RunActivities(
-        settings, backend, runs, companies, instances, ledger, audit, crew
-    )
+    activities = crewed()
 
     participants.add(
         "feature-delivery-implementer-" + RUN_ID,
@@ -438,6 +491,7 @@ def test_teardown_revokes_participants_on_every_terminal_path(
     assert record["status"] == "failed"
     assert participants.active("feature-delivery-implementer-" + RUN_ID) is None
     assert [e.tool for e in audit.events] == [LIFECYCLE_REVOKE]
+    assert unregistered == []  # no sandbox, no registration to retire
 
     # Success path, with a handle: sweep still runs first.
     participants.add(
@@ -454,11 +508,10 @@ def test_teardown_revokes_participants_on_every_terminal_path(
     )
     assert record["status"] == "done"
     assert participants.active("feature-review-reviewer-" + RUN_ID) is None
+    assert unregistered == [RUN_ID]
 
 
-def test_revoke_failure_is_loud_but_not_masking(
-    settings, backend, runs, companies, instances, ledger, audit
-):
+def test_revoke_failure_is_loud_but_not_masking(crewed, backend, unregistered):
     """A failed sweep surfaces in the run record; the sandbox is still
     destroyed and the run still finalizes."""
 
@@ -466,13 +519,12 @@ def test_revoke_failure_is_loud_but_not_masking(
         async def revoke_participants(self, run_id: str):
             raise RuntimeError("registry unreachable")
 
-    activities = RunActivities(
-        settings, backend, runs, companies, instances, ledger, audit, BrokenCrew()
-    )
+    activities = crewed(BrokenCrew())
     record = asyncio.run(
         activities.teardown(RUN_ID, dict(JOB_HANDLE), {"status": "done"}, None)
     )
     assert backend.destroyed == [JOB_HANDLE["job_name"]]
+    assert unregistered == [RUN_ID]
     assert record["status"] == "failed"
     assert "ephemeral agent revoke failed" in record["error"]
 
@@ -555,8 +607,7 @@ def test_the_last_aborted_review_records_exhaustion_and_refuses_the_pr(
     (closed, told) = acts
     assert closed[:2] == ("close_pr", 7)
     assert "none reached a verdict" in closed[2] and "max_attempts" in closed[2]
-    assert told[:2] == ("comment", 3)
-    assert told[2].endswith("The ticket is back on the backlog: attempt 1 of 2.")
+    assert told == ("comment", 3, refused_comment(7, closed[2], 1, 2, False))
     assert runs.get("run-impl").pr_settled == "refused"
 
 

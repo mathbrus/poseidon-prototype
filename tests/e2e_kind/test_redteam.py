@@ -7,7 +7,7 @@ What this suite claims, and what it deliberately does not:
 - **Claimed and asserted here** — the containment posture: K8s
   Jobs + NetworkPolicy + resource caps. No credential to scrape, no
   Kubernetes API or node metadata to reach, no container-runtime socket or
-  host mount, no other tenant's processes, run-scoped egress identity that
+  host mount, no other workload's processes, run-scoped egress identity that
   cannot be forged, resource caps that actually terminate a runaway, and a
   wall-clock deadline on every Job.
 - **Explicitly NOT claimed** — kernel-level isolation. Not hardened: there
@@ -319,7 +319,7 @@ def test_no_container_runtime_socket_or_host_mount(target: Target) -> None:
 
 def test_the_process_namespace_is_the_pods_own(target: Target) -> None:
     """No hostPID: the sandbox sees its own container's processes only —
-    not the kubelet, not the runtime, not another tenant's workload (whose
+    not the kubelet, not the runtime, not another run's workload (whose
     /proc/<pid>/environ would otherwise be readable)."""
     exit_code, output = target.py(
         "import os\n"
@@ -378,8 +378,8 @@ def test_resource_caps_and_deadline_are_declared_on_the_live_job(
 ) -> None:
     """The compiled policy reaches the cluster object, not just the
     manifest builder: CPU, memory and ephemeral-storage limits on the
-    container, and a wall-clock deadline on the Job (whose enforcement is
-    proven by test_sandbox_k8s's runaway test)."""
+    container, and a wall-clock deadline on the Job — which Kubernetes'
+    Job controller enforces."""
     spec = json.loads(
         kubectl("-n", COMPANY_NS, "get", "job", job_name(target.run_id), "-o", "json")
     )

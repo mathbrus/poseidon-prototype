@@ -58,7 +58,7 @@ def default_deny(company_ns: str) -> dict[str, Any]:
 
 
 def _agent_kinds_selector() -> dict[str, Any]:
-    """Standing agents and ephemeral crew brains share the agent envelope
+    """Standing and ephemeral agents share the agent envelope
     (gateways-only egress, orchestrator-only ingress) — selected by kind,
     so an ephemeral pod is contained the moment it exists."""
     return {

@@ -18,10 +18,6 @@ pytestmark = pytest.mark.anyio
 COMPANY = "hello-saas"
 
 
-def anyio_backend() -> str:
-    return "asyncio"
-
-
 class FakeTemporal:
     def __init__(self, error: Exception | None = None) -> None:
         self.error = error
@@ -69,8 +65,6 @@ async def test_an_applied_company_starts_the_heartbeat():
     (call,) = client.started
     assert call["name"] == "heartbeat"
     assert call["id"] == f"heartbeat-{COMPANY}"
-    # No override: the blueprint's declared cadence stands.
-    assert call["input"].pending_wake is False
 
 
 async def test_already_beating_is_the_normal_case():

@@ -11,14 +11,8 @@ from dataclasses import fields
 from orchestrator.workflows.base import (
     BOOTSTRAP_S,
     FAST_TIMEOUTS,
-    PROFILES,
     Timeouts,
 )
-
-
-def test_the_two_profiles_are_the_generous_default_and_the_fast_one():
-    assert PROFILES == {"default": Timeouts(), "fast": FAST_TIMEOUTS}
-    assert Timeouts().dispatch_s == 3600
 
 
 def test_fast_profile_is_strictly_tighter_on_every_bound():

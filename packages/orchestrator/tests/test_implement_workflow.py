@@ -11,9 +11,9 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 import pytest
+from conftest import state_is, until
 from temporalio import activity
 from temporalio.client import Client
-from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from orchestrator.workflows.base import FAST_TIMEOUTS
@@ -55,6 +55,7 @@ class Harness:
         default_factory=list
     )
     attempts_recorded: list[str] = field(default_factory=list)
+    gate_events: list[str] = field(default_factory=list)
     wakes: int = 0
     verifies: int = 0
     # Scripted verify outcomes, consumed in order; green once exhausted.
@@ -161,6 +162,12 @@ class Harness:
             harness.attempts_recorded.append(run_id)
             return {"exhausted": False}
 
+        @activity.defn(name="record_gate_outcome")
+        async def record_gate_outcome(
+            run_id: str, gate: str, kind: str, workflow_id: str
+        ) -> None:
+            harness.gate_events.append(kind)
+
         @activity.defn(name="teardown")
         async def teardown(
             run_id: str,
@@ -193,22 +200,10 @@ class Harness:
             dispatch_agent,
             platform_verify,
             abandon_exhausted,
+            record_gate_outcome,
             teardown,
             wake_heartbeat,
         ]
-
-
-def anyio_backend() -> str:
-    return "asyncio"
-
-
-async def env():
-    try:
-        environment = await WorkflowEnvironment.start_time_skipping()
-    except Exception as exc:
-        pytest.skip(f"temporal test server unavailable: {exc}")
-    yield environment
-    await environment.shutdown()
 
 
 def implement_worker(client: Client, harness: Harness) -> tuple[Worker, str]:
@@ -252,7 +247,7 @@ async def test_a_delivered_run_concluded_its_issue(env):
 
 
 async def test_a_retry_is_told_why_its_ticket_came_back(env):
-    """The ticket's refused deliveries ride the implementer's brief, after
+    """The ticket's refused deliveries ride the implementer's task, after
     the body, so the next attempt reads what went wrong before."""
     harness = Harness(
         refusals=[{"pr_url": "https://git.test/r/pulls/5", "reason": "owner rejected it"}]
@@ -294,30 +289,6 @@ async def test_an_architecture_request_ends_the_run_without_delivery(env):
     assert result is not None and result["ticket_urls"] == [url]
     assert harness.attempts_recorded == [RUN_ID]
     assert harness.wakes == 1
-
-
-async def test_a_verify_retry_keeps_the_first_dispatchs_tickets(env):
-    """A ticket an implement dispatch had the platform file is the run's
-    whatever the verify loop does next: a red verify re-dispatches, and
-    the re-dispatch's result must not erase it."""
-    url = "https://github.test/example/repo/issues/78"
-    harness = Harness(
-        implement_outcomes=[
-            {"status": "done", "error": None, "iterations": 1, "ticket_urls": [url]},
-        ],
-        verify_outcomes=[{"passed": False, "output": "red"}],
-        max_verify_retries=1,
-    )
-    # A dispatch that filed a ticket ends the run at the request (no
-    # verify at all), so the first dispatch here files nothing and the
-    # second, after the red verify, does.
-    harness.implement_outcomes.insert(
-        0, {"status": "done", "error": None, "iterations": 1, "ticket_urls": []}
-    )
-    await run_implement(env.client, harness)
-    (result, error) = harness.torn_down[0]
-    assert result is not None and result["ticket_urls"] == [url]
-    assert error == architecture_wait([url])
 
 
 async def test_a_delivery_that_opened_nothing_is_not_a_conclusion(env):
@@ -371,25 +342,60 @@ async def test_refused_deliveries_share_the_verify_bound(env):
     assert harness.attempts_recorded == [RUN_ID]
 
 
-async def test_a_cancelled_run_records_its_attempt(env):
-    """A run cancelled while its implementer is dispatched opened no PR: the
-    cancellation surfaces as the dispatch's, the run finalizes failed on
-    it, and the attempt accounting still runs after teardown."""
-    harness = Harness(dispatch_hangs=True)
+@pytest.mark.parametrize(
+    ("verdict", "outcomes"),
+    [(False, ["parked", "rejected"]), (None, ["parked", "escalated", "expired"])],
+)
+async def test_a_budget_park_not_approved_ends_the_run_at_its_cap(env, verdict, outcomes):
+    """A dispatch that hit the run's cap parks on `budget`. Rejected, or
+    unanswered until the blueprint's deadline, it is never dispatched
+    again: nothing is verified or delivered, the run finalizes failed on
+    the cap, and the attempt accounting runs."""
+    harness = Harness(
+        implement_outcomes=[{"status": "failed", "error": "budget_exhausted: at cap"}]
+    )
     worker, task_queue = implement_worker(env.client, harness)
-    await worker.__aenter__()
-    try:
+    async with worker:
         handle = await env.client.start_workflow(
             "implement",
             ImplementInput(run_id=RUN_ID, issue_number=ISSUE),
             id=f"implement-{uuid.uuid4().hex[:8]}",
             task_queue=task_queue,
         )
-        for _ in range(200):
-            if harness.dispatches:
-                break
-            await asyncio.sleep(0.05)
-        assert harness.dispatches, "the implementer was never dispatched"
+        # The park is reached in real time, its timers unfired until the
+        # result is awaited.
+        await until(
+            lambda: state_is(handle, "parked-budget_exhausted"),
+            "the run parked on its budget",
+        )
+        if verdict is not None:
+            await handle.signal("budget", args=[verdict])
+        record = await handle.result()
+
+    assert harness.gate_events == outcomes
+    assert harness.dispatches == ["implement"]
+    assert harness.verifies == 0
+    assert record["status"] == "failed"
+    assert record["error"] == "budget_exhausted: at cap"
+    assert harness.attempts_recorded == [RUN_ID]
+
+
+async def test_a_cancelled_run_records_its_attempt(own_env):
+    """A run cancelled while its implementer is dispatched opened no PR: the
+    cancellation surfaces as the dispatch's, the run finalizes failed on
+    it, and the attempt accounting still runs after teardown. The hung
+    dispatch outlives the run on its server, hence a server of its own."""
+    harness = Harness(dispatch_hangs=True)
+    worker, task_queue = implement_worker(own_env.client, harness)
+    await worker.__aenter__()
+    try:
+        handle = await own_env.client.start_workflow(
+            "implement",
+            ImplementInput(run_id=RUN_ID, issue_number=ISSUE),
+            id=f"implement-{uuid.uuid4().hex[:8]}",
+            task_queue=task_queue,
+        )
+        await until(lambda: harness.dispatches, "the implementer was dispatched")
         await handle.cancel()
         record = await handle.result()
     finally:

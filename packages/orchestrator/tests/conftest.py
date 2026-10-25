@@ -2,7 +2,14 @@
 test doubles, the anyio backend, the Temporal time-skipping environment,
 and a factory for gateway doubles."""
 
+import asyncio
+import contextlib
+import inspect
+from collections.abc import Callable
+from typing import Any
+
 import pytest
+from temporalio.client import WorkflowHandle
 from temporalio.testing import WorkflowEnvironment
 
 from common.topology import PLATFORM_NAMESPACE
@@ -49,22 +56,66 @@ def heartbeat_spec(**overrides) -> dict:
     }
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def anyio_backend() -> str:
+    """Module-scoped: anyio needs it at least as wide as `env`."""
     return "asyncio"
 
 
-@pytest.fixture
-async def env():
-    """Temporal's time-skipping test environment. It fetches the test
-    server binary on first use; a machine that cannot skips rather than
-    failing, like the compiler's OPA decision tests."""
+@contextlib.asynccontextmanager
+async def _time_skipping():
+    """A time-skipping test server. It fetches the test server binary on
+    first use; a machine that cannot skips rather than failing, like the
+    compiler's OPA decision tests."""
     try:
         environment = await WorkflowEnvironment.start_time_skipping()
     except Exception as exc:
         pytest.skip(f"temporal test server unavailable: {exc}")
-    yield environment
-    await environment.shutdown()
+    try:
+        yield environment
+    finally:
+        await environment.shutdown()
+
+
+@pytest.fixture(scope="module")
+async def env():
+    """Temporal's time-skipping test environment, one server per module.
+    Its tests keep apart on their own uuid task queues and workflow ids,
+    but they share its clock: the server skips time only while no
+    activity is in flight, so a test that leaves one behind stalls every
+    test after it until that activity times out. Such a test takes
+    `own_env`."""
+    async with _time_skipping() as environment:
+        yield environment
+
+
+@pytest.fixture
+async def own_env():
+    """A time-skipping server for one test: the one that leaves an
+    activity in flight — a run cancelled mid-dispatch — whose clock no
+    other test may wait on."""
+    async with _time_skipping() as environment:
+        yield environment
+
+
+async def until(condition: Callable[[], Any], what: str) -> None:
+    """Poll `condition` — plain or async — until it holds. Queries and
+    signals do not advance the time-skipping clock, so this waits in real
+    time, for at most ten seconds: a run that never gets there fails here,
+    by name, instead of hanging the suite."""
+    for _ in range(200):
+        held = condition()
+        if inspect.isawaitable(held):
+            held = await held
+        if held:
+            return
+        await asyncio.sleep(0.05)
+    raise AssertionError(f"timed out waiting until {what}")
+
+
+async def state_is(handle: WorkflowHandle, state: str) -> bool:
+    """Whether the workflow's `state` query answers `state`."""
+    return await handle.query("state") == state
 
 
 @pytest.fixture

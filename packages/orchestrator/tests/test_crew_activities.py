@@ -1,18 +1,17 @@
 """Identity binding against doubles: bind writes one deterministic
 participants row per {crew, role, run} — the row *is* the identity the
 gateways resolve a crew ServiceAccount against; revoke sweeps every live
-participant; both land process-lifecycle audit events; a retried bind
-converges on the same row instead of leaking a second identity — and never
-revives one the run's teardown already revoked."""
+ephemeral agent of the run; both land process-lifecycle audit events; a
+retried bind converges on the same row instead of leaking a second
+identity — and never revives one the run's teardown already revoked."""
 
 import asyncio
 
 import pytest
 
 from common.audit import LIFECYCLE_BIND, LIFECYCLE_REVOKE
-from common.topology import COMPANY_NAMESPACE, PLATFORM_NAMESPACE
+from common.topology import COMPANY_NAMESPACE
 from orchestrator.activities.crew import CrewActivities
-from orchestrator.config import WorkerSettings
 from orchestrator.ephemeral_pods import service_account_name
 from orchestrator.identity import ephemeral_agent_id
 from registry.memory import (
@@ -32,24 +31,6 @@ SPEC = {
     "role": "implementer",
     "parent_agent_id": "pm-1",
 }
-
-
-def settings(tmp_path) -> WorkerSettings:
-    token_file = tmp_path / "token"
-    token_file.write_text("projected")
-    return WorkerSettings(
-        opa_url="http://opa.test:8181",
-        platform_namespace=PLATFORM_NAMESPACE,
-        sandbox_image="poseidon-sandbox:abc123",
-        agent_image="poseidon-agent-host:abc123",
-        model="mock-brain",
-        egress_proxy_url="http://127.0.0.1:3128",
-        egress_proxy_key="egress-key",
-        timeout_profile="default",
-        temporal_address="temporal.test:7233",
-        gateway_token_file=str(token_file),
-        mcp_gateway_url="http://gateway.test:8080",
-    )
 
 
 @pytest.fixture

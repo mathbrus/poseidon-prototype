@@ -39,6 +39,7 @@ Look up the error you see. Each row gives the cause and the fix.
 | `run 'x' is not parked on its merge gate` | The run is not waiting for a verdict, or already got one. Check its state with `uv run poseidon run show <run_id>`. |
 | `repo_not_declared` in a run's story | An agent named a repository other than `stack.repo.url`, and policy refused. Check that `stack.repo.url` is the repository you meant. |
 | `llm_cost_unreported` | The model proxy can't price your model. See [Use a paid brain](paid-brain.md#troubleshooting). |
+| `budget_cap_missing` | The LLM gateway found no per-run cap for the company, so it refused the model call. Every applied blueprint has one. Check that the company is applied: `uv run poseidon company show`. |
 
 ## Running the acceptance suite
 

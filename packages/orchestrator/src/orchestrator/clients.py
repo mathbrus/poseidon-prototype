@@ -238,8 +238,8 @@ class GatewayClient:
     async def comment_pr(
         self, run_id: str, repo: str, number: int, body: str
     ) -> dict[str, Any]:
-        """A platform comment on a PR — the oracle-edit warning the human
-        reads before resolving the merge signal."""
+        """A platform comment on a PR — the contract-edit warning the human
+        reads before giving the merge verdict."""
         return await self._tool(
             "git.comment",
             {"run_id": run_id, "repo": repo, "number": number, "body": body},

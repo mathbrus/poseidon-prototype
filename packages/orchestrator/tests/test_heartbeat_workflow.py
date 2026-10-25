@@ -1,4 +1,4 @@
-"""The heartbeat's guardrails, proven at the workflow layer: the
+"""The heartbeat's guarantees, proven at the workflow layer: the
 real HeartbeatWorkflow runs against Temporal's time-skipping test environment
 with scripted activities — the tick's sequencing, cap halts, refusals,
 revocation and the wake path are exactly what the activity units cannot see.
@@ -17,11 +17,10 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 import pytest
-from conftest import heartbeat_spec
+from conftest import heartbeat_spec, state_is, until
 from temporalio import activity, workflow
 from temporalio.client import Client
 from temporalio.exceptions import ApplicationError
-from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from common.workflows import GATE_HALTED
@@ -181,22 +180,6 @@ class StubScope:
 @pytest.fixture(autouse=True)
 def _clear_children():
     _CHILDREN.clear()
-
-
-def anyio_backend() -> str:
-    return "asyncio"
-
-
-async def env():
-    # The time-skipping environment fetches Temporal's test server binary
-    # on first use; a machine that cannot skips rather than failing, like
-    # the compiler's OPA decision tests.
-    try:
-        environment = await WorkflowEnvironment.start_time_skipping()
-    except Exception as exc:
-        pytest.skip(f"temporal test server unavailable: {exc}")
-    yield environment
-    await environment.shutdown()
 
 
 async def run_heartbeat(client: Client, harness: Harness) -> dict[str, Any]:
@@ -439,21 +422,6 @@ async def test_empty_observation_never_wakes_the_pm(env):
     assert harness.ticks[0] == ("idle", "backlog_empty")
 
 
-async def test_deleting_the_company_stops_a_running_loop(env):
-    """The mid-flight teardown: tick one runs under an applied company,
-    the company disappears, and the loop's next tick stops it cleanly —
-    no ensure-loop involvement, no kill, and no row: the company's
-    history went with it."""
-    harness = Harness(
-        configs=[CONFIG, None],
-        observations=[observation()],
-        decisions=[{"action": "implement", "target": 5, "rationale": "go"}],
-    )
-    result = await run_heartbeat(env.client, harness)
-    assert [t[0] for t in harness.ticks] == ["started"]
-    assert result["stopped"].startswith("no applied blueprint")
-
-
 async def test_a_deleted_companys_heartbeat_completes_and_writes_nothing(env):
     """A loop started for a company already gone: it completes on its
     first config read, observing, deciding and recording nothing."""
@@ -497,8 +465,8 @@ async def test_heartbeat_survives_worker_death_between_ticks(env):
             id=f"heartbeat-{COMPANY}-{uuid.uuid4().hex[:8]}",
             task_queue=task_queue,
         )
-        while not harness.ticks:  # let the first tick finish, then die
-            await asyncio.sleep(0.05)
+        # Let the first tick finish, then die.
+        await until(lambda: harness.ticks, "the first tick was recorded")
     assert harness.ticks[0][0] == "started"
 
     async with worker():  # a fresh worker: replay, resume, self-stop
@@ -552,11 +520,9 @@ async def test_a_paused_loop_says_so_and_a_wake_leaves_it_paused(env):
             id=f"heartbeat-{COMPANY}-{uuid.uuid4().hex[:8]}",
             task_queue=task_queue,
         )
-        while await handle.query("state") != "paused":
-            await asyncio.sleep(0.05)
+        await until(lambda: state_is(handle, "paused"), "the loop read paused")
         await handle.signal("wake")
-        while len(harness.ticks) < 2:
-            await asyncio.sleep(0.05)
+        await until(lambda: len(harness.ticks) == 2, "the wake ticked once more")
         await handle.result()
     assert harness.ticks == [
         ("paused", "owner"),
@@ -584,11 +550,9 @@ async def test_wake_cuts_the_sleep_short(env):
             id=f"heartbeat-{COMPANY}-{uuid.uuid4().hex[:8]}",
             task_queue=task_queue,
         )
-        while await handle.query("state") != "sleeping":
-            await asyncio.sleep(0.05)
+        await until(lambda: state_is(handle, "sleeping"), "the loop slept")
         await handle.signal("wake")
-        while len(harness.ticks) < 2:
-            await asyncio.sleep(0.05)
+        await until(lambda: len(harness.ticks) == 2, "the wake ticked once more")
         result = await handle.result()
     assert [t[0] for t in harness.ticks] == ["idle", "idle"]
     assert result["stopped"].startswith("no applied blueprint")
@@ -626,12 +590,11 @@ async def test_wakes_mid_tick_coalesce_to_one_extra_tick(env):
             id=f"heartbeat-{COMPANY}-{uuid.uuid4().hex[:8]}",
             task_queue=task_queue,
         )
-        await observing.wait()
+        await until(observing.is_set, "the first tick observed")
         await handle.signal("wake")
         await handle.signal("wake")
         release.set()
-        while len(harness.ticks) < 2:
-            await asyncio.sleep(0.05)
+        await until(lambda: len(harness.ticks) == 2, "the wakes ticked once more")
         # The frozen clock rules the timer out and no further wake was
         # sent: a third tick now would be the coalescing gone wrong.
         await asyncio.sleep(0.5)
@@ -662,8 +625,7 @@ async def test_a_pending_wake_skips_the_first_sleep_then_the_loop_rests(env):
         )
         # Both ticks land under the frozen clock: the input alone cut the
         # first sleep short.
-        while len(harness.ticks) < 2:
-            await asyncio.sleep(0.05)
+        await until(lambda: len(harness.ticks) == 2, "the input skipped the sleep")
         assert await handle.query("state") == "sleeping"
         result = await handle.result()
     assert [t[0] for t in harness.ticks] == ["idle", "idle"]

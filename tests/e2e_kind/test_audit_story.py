@@ -1,7 +1,8 @@
 """The audit story on the cluster: the whole story of a run is reconstructable by
 `run_id` alone — every enforcement decision the platform made, in order,
-from one query. That is literally one query: the gateway and the egress
-proxy both write the registry `audit_events` table.
+from one query. That is literally one query: every producer — the two
+gateways, the egress proxy, the orchestrator's lifecycle and gates, the
+console — writes the registry `audit_events` table.
 """
 
 from common.audit import (
@@ -89,7 +90,7 @@ def test_one_query_spans_the_runs_real_sources(implement_run: dict) -> None:
     sources (no gate parks, nothing attempts egress); the sources a happy
     run *cannot* produce are proven on the runs that do produce them —
     process-gate on the review chain and the budget park, sandbox-infra
-    on the egress/red-team runs — and all five together, still with no
+    on the egress/red-team runs — and all six together, still with no
     seeding, in test_acceptance."""
     run_id = implement_run["run_id"]
     story = audit_story(run_id)

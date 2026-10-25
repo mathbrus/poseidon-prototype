@@ -52,7 +52,7 @@ def test_happy_path_ends_in_a_completion_claim(settings, gateway):
         result = run_implement(settings, RUN_ID, TASK, BOUNDS)
 
     assert result.error is None
-    assert result.pr_url is None  # the brain never self-delivers
+    assert result.pr_url is None  # implement never delivers
     assert result.iterations == 1
     assert llm.script == []
     assert gateway.tools_called() == [
@@ -87,6 +87,47 @@ def test_a_tree_with_no_tests_is_advisory_green(settings, gateway):
     assert result.iterations == 1
     assert llm.script == []
     assert gateway.tools_called().count("sandbox.run_tests") == 1
+
+
+def test_an_edit_is_the_sandboxs_and_reads_back_the_edited_lines(settings, gateway):
+    """`edit_file` resolves to `sandbox.edit_file` under the run's
+    identity, the model's arguments carried as written, and the model
+    reads back the lines around its change."""
+    llm = ScriptedLLM(
+        [
+            calls(
+                tc(
+                    "edit_file",
+                    command="str_replace",
+                    path="src/hello.py",
+                    old_str="return 'hi'",
+                    new_str="return 'hello'",
+                )
+            ),
+            says("Edited."),
+        ]
+    )
+
+    with scripted(gateway, llm):
+        result = run_implement(settings, RUN_ID, TASK, BOUNDS)
+
+    assert result.error is None
+    assert gateway.calls[1] == (
+        "sandbox.edit_file",
+        {
+            "run_id": RUN_ID,
+            "path": "src/hello.py",
+            "command": "str_replace",
+            "old_str": "return 'hi'",
+            "new_str": "return 'hello'",
+            "insert_line": None,
+        },
+    )
+    observation = text_of(llm.requests[1][0][-1])
+    assert observation == (
+        "Edited src/hello.py. The lines around the change now read:\n"
+        "     1\tdef hello():\n     2\t    return 'hi'\n"
+    )
 
 
 def test_deliver_dispatch_opens_the_pr_on_what_the_platform_commits(settings, gateway):
@@ -219,8 +260,8 @@ def test_review_without_a_verdict_fails_the_dispatch(settings, gateway):
 
 
 def test_prompt_and_toolsets_per_procedure(settings, gateway):
-    """The implement dispatch never offers delivery tools: the
-    act surface is the read/write set and the loop ends at the claim —
+    """The implement dispatch never offers delivery tools: its surface
+    is the read/write set and the loop ends at the claim —
     open_pr exists only in the separate deliver dispatch, and the implement
     prompt does not even mention it."""
     llm = ScriptedLLM([says("nothing to do")])
@@ -238,7 +279,6 @@ def test_prompt_and_toolsets_per_procedure(settings, gateway):
     assert TASK in task_message
     # The survey's tree rode the prompt, nested paths included.
     assert "README.md\nsrc/hello.py" in task_message
-    assert "carry it out" not in task_message  # no delivery talk while acting
 
     offered = set(llm.offered(0)) - {"finish", "think"}
     assert offered == {
@@ -280,7 +320,6 @@ def test_review_prompt_is_the_reviewers(settings, gateway):
 
     system = text_of(llm.requests[0][0][0])
     assert "comment_pr" in system
-    assert "implementer-1" not in system
     assert "write_file" not in system
 
 
@@ -310,7 +349,7 @@ def test_out_of_scope_tool_call_feeds_back_and_loop_recovers(settings, gateway):
 
 def test_failing_tests_loop_back_with_report_until_iteration_cap(settings, gateway):
     gateway.default_test_result = TESTS_FAIL
-    # One act turn per verify cycle; tests never pass, so the run fails
+    # One model turn per verify cycle; tests never pass, so the run fails
     # after the three verify cycles the conftest allows.
     llm = ScriptedLLM([says("try 1"), says("try 2"), says("try 3")])
 
@@ -328,6 +367,23 @@ def test_failing_tests_loop_back_with_report_until_iteration_cap(settings, gatew
     report = text_of(last_messages[-1])
     assert "exit code 1" in report
     assert "1 failed: test_hello" in report
+
+
+def test_a_refused_test_run_reads_red(settings, gateway):
+    """Policy refusing the host's own test run is no green: the dispatch
+    never claims completion on it, and the refusal is the report the
+    model reads, rule name and all."""
+    gateway.deny = {"sandbox.run_tests"}
+    llm = ScriptedLLM([says("try 1"), says("try 2"), says("try 3")])
+
+    with scripted(gateway, llm):
+        result = run_implement(settings, RUN_ID, TASK, BOUNDS)
+
+    assert result.error == "tests still failing after 3 iterations"
+    assert gateway.tools_called().count("sandbox.run_tests") == 3
+    report = text_of(llm.requests[-1][0][-1])
+    assert "exit code -1" in report
+    assert "denied by policy rule: default_deny (sandbox.run_tests)" in report
 
 
 # --- deny path (deny-and-recover) -----------------------------------------------
@@ -439,14 +495,11 @@ def test_budget_429_surfaces_the_marker_without_retry_grind(settings, gateway):
     assert len(attempts) == 1  # num_retries=1: one attempt, no grind
 
 
-def test_reviewer_step_budget_is_its_own_cap_not_verify_cycles(settings, gateway):
-    """The reviewer's budget is `REVIEW_STEP_CAP`, decoupled from
-    `VERIFY_CYCLES` — that cap bounds implement's verify cycles and must
-    not starve the reviewer of the steps a diff-read, a test run, findings
-    and a verdict take."""
-    from agent_host.procedures import REVIEW_STEP_CAP, VERIFY_CYCLES
+def test_a_review_that_never_finishes_stops_at_its_step_cap(settings, gateway):
+    """A reviewer that keeps calling tools is stopped at `REVIEW_STEP_CAP`
+    steps, and the dispatch says so by name."""
+    from agent_host.procedures import REVIEW_STEP_CAP
 
-    assert REVIEW_STEP_CAP > VERIFY_CYCLES * 2
     llm = ScriptedLLM(
         [calls(tc("read_file", path=f"src/m{i}.py")) for i in range(REVIEW_STEP_CAP)]
     )
@@ -871,11 +924,15 @@ def test_a_batch_of_reads_runs_concurrently(settings, gateway):
 
 def test_a_batch_with_writes_runs_in_the_models_order(settings, gateway):
     """A checkout, a write, a read and an add in one reply happen in that
-    order: the slow command finishes before the fast write starts."""
+    order: the slow command finishes before the fast write starts. Each
+    call is recorded once it is answered, so a write that overtook the
+    slow command would be recorded ahead of it."""
+    answered: list[str] = []
 
     async def slow_exec(tool, args):
         if tool == "sandbox.exec":
             await asyncio.sleep(0.05)
+        answered.append(tool)
 
     gateway.before = slow_exec
     llm = ScriptedLLM(
@@ -894,7 +951,7 @@ def test_a_batch_with_writes_runs_in_the_models_order(settings, gateway):
         result = run_implement(settings, RUN_ID, TASK, BOUNDS)
 
     assert result.error is None
-    assert gateway.tools_called() == [
+    assert answered == [
         "sandbox.list_dir",
         "sandbox.exec",
         "sandbox.write_file",

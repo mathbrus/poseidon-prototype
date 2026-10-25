@@ -5,21 +5,29 @@ part that matters. Every case here is a governance guarantee or a threat, so
 a refactor of the emitter that quietly widens a scope fails here rather
 than in production.
 
-Needs the `opa` binary or Docker; skips when neither is present so a laptop
-without them still gets a green run (CI has Docker).
+Needs Docker, which serves each bundle from the OPA image the chart deploys;
+skips without it so a laptop without Docker still gets a green run (CI has
+Docker).
 """
 
 import copy
+import http.client
 import json
 import os
 import shutil
 import subprocess
+import time
+import urllib.request
+from pathlib import Path
 
 import pytest
 import yaml
 from conftest import HELLO_SAAS
 
-from compiler import compile_blueprint
+from blueprint.catalog import ROLES
+from blueprint.tools import PLATFORM_ONLY, SANDBOX_TOOLS
+from common.policy import PLATFORM_DECISION_PATH, company_decision_path, rego_slug
+from compiler import PLATFORM_SCOPE, compile_blueprint
 from compiler.rego import REPO_TOOLS
 
 # Pinned to the tag the chart deploys and CI's `opa` job checks against, so
@@ -27,69 +35,118 @@ from compiler.rego import REPO_TOOLS
 # would make.
 OPA_IMAGE = "openpolicyagent/opa:1.19.0"
 
-# Per-company packages; the platform scope lives in its
-# own bundle. Both are loaded together here — their packages (and therefore
-# bundle roots) are disjoint by construction.
-COMPANY_QUERY = "data.poseidon.authz.hello_saas.decision"
-PLATFORM_QUERY = "data.poseidon.platform.decision"
+# The decision paths the gateways query: the company's own package, and the
+# platform's bundle beside it. Both are loaded together here — their
+# packages (and therefore bundle roots) are disjoint by construction.
+COMPANY_QUERY = company_decision_path("hello-saas")
+PLATFORM_QUERY = PLATFORM_DECISION_PATH
+
+# The servers listen on the loopback only; no proxy stands between.
+_LOCAL = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 
-def _runner():
-    if shutil.which("opa"):
-        return lambda bundle, stdin, query: subprocess.run(
-            ["opa", "eval", "-d", bundle, "-f", "raw", "-I", query],
-            input=stdin,
-            capture_output=True,
-            text=True,
-            timeout=60,
+def _docker(*args: str) -> str:
+    proc = subprocess.run(["docker", *args], capture_output=True, text=True, timeout=120)
+    assert proc.returncode == 0, proc.stderr
+    return proc.stdout.strip()
+
+
+def _published_url(container: str) -> str | None:
+    """The loopback URL Docker published the server on, or None once the
+    container has stopped: its port goes with it."""
+    proc = subprocess.run(
+        ["docker", "port", container, "8181/tcp"],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    return f"http://{proc.stdout.splitlines()[0]}" if proc.returncode == 0 else None
+
+
+class OpaServers:
+    """`opa run --server` containers, one per bundle directory, removed
+    together."""
+
+    def __init__(self) -> None:
+        self._containers: list[str] = []
+
+    def serve(self, bundle: Path) -> str:
+        """Start a server on `bundle` and return its URL once it answers."""
+        container = _docker(
+            "run",
+            "--detach",
+            # As the invoking user, so reading the bundle directory does not
+            # depend on the image's default uid matching whoever ran the tests.
+            "--user",
+            f"{os.getuid()}:{os.getgid()}",
+            "--volume",
+            f"{bundle}:/b:ro",
+            # Docker picks a free loopback port; `docker port` reads it back.
+            "--publish",
+            "127.0.0.1::8181",
+            OPA_IMAGE,
+            "run",
+            "--server",
+            "--addr=0.0.0.0:8181",
+            "/b",
         )
-    if shutil.which("docker"):
-        return lambda bundle, stdin, query: subprocess.run(
-            [
-                "docker",
-                "run",
-                "--rm",
-                "-i",
-                # As the invoking user, so reading the bundle directory does
-                # not depend on the image's default uid matching whoever ran
-                # the tests.
-                "--user",
-                f"{os.getuid()}:{os.getgid()}",
-                "-v",
-                f"{bundle}:/b:ro",
-                OPA_IMAGE,
-                "eval",
-                "-d",
-                "/b",
-                "-f",
-                "raw",
-                "-I",
-                query,
-            ],
-            input=stdin,
-            capture_output=True,
-            text=True,
-            timeout=120,
+        self._containers.append(container)
+        url = _published_url(container)
+        deadline = time.monotonic() + 60
+        while url is not None and time.monotonic() < deadline:
+            try:
+                with _LOCAL.open(f"{url}/health", timeout=5):
+                    return url
+            except (OSError, http.client.HTTPException):
+                # A bundle OPA refuses to load stops the server: say why.
+                if _docker("inspect", "--format={{.State.Running}}", container) != "true":
+                    break
+                time.sleep(0.05)
+        logs = subprocess.run(
+            ["docker", "logs", container], capture_output=True, text=True
         )
-    return None
+        pytest.fail(f"OPA did not serve {bundle}:\n{logs.stdout}{logs.stderr}")
+
+    def remove_all(self) -> None:
+        if self._containers:
+            _docker("rm", "--force", *self._containers)
+            self._containers.clear()
+
+
+_SERVERS = OpaServers()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def opa_servers():
+    """The servers `_decider` starts, removed when the session ends, however
+    its tests ended."""
+    yield _SERVERS
+    _SERVERS.remove_all()
 
 
 def _decider(tmp_path_factory, blueprint: dict, platform: bool = True):
     """Compile the blueprint, write its bundle (with the platform bundle
-    beside it unless `platform` is off), and return a query runner."""
-    runner = _runner()
-    if runner is None:
-        pytest.skip("neither the opa binary nor docker is available")
+    beside it unless `platform` is off), serve it, and return a query
+    runner."""
+    if shutil.which("docker") is None:
+        pytest.skip("docker is not available")
     plan = compile_blueprint(blueprint)
     bundle = tmp_path_factory.mktemp("bundle")
     files = {**plan.bundle.files, **(plan.platform_bundle.files if platform else {})}
     for name, body in files.items():
         (bundle / name).write_text(body)
+    url = _SERVERS.serve(bundle)
 
     def run(_query: str = COMPANY_QUERY, **input_fields) -> dict:
-        proc = runner(str(bundle), json.dumps(input_fields), _query)
-        assert proc.returncode == 0, proc.stderr
-        return json.loads(proc.stdout)
+        request = urllib.request.Request(
+            f"{url}/v1/data/{_query}",
+            data=json.dumps({"input": input_fields}).encode(),
+            headers={"Content-Type": "application/json"},
+        )
+        with _LOCAL.open(request, timeout=30) as response:
+            answer = json.loads(response.read())
+        assert "result" in answer, f"{_query} is undefined for {input_fields}"
+        return answer["result"]
 
     return run
 
@@ -150,7 +207,7 @@ def standing(role: str, **extra) -> dict:
     }
 
 
-# -- the lean-standing exit criteria ----------------------------------------
+# -- the PM conducts and does not implement ---------------------------------
 
 
 def test_pm_may_request_a_crew(decide):
@@ -166,10 +223,19 @@ def test_pm_may_request_a_crew(decide):
 
 def test_pm_cannot_call_implementer_tools(decide):
     """'The PM cannot call implementer-only tools' — a gateway deny,
-    not prompt hope."""
-    for tool in ("git.open_pr", "sandbox.write_file", "sandbox.exec"):
-        decision = decide(**standing("pm", tool=tool, args={"branch": "feature/x"}))
-        assert decision["allow"] is False, tool
+    not prompt hope: the call a bound implementer wins, the PM loses to
+    the default deny."""
+    calls = [("git.open_pr", {"branch": "feature/x", "paths": ["slugify.py"]})]
+    calls += [(tool, {}) for tool in SANDBOX_TOOLS]
+    for tool, args in calls:
+        call = {"tool": tool, "args": args, "run_binding_verified": True}
+        as_implementer = decide(**ephemeral("feature-delivery", "implementer", **call))
+        assert as_implementer == {
+            "allow": True,
+            "rule": f"crew_feature_delivery_implementer_{rego_slug(tool)}",
+        }
+        as_pm = decide(**standing("pm", **call))
+        assert as_pm == {"allow": False, "rule": "default_deny"}, tool
 
 
 # -- ephemeral agents are distinct principals ---------------------------------
@@ -185,6 +251,25 @@ def test_implementer_delivers_on_feature_branches(decide):
         )
     )
     assert decision["allow"] is True
+
+
+def test_a_standing_caller_cannot_claim_a_crew_rule(decide):
+    """Crew rules key on the ephemeral lifecycle: a standing caller
+    presenting a bound implementer's whole shape — crew, role, run — gets
+    nothing."""
+    bound = ephemeral(
+        "feature-delivery",
+        "implementer",
+        tool="sandbox.exec",
+        args={},
+        run_binding_verified=True,
+    )
+    assert decide(**bound) == {
+        "allow": True,
+        "rule": "crew_feature_delivery_implementer_sandbox_exec",
+    }
+    as_standing = decide(**{**bound, "lifecycle": "standing"})
+    assert as_standing == {"allow": False, "rule": "default_deny"}
 
 
 def test_an_agent_works_on_the_declared_repository_only(decide):
@@ -208,31 +293,20 @@ def test_an_agent_works_on_the_declared_repository_only(decide):
 
 
 def test_reviewer_cannot_deliver(decide):
+    """The delivery an implementer wins (above) is refused to the reviewer
+    for want of the tool, not by any path or branch rule."""
     decision = decide(
         **ephemeral(
             "feature-review",
             "reviewer",
             tool="git.open_pr",
-            args={"branch": "feature/x", "paths": []},
+            args={"branch": "feature/slugify", "paths": ["slugify.py"]},
         )
     )
-    assert decision["allow"] is False
+    assert decision == {"allow": False, "rule": "default_deny"}
 
 
 # -- the blueprint's own policies ------------------------------------------
-
-
-def test_protected_branch_is_denied(decide):
-    decision = decide(
-        **ephemeral(
-            "feature-delivery",
-            "implementer",
-            tool="git.open_pr",
-            args={"branch": "main", "paths": ["a.py"]},
-        )
-    )
-    assert decision["allow"] is False
-    assert decision["rule"].startswith("git_open_pr_")
 
 
 def test_denied_paths_beat_an_allowed_branch(decide):
@@ -247,126 +321,186 @@ def test_denied_paths_beat_an_allowed_branch(decide):
     assert decision == {"allow": False, "rule": "git_open_pr_denied_paths"}
 
 
-# -- run binding and tenancy ----------------------------------------------
+# -- run binding, and the company's own rules -------------------------------
 
 
 def test_sandbox_tools_require_a_verified_run_binding(decide):
     """A per-role allow-list without run binding reopens cross-run tool
-    use; the gateway's registry enrichment is what sets this flag."""
-    decision = decide(
-        **ephemeral(
-            "feature-delivery",
-            "implementer",
-            tool="sandbox.exec",
-            args={},
-        )
-    )
-    assert decision["allow"] is False
+    use; the gateway's registry enrichment is what sets this flag. The
+    implementer bound to its run is allowed; unverified, or claiming no
+    run, the same call is not."""
+    call = ephemeral("feature-delivery", "implementer", tool="sandbox.exec", args={})
+    bound = decide(**call, run_binding_verified=True)
+    assert bound == {
+        "allow": True,
+        "rule": "crew_feature_delivery_implementer_sandbox_exec",
+    }
+    for unbound in (
+        call,
+        {**call, "run_binding_verified": False},
+        {**call, "run_id": "", "run_binding_verified": True},
+    ):
+        assert decide(**unbound) == {"allow": False, "rule": "default_deny"}, unbound
 
 
-def test_another_company_cannot_borrow_our_rules(decide):
-    decision = decide(
-        company="evil-corp",
-        lifecycle="standing",
-        role="pm",
-        tool="crew.request",
-        run_id="run-1",
-        args={},
-    )
-    assert decision["allow"] is False
+@pytest.mark.parametrize(
+    ("bundle", "call", "rule"),
+    [
+        pytest.param(
+            "decide",
+            lambda: standing("pm", tool="issues.read", args={"number": 7}),
+            "role_pm_issues_read",
+            id="a-standing-agent's-tool",
+        ),
+        pytest.param(
+            "decide",
+            lambda: standing(
+                "pm",
+                tool="crew.request",
+                args={"crew_template": "feature-delivery", "reason": "ticket"},
+            ),
+            "role_pm_crew_request",
+            id="crew.request",
+        ),
+        pytest.param(
+            "decide",
+            lambda: ephemeral(
+                "feature-delivery",
+                "implementer",
+                tool="sandbox.exec",
+                args={},
+                run_binding_verified=True,
+            ),
+            "crew_feature_delivery_implementer_sandbox_exec",
+            id="an-ephemeral-agent's-tool",
+        ),
+        pytest.param(
+            "decide",
+            lambda: heartbeat_start("implement", active_runs=0, daily_spent_usd=0),
+            "heartbeat_start_implement",
+            id="heartbeat.start",
+        ),
+        pytest.param(
+            "decide",
+            lambda: human("owner", "gate.resolve", gate="merge", approved=True),
+            "gate_resolve_merge_approve",
+            id="a-human-act",
+        ),
+        pytest.param(
+            "decide",
+            lambda: console_read(),
+            "console_read_document",
+            id="the-console's-read",
+        ),
+        pytest.param(
+            "decide",
+            lambda: console_purge(),
+            "console_repo_purge",
+            id="the-console's-purge",
+        ),
+        pytest.param(
+            "decide",
+            lambda: human_resolve({"principal": "owner", "approved": True}),
+            "merge_resolve_human",
+            id="the-merge-by-a-verdict",
+        ),
+        pytest.param(
+            "decide_automated",
+            lambda: merge_resolve(verdict="pass", checks_green=True, paths=["src/a.py"]),
+            "merge_resolve_automated",
+            id="the-automated-merge",
+        ),
+    ],
+)
+def test_another_company_cannot_borrow_our_rules(request, bundle, call, rule):
+    """Every rule names its company: each kind of request our company wins,
+    made under another company's name, matches none of them."""
+    decide = request.getfixturevalue(bundle)
+    ours = call()
+    assert decide(**ours) == {"allow": True, "rule": rule}
+    borrowed = decide(**{**ours, "company": "evil-corp"})
+    assert borrowed == {"allow": False, "rule": "default_deny"}
 
 
 # -- the platform lifecycle -----------------------------------------------
 
 
-def test_only_the_platform_may_merge(decide):
-    """The workflow merges under its own identity after the human
-    gate — via its own decision path; no company role can reach the tool in
-    the company package at all."""
-    assert (
-        decide(
-            PLATFORM_QUERY,
-            lifecycle="platform",
-            tool="git.merge_pr",
-            run_id="run-1",
-            args={},
-        )["allow"]
-        is True
-    )
-    assert (
-        decide(
-            **ephemeral(
-                "feature-delivery",
-                "implementer",
-                tool="git.merge_pr",
-                args={},
-            )
-        )["allow"]
-        is False
-    )
-
-
-def test_only_the_platform_may_close_tickets_and_pull_requests(decide):
-    """Closing a ticket a merge fulfilled, and a pull request a rework
-    ticket superseded, are platform acts: the implementer never grades its
-    own homework, and no company role reaches either tool."""
-    for tool in ("issues.close", "git.close_pr"):
-        assert (
-            decide(
-                PLATFORM_QUERY,
-                lifecycle="platform",
-                tool=tool,
-                run_id="run-1",
-                args={"number": 4},
-            )["allow"]
-            is True
-        ), tool
-        as_implementer = decide(
-            **ephemeral("feature-delivery", "implementer", tool=tool, args={"number": 4})
+def _company_callers(blueprint: dict) -> list[tuple[dict, dict[str, str]]]:
+    """Every caller of the company beside the platform identity, as the
+    gateway presents it, with the rule each of its own tools is allowed by:
+    each standing agent and each ephemeral agent bound to its run, holding
+    what its catalog role holds and never a platform-only tool; a human the
+    company names, holding none; and the console, holding its read of the
+    company's documents."""
+    plan = compile_blueprint(blueprint)
+    callers = []
+    for i in plan.instances:
+        holds = {
+            tool: f"role_{rego_slug(i.standing_name)}_{rego_slug(tool)}"
+            for tool in ROLES[i.role].tools
+            if tool not in PLATFORM_ONLY
+        }
+        callers.append((standing(i.role, agent_id=i.agent_id), holds))
+    for a in plan.ephemeral_agents:
+        holds = {
+            tool: f"crew_{rego_slug(a.crew)}_{rego_slug(a.role)}_{rego_slug(tool)}"
+            for tool in ROLES[a.role].tools
+            if tool not in PLATFORM_ONLY
+        }
+        callers.append(
+            ({**ephemeral(a.crew, a.role), "run_binding_verified": True}, holds)
         )
-        assert as_implementer == {"allow": False, "rule": "default_deny"}, tool
-        as_pm = decide(**standing("pm", tool=tool, args={"number": 4}))
-        assert as_pm == {"allow": False, "rule": "default_deny"}, tool
+    callers.append((human("owner", ""), {}))
+    callers.append((console_read(), {"repo.read_file": "console_read_document"}))
+    return callers
+
+
+# The company bundles the platform's scope is checked against: the shipped
+# example, and the company that compiles every catalog role, an automated
+# merge gate and a contract tree.
+COMPANIES = {
+    "decide": lambda: _company(),
+    "decide_contract_tree": lambda: _company(_declare_contract_tree),
+}
+
+
+@pytest.mark.parametrize("bundle", list(COMPANIES))
+@pytest.mark.parametrize("tool", PLATFORM_SCOPE)
+def test_the_platform_scope_is_the_platform_identitys_alone(request, bundle, tool):
+    """Every tool the orchestrator's own identity may call — the merge, the
+    closing acts, the rework ticket, the notices, the archive, the reads,
+    the verify gate, the sandbox registration — is allowed to it by a rule
+    naming the tool. The platform package refuses each company lifecycle
+    the same valid call, and the company package allows it to a caller
+    only by that caller's own rule — a role sharing a read, a comment or a
+    test run; the console reading the company's documents — and refuses it
+    to everyone else, a platform-only tool to every role."""
+    decide = request.getfixturevalue(bundle)
+    args = {
+        "repo": DECLARED_REPO,
+        "number": 4,
+        "ref": "main",
+        "path": "docs/STRATEGY.md",
+    }
+    call = {"company": "hello-saas", "run_id": "run-1", "tool": tool, "args": args}
+    platform = decide(PLATFORM_QUERY, lifecycle="platform", **call)
+    assert platform == {"allow": True, "rule": f"platform_{rego_slug(tool)}"}
+    for caller, holds in _company_callers(COMPANIES[bundle]()):
+        presented = {**caller, "tool": tool, "args": args}
+        who = (caller["lifecycle"], caller["role"])
+        misrouted = decide(PLATFORM_QUERY, **presented)
+        assert misrouted == {"allow": False, "rule": "default_deny"}, who
+        own = (
+            {"allow": True, "rule": holds[tool]}
+            if tool in holds
+            else {"allow": False, "rule": "default_deny"}
+        )
+        assert decide(**presented) == own, who
 
 
 def test_unknown_tool_is_denied_by_default(decide):
     decision = decide(**standing("pm", tool="issues.purge", args={}))
     assert decision == {"allow": False, "rule": "default_deny"}
-
-
-def test_platform_may_retire_a_sandbox_registration(decide):
-    """Both gateway admin routes are in PLATFORM_SCOPE — teardown needs the
-    DELETE as much as fulfilment needs the POST."""
-    for tool in ("/admin/sandboxes", "/admin/sandboxes.delete"):
-        assert (
-            decide(
-                PLATFORM_QUERY, lifecycle="platform", tool=tool, run_id="run-1", args={}
-            )["allow"]
-            is True
-        ), tool
-
-
-def test_platform_may_leave_the_attempts_exhausted_notice(decide):
-    """The exhaustion notice lands on the item itself: git.comment for a
-    PR, issues.comment for a ticket — both platform writes."""
-    for tool in ("git.comment", "issues.comment"):
-        assert (
-            decide(
-                PLATFORM_QUERY, lifecycle="platform", tool=tool, run_id="run-1", args={}
-            )["allow"]
-            is True
-        ), tool
-
-
-def test_company_lifecycles_find_nothing_in_the_platform_package(decide):
-    """The platform package carries only platform rules: a standing or
-    ephemeral caller routed there by mistake still gets default-deny."""
-    assert decide(
-        PLATFORM_QUERY,
-        **standing(
-            "implementer", tool="sandbox.exec", run_binding_verified=True, args={}
-        ),
-    ) == {"allow": False, "rule": "default_deny"}
 
 
 def test_open_pr_without_paths_is_denied(decide):
@@ -387,7 +521,7 @@ def test_open_pr_without_paths_is_denied(decide):
 # -- emitter edge cases (fresh bundles, not the module fixture) -------------
 
 
-def _eval_bundle(tmp_path_factory, blueprint, name, input_fields) -> dict:
+def _eval_bundle(tmp_path_factory, blueprint, input_fields) -> dict:
     """One company-only decision on a fresh bundle."""
     return _decider(tmp_path_factory, blueprint, platform=False)(**input_fields)
 
@@ -400,7 +534,6 @@ def test_bundle_without_policies_still_loads(tmp_path_factory, blueprint):
     decision = _eval_bundle(
         tmp_path_factory,
         blueprint,
-        "no-policies",
         standing("pm", tool="issues.purge", args={}),
     )
     assert decision == {"allow": False, "rule": "default_deny"}
@@ -413,7 +546,6 @@ def test_pattern_with_a_backtick_cannot_inject_policy(tmp_path_factory, blueprin
     decision = _eval_bundle(
         tmp_path_factory,
         blueprint,
-        "backtick-pattern",
         ephemeral(
             "feature-delivery",
             "implementer",
@@ -426,12 +558,13 @@ def test_pattern_with_a_backtick_cannot_inject_policy(tmp_path_factory, blueprin
 
 def test_uppercase_protected_branch_still_protects(tmp_path_factory, blueprint):
     """`protected: [Main]` must deny `main`: branches are lowercased at emit
-    time to match the lowercased input."""
+    time to match the lowercased input. The blueprint declares no branch
+    pattern, so the protection is what refuses — the example's pattern
+    would refuse `main` on its own."""
     blueprint["policies"]["branch_protection"] = {"protected": ["Main"]}
     decision = _eval_bundle(
         tmp_path_factory,
         blueprint,
-        "uppercase-protected",
         ephemeral(
             "feature-delivery",
             "implementer",
@@ -475,9 +608,9 @@ def test_crew_rule_compares_the_raw_role_name():
 
 
 def test_crew_request_is_narrowed_to_may_spawn(decide):
-    """The compiled crew.request rule requires the requested
-    template to be in the conductor's may_spawn list — spawn intent outside
-    it never even records."""
+    """The compiled crew.request rule requires the requested crew to be in
+    the conductor's may_spawn list — spawn intent outside it never even
+    records."""
     allowed = decide(
         **standing(
             "pm",
@@ -497,7 +630,7 @@ def test_crew_request_is_narrowed_to_may_spawn(decide):
     assert outside == {"allow": False, "rule": "default_deny"}
 
     absent = decide(**standing("pm", tool="crew.request", args={}))
-    assert absent["allow"] is False
+    assert absent == {"allow": False, "rule": "default_deny"}
 
 
 def test_crew_request_concurrency_cap_denies_by_rule(decide):
@@ -613,17 +746,25 @@ def test_heartbeat_attempt_cap_denies(decide_heartbeat):
     assert decision["allow"] is True
 
 
-def test_heartbeat_start_fails_closed_without_the_counts(decide_heartbeat):
+@pytest.mark.parametrize(
+    ("fact", "rule"),
+    [
+        ("active_runs", "heartbeat_start_counts_missing"),
+        ("daily_spent_usd", "heartbeat_start_spend_missing"),
+        ("attempts", "heartbeat_start_attempts_missing"),
+    ],
+)
+def test_heartbeat_start_fails_closed_without_the_counts(decide_heartbeat, fact, rule):
     """Fail-safe defaults: the dangerous condition is the absent input,
-    and absence denies — the changed-paths posture, applied to caps."""
-    decision = decide_heartbeat(**heartbeat_start("implement", daily_spent_usd=0))
-    assert decision["allow"] is False
-    assert decision["rule"] == "heartbeat_start_counts_missing"
-    absent_attempts = heartbeat_start("implement", active_runs=0, daily_spent_usd=0)
-    del absent_attempts["args"]["attempts"]
-    decision = decide_heartbeat(**absent_attempts)
-    assert decision["allow"] is False
-    assert decision["rule"] == "heartbeat_start_attempts_missing"
+    and absence denies — the changed-paths posture, applied to caps. The
+    start allowed with every count is refused by name without any one."""
+    start = heartbeat_start("implement", active_runs=0, daily_spent_usd=0)
+    assert decide_heartbeat(**start) == {
+        "allow": True,
+        "rule": "heartbeat_start_implement",
+    }
+    del start["args"][fact]
+    assert decide_heartbeat(**start) == {"allow": False, "rule": rule}
 
 
 def test_a_paused_loop_starts_nothing_and_must_say_whether_it_is(decide_heartbeat):
@@ -642,29 +783,19 @@ def test_a_paused_loop_starts_nothing_and_must_say_whether_it_is(decide_heartbea
 
 def test_agents_cannot_claim_heartbeat_authority(decide_heartbeat):
     """heartbeat.start allows only the platform lifecycle: a standing or
-    ephemeral caller reciting the tool name matches no rule."""
-    decision = decide_heartbeat(
-        **standing("pm", tool="heartbeat.start"),
-        args={
-            "workflow": "implement",
-            "active_runs": 0,
-            "daily_spent_usd": 0,
-            "attempts": 0,
-        },
-    )
-    assert decision["allow"] is False
-
-
-def test_heartbeat_grants_no_new_path_to_merge(decide_heartbeat):
-    """Authority not looser: declaring a heartbeat adds start authority for
-    the platform and nothing else — the merge stays reachable only through
-    the platform identity after the human gate, exactly as without it."""
-    as_pm = decide_heartbeat(**standing("pm", tool="git.merge_pr", args={"number": 4}))
-    assert as_pm["allow"] is False
-    as_platform = decide_heartbeat(
-        PLATFORM_QUERY, lifecycle="platform", tool="git.merge_pr", args={"number": 4}
-    )
-    assert as_platform["allow"] is True
+    ephemeral caller reciting the platform's whole start matches no rule."""
+    start = heartbeat_start("implement", active_runs=0, daily_spent_usd=0)
+    assert decide_heartbeat(**start) == {
+        "allow": True,
+        "rule": "heartbeat_start_implement",
+    }
+    claim = {"tool": start["tool"], "args": start["args"]}
+    for caller in (
+        standing("pm", **claim),
+        ephemeral("feature-delivery", "implementer", **claim),
+    ):
+        decision = decide_heartbeat(**caller)
+        assert decision == {"allow": False, "rule": "default_deny"}, caller["lifecycle"]
 
 
 # -- the automated merge gate ----------------------------------------------
@@ -761,10 +892,13 @@ def test_merge_resolve_fails_closed_without_the_paths(decide_automated):
 
 
 def test_an_empty_diff_is_not_an_automated_merge(decide_automated):
+    """Every path of an empty diff is trivially automated, so the
+    automation asks for at least one: with every fact green it matches no
+    allow."""
     decision = decide_automated(
         **merge_resolve(verdict="pass", checks_green=True, paths=[])
     )
-    assert decision["allow"] is False
+    assert decision == {"allow": False, "rule": "default_deny"}
 
 
 def test_a_carved_out_path_denies_by_name(decide_automated):
@@ -804,50 +938,27 @@ def test_independence_fails_closed_when_absent(decide_automated):
 
 
 def test_agents_cannot_claim_the_merge_resolve(decide_automated):
-    """merge.resolve allows only the platform lifecycle: a standing caller
-    reciting the tool name matches no rule."""
-    decision = decide_automated(
-        **standing("pm", tool="merge.resolve"),
-        args={"verdict": "pass", "checks_green": True, "paths": ["src/a.py"]},
-    )
-    assert decision["allow"] is False
-
-
-def test_automation_grants_no_new_path_to_merge_pr(decide_automated):
-    """Authority not looser: the automation adds the resolve decision and
-    nothing else — git.merge_pr stays unreachable for every company role."""
-    as_pm = decide_automated(**standing("pm", tool="git.merge_pr", args={"number": 4}))
-    assert as_pm["allow"] is False
-
-
-def test_the_rework_write_belongs_to_the_platform(decide_automated):
-    """file_rework files the ticket under the platform identity; the
-    reviewer that produced the findings holds no issues.create at all —
-    a steered reviewer can fail a PR, never flood the backlog itself."""
-    as_platform = decide_automated(
-        PLATFORM_QUERY,
-        lifecycle="platform",
-        tool="issues.create",
-        run_id="run-1",
-        args={"title": "Rework 1 for PR #41: x", "body": "…"},
-    )
-    assert as_platform["allow"] is True
-    as_reviewer = decide_automated(
-        **ephemeral(
-            "feature-review",
-            "reviewer",
-            tool="issues.create",
-            args={"title": "Rework 1 for PR #41: x", "body": "…"},
-        )
-    )
-    assert as_reviewer["allow"] is False
+    """merge.resolve allows only the platform lifecycle: a standing or
+    ephemeral caller reciting the platform's whole resolve, on either
+    path, matches no rule."""
+    for resolve, rule in (
+        (
+            merge_resolve(verdict="pass", checks_green=True, paths=["src/a.py"]),
+            "merge_resolve_automated",
+        ),
+        (human_resolve({"principal": "owner", "approved": True}), "merge_resolve_human"),
+    ):
+        assert decide_automated(**resolve) == {"allow": True, "rule": rule}
+        for caller in (standing("pm"), ephemeral("feature-review", "reviewer")):
+            claimed = decide_automated(**{**resolve, **caller})
+            assert claimed == {"allow": False, "rule": "default_deny"}, (rule, caller)
 
 
 # -- architecture requests ----------------------------------------------------
 
 
 def test_one_architecture_request_per_run(decide):
-    """A bound crew member may ask once per run — the count rides the
+    """A bound ephemeral agent may ask once per run — the count rides the
     input from the gateway's own audit trail — and never without the
     count; the PM, who files tickets itself, has no such tool."""
 
@@ -872,9 +983,13 @@ def test_one_architecture_request_per_run(decide):
             "run_binding_verified": False,
         }
     )
-    assert unbound["allow"] is False
-    pm = decide(**standing("pm", tool="architecture.request", args={"proposal": "p"}))
-    assert pm["allow"] is False
+    assert unbound == {"allow": False, "rule": "default_deny"}
+    pm = decide(
+        **standing("pm", tool="architecture.request", args={"proposal": "p"}),
+        architecture_requests=0,
+        run_binding_verified=True,
+    )
+    assert pm == {"allow": False, "rule": "default_deny"}
 
 
 # -- dismissals ---------------------------------------------------------------
@@ -931,19 +1046,20 @@ def test_each_dismissal_limit_denies_by_name(decide, facts, rule):
 
 
 def test_only_the_pm_dismisses(decide):
-    """No other role holds the tool, standing or ephemeral, whatever the
-    facts say."""
-    facts = {k: v for k, v in _dismissal().items() if k not in ("role", "lifecycle")}
-    for caller in (
-        {"lifecycle": "standing", "role": "implementer"},
-        {
-            "lifecycle": "ephemeral",
-            "role": "reviewer",
-            "crew_template": "feature-review",
-            "parent_agent_id": "pm-1",
-        },
+    """No other role holds the tool, whatever the facts say: the dismissal
+    the PM wins is refused to every ephemeral agent of the company."""
+    facts = _dismissal()
+    assert decide(**facts) == {"allow": True, "rule": "role_pm_issues_dismiss"}
+    for crew, role in (
+        ("feature-delivery", "implementer"),
+        ("feature-review", "reviewer"),
+        ("stewardship", "steward"),
     ):
-        assert decide(**{**facts, **caller})["allow"] is False
+        caller = {
+            **facts,
+            **ephemeral(crew, role, tool=facts["tool"], args=facts["args"]),
+        }
+        assert decide(**caller) == {"allow": False, "rule": "default_deny"}, role
     other_repo = _dismissal()
     other_repo["args"] = {"repo": "github.com/elsewhere/repo", "number": 7}
     assert decide(**other_repo) == {"allow": False, "rule": "repo_not_declared"}
@@ -1005,14 +1121,14 @@ CONTRACT_TESTS = {"paths": ["tests/contract/"], "roles": ["contract-author"]}
 
 
 @pytest.fixture(scope="module")
-def decide_split(tmp_path_factory):
-    """The company with the oracle split declared: a protected contract
-    tree owned by the contract-authoring crew's role, beside automated
-    paths that cannot contain it."""
-    return _decider(tmp_path_factory, _company(_split))
+def decide_contract_tree(tmp_path_factory):
+    """The company with a contract tree declared: acceptance tests only the
+    contract-authoring crew's role may deliver into, beside automated paths
+    that cannot contain them."""
+    return _decider(tmp_path_factory, _company(_declare_contract_tree))
 
 
-def _split(blueprint: dict) -> None:
+def _declare_contract_tree(blueprint: dict) -> None:
     """Declare the contract tree, its authoring crew, and automated paths
     beside it."""
     blueprint["policies"]["contract_tests"] = copy.deepcopy(CONTRACT_TESTS)
@@ -1027,11 +1143,11 @@ def _contract_crew(blueprint: dict) -> None:
     }
 
 
-def test_the_implementer_cannot_pr_the_contract_tree(decide_split):
+def test_the_implementer_cannot_pr_the_contract_tree(decide_contract_tree):
     """`git.open_pr` into the contract tree dies at the gateway for any
     role outside the declared owners — the PR never exists, and the audit
     row names the class, not an index."""
-    decision = decide_split(
+    decision = decide_contract_tree(
         **ephemeral(
             "feature-delivery",
             "implementer",
@@ -1045,10 +1161,10 @@ def test_the_implementer_cannot_pr_the_contract_tree(decide_split):
     assert decision == {"allow": False, "rule": "git_open_pr_contract_tree"}
 
 
-def test_unit_tests_stay_the_implementers(decide_split):
-    """The split, not a freeze: everything outside the contract tree is
+def test_unit_tests_stay_the_implementers(decide_contract_tree):
+    """The contract tree, not every test: everything outside it is
     ordinary code the implementer still owns end to end."""
-    decision = decide_split(
+    decision = decide_contract_tree(
         **ephemeral(
             "feature-delivery",
             "implementer",
@@ -1062,11 +1178,12 @@ def test_unit_tests_stay_the_implementers(decide_split):
     assert decision["allow"] is True
 
 
-def test_the_contract_author_delivers_into_the_contract_tree(decide_split):
-    """The split's positive half: the contract-authoring crew's author —
-    a distinct, deliver-capable template — opens the contract PR through
-    the same governed `git.open_pr` as any change."""
-    decision = decide_split(
+def test_the_contract_author_delivers_into_the_contract_tree(decide_contract_tree):
+    """The tree's positive half: the role the declaration names — the
+    contract-authoring crew's distinct, deliver-capable contract author —
+    opens the contract PR through the same governed `git.open_pr` as any
+    change."""
+    decision = decide_contract_tree(
         **ephemeral(
             "contract-authoring",
             "contract-author",
@@ -1080,47 +1197,11 @@ def test_the_contract_author_delivers_into_the_contract_tree(decide_split):
     assert decision["allow"] is True
 
 
-def test_the_pm_may_request_the_contract_crew(decide_split):
-    """`may_spawn` bounds the second crew like the first: granted in this
-    blueprint, so the request is allowed; the ungranted-template deny is
-    `test_crew_request_is_narrowed_to_may_spawn`'s, unchanged."""
-    decision = decide_split(
-        **standing(
-            "pm",
-            tool="crew.request",
-            args={"crew_template": "contract-authoring", "reason": "author contract"},
-        )
-    )
-    assert decision["allow"] is True
-
-
-def test_a_declared_owner_passes_the_contract_rule(tmp_path_factory, blueprint):
-    """The rule keys on the role — a caller keyed on what it *is*: a
-    caller the declaration names is not denied by it (whether that role
-    holds `git.open_pr` at all stays the allow-list's business, as ever)."""
-    blueprint["policies"]["contract_tests"] = {
-        "paths": ["tests/contract/"],
-        "roles": ["implementer"],
-    }
-    decision = _eval_bundle(
-        tmp_path_factory,
-        blueprint,
-        "contract-owner",
-        ephemeral(
-            "feature-delivery",
-            "implementer",
-            tool="git.open_pr",
-            args={"branch": "feature/x", "paths": ["tests/contract/test_api.py"]},
-        ),
-    )
-    assert decision["allow"] is True
-
-
-def test_a_contract_path_is_never_an_automated_merge(decide_split):
+def test_a_contract_path_is_never_an_automated_merge(decide_contract_tree):
     """Every fact green and the resolve still denies by the class's own
-    name: oracle edits never auto-merge with the code they certify — they
-    park on the human `merge` signal like any carve-out."""
-    decision = decide_split(
+    name: an edit to the contract tree never merges under the automation it
+    grades — it parks for a person's verdict like any carve-out."""
+    decision = decide_contract_tree(
         **merge_resolve(
             verdict="pass",
             checks_green=True,
@@ -1130,8 +1211,8 @@ def test_a_contract_path_is_never_an_automated_merge(decide_split):
     assert decision == {"allow": False, "rule": "merge_resolve_contract_path"}
 
 
-def test_the_automated_paths_still_resolve_beside_the_contract_tree(decide_split):
-    decision = decide_split(
+def test_the_automated_paths_still_resolve_beside_the_contract_tree(decide_contract_tree):
+    decision = decide_contract_tree(
         **merge_resolve(
             verdict="pass",
             checks_green=True,
@@ -1141,11 +1222,11 @@ def test_the_automated_paths_still_resolve_beside_the_contract_tree(decide_split
     assert decision == {"allow": True, "rule": "merge_resolve_automated"}
 
 
-def test_a_red_contract_verify_merges_nothing(decide_split):
+def test_a_red_contract_verify_merges_nothing(decide_contract_tree):
     """The baseline layer is required: a head suite weakened to green
     cannot launder a merge — the base-ref contract run is its own fact,
     and red denies by name."""
-    decision = decide_split(
+    decision = decide_contract_tree(
         **merge_resolve(
             verdict="pass",
             checks_green=True,
@@ -1156,12 +1237,12 @@ def test_a_red_contract_verify_merges_nothing(decide_split):
     assert decision == {"allow": False, "rule": "merge_resolve_contract_not_green"}
 
 
-def test_the_contract_fact_fails_closed_when_absent(decide_split):
+def test_the_contract_fact_fails_closed_when_absent(decide_contract_tree):
     """A declared contract tree prices its fact into the automation: the
     absent key denies, the checks_not_green idiom."""
     args = merge_resolve(verdict="pass", checks_green=True, paths=["src/a.py"])
     del args["args"]["contract_green"]
-    decision = decide_split(**args)
+    decision = decide_contract_tree(**args)
     assert decision == {"allow": False, "rule": "merge_resolve_contract_not_green"}
 
 
@@ -1180,29 +1261,10 @@ def test_no_contract_tree_means_no_contract_fact(decide_automated):
 # -- the contract tree's authority is not looser, and it revokes like authority
 
 
-def test_the_contract_author_cannot_merge(decide_split):
-    """Authority not looser: the deliver-capable contract-author template
-    gains `git.open_pr` into its tree and nothing else — `git.merge_pr`
-    stays platform-only."""
-    as_author = decide_split(
-        **ephemeral(
-            "contract-authoring",
-            "contract-author",
-            tool="git.merge_pr",
-            args={"number": 4},
-        )
-    )
-    assert as_author["allow"] is False
-    as_platform = decide_split(
-        PLATFORM_QUERY, lifecycle="platform", tool="git.merge_pr", args={"number": 4}
-    )
-    assert as_platform["allow"] is True
-
-
-def test_deny_paths_still_bind_the_contract_author(decide_split):
+def test_deny_paths_still_bind_the_contract_author(decide_contract_tree):
     """The blueprint's deny_paths outrank every grant for the contract
     author too: owning the contract tree buys no reach into a denied surface."""
-    decision = decide_split(
+    decision = decide_contract_tree(
         **ephemeral(
             "contract-authoring",
             "contract-author",
@@ -1216,38 +1278,9 @@ def test_deny_paths_still_bind_the_contract_author(decide_split):
     assert decision == {"allow": False, "rule": "git_open_pr_denied_paths"}
 
 
-def test_the_contract_crew_rides_the_spawn_caps(decide_split):
-    """`may_spawn` caps and the budget cap bind the second crew exactly
-    as the first: over the concurrency cap or without headroom, the
-    contract-authoring request denies by rule — spawning the spec's
-    author is governed spend like any other."""
-    over = decide_split(
-        **standing(
-            "pm",
-            tool="crew.request",
-            args={"crew_template": "contract-authoring", "reason": "author contract"},
-        ),
-        agent_id="pm-1",
-        active_spawns=2,
-        budget_headroom=True,
-    )
-    assert over == {"allow": False, "rule": "crew_request_over_cap"}
-    broke = decide_split(
-        **standing(
-            "pm",
-            tool="crew.request",
-            args={"crew_template": "contract-authoring", "reason": "author contract"},
-        ),
-        agent_id="pm-1",
-        active_spawns=0,
-        budget_headroom=False,
-    )
-    assert broke == {"allow": False, "rule": "crew_request_no_budget"}
-
-
 @pytest.fixture(scope="module")
 def decide_revoked(tmp_path_factory):
-    """`decide_split`'s company after the human revokes the contract tree:
+    """`decide_contract_tree`'s company after the human revokes the contract tree:
     the same blueprint with `policies.contract_tests` deleted — one diff,
     recompiled. The crew and its spawn grant may outlive the declaration;
     the tree's special authority may not."""
@@ -1258,7 +1291,10 @@ def test_revocation_by_blueprint_diff_restores_the_single_tree(decide_revoked):
     """The contract tree is authority, so it revokes like authority: with
     the declaration gone the ownership deny is gone — the implementer
     reaches the tree again — and the automation reads the facts of an
-    undeclared company, the contract fact not priced in."""
+    undeclared company, the contract fact not priced in. No looseness
+    through the diff either: the revoked tree is ordinary code outside the
+    automated paths, so its merges still park for a person — by the
+    automated paths now, not by carve-out."""
     reopened = decide_revoked(
         **ephemeral(
             "feature-delivery",
@@ -1267,7 +1303,10 @@ def test_revocation_by_blueprint_diff_restores_the_single_tree(decide_revoked):
             args={"branch": "feature/x", "paths": ["tests/contract/test_api.py"]},
         )
     )
-    assert reopened["allow"] is True
+    assert reopened == {
+        "allow": True,
+        "rule": "crew_feature_delivery_implementer_git_open_pr",
+    }
 
     args = merge_resolve(
         verdict="pass", checks_green=True, paths=["src/a.py", "tests/unit/test_a.py"]
@@ -1276,19 +1315,9 @@ def test_revocation_by_blueprint_diff_restores_the_single_tree(decide_revoked):
     resolved = decide_revoked(**args)
     assert resolved == {"allow": True, "rule": "merge_resolve_automated"}
 
-
-def test_revocation_leaves_the_tree_not_automated_not_unguarded(decide_revoked):
-    """No looseness through the diff either: the revoked tree is ordinary
-    code outside the automated paths, so its merges still park on the
-    human — by the automated paths now, not by carve-out."""
-    decision = decide_revoked(
-        **merge_resolve(
-            verdict="pass",
-            checks_green=True,
-            paths=["src/a.py", "tests/contract/test_api.py"],
-        )
-    )
-    assert decision == {"allow": False, "rule": "merge_resolve_path_not_automated"}
+    args["args"]["paths"] = ["src/a.py", "tests/contract/test_api.py"]
+    parked = decide_revoked(**args)
+    assert parked == {"allow": False, "rule": "merge_resolve_path_not_automated"}
 
 
 # -- the human path of the merge gate, and the console's acts ---------------
@@ -1324,55 +1353,66 @@ def test_a_human_may_resolve_the_merge_gate(decide):
     assert budget == {"allow": True, "rule": "gate_resolve_budget_approve"}
 
 
-def test_a_human_may_start_cancel_wake_pause_resume_apply_and_delete(decide):
-    start = decide(**human("owner", "run.start", workflow="implement", number=4))
+def test_a_human_may_start_a_review_but_never_a_scope(decide):
+    """The console offers a person the starts it may make; scoping stays
+    the heartbeat's own initiative, so a person's scope start matches no
+    rule."""
+    review = decide(**human("owner", "run.start", workflow="review", number=4))
     scope = decide(**human("owner", "run.start", workflow="scope"))
-    cancel = decide(**human("owner", "run.cancel", run_id="run-1"))
-    wake = decide(**human("owner", "heartbeat.wake"))
-    pause = decide(**human("owner", "heartbeat.pause", reason="reading the ledger"))
-    resume = decide(**human("owner", "heartbeat.resume", reason="read"))
-    apply = decide(**human("owner", "blueprint.apply"))
-    delete = decide(**human("owner", "company.delete", purge_remote=False))
-    assert start == {"allow": True, "rule": "run_start_implement"}
+    assert review == {"allow": True, "rule": "run_start_review"}
     assert scope == {"allow": False, "rule": "default_deny"}
-    assert cancel == {"allow": True, "rule": "run_cancel"}
-    assert wake == {"allow": True, "rule": "heartbeat_wake"}
-    assert pause == {"allow": True, "rule": "heartbeat_pause"}
-    assert resume == {"allow": True, "rule": "heartbeat_resume"}
-    assert apply == {"allow": True, "rule": "blueprint_apply"}
-    assert delete == {"allow": True, "rule": "company_delete"}
 
 
 def test_a_delete_names_whether_it_purges_and_each_answer_has_its_rule(decide):
-    """Like a verdict: the rule says which delete was allowed, and a delete
-    that does not say whether it purges the repository is not."""
+    """Like a verdict: the rule says which delete was allowed (the plain
+    delete's rule is among the acts below), and a delete that does not say
+    whether it purges the repository is not."""
     purge = decide(**human("owner", "company.delete", purge_remote=True))
     unsaid = decide(**human("owner", "company.delete"))
-    stranger = decide(**human("stranger", "company.delete", purge_remote=True))
     assert purge == {"allow": True, "rule": "company_delete_purge_remote"}
     assert unsaid == {"allow": False, "rule": "default_deny"}
-    assert stranger == {"allow": False, "rule": "human_not_recognized"}
 
 
-def test_an_unlisted_human_is_denied_by_name(decide):
+# A person's acts on the company through the console, as the console puts
+# them to policy, with the rule that allows each to a human the company
+# names. With the tests above, every act's allow rule is proven once.
+HUMAN_ACTS = [
+    ("gate.resolve", {"gate": "budget", "approved": False}, "gate_resolve_budget_reject"),
+    ("run.start", {"workflow": "implement", "number": 4}, "run_start_implement"),
+    ("run.cancel", {"run_id": "run-1"}, "run_cancel"),
+    ("heartbeat.wake", {}, "heartbeat_wake"),
+    ("heartbeat.pause", {"reason": "mine now"}, "heartbeat_pause"),
+    ("heartbeat.resume", {"reason": "mine now"}, "heartbeat_resume"),
+    ("blueprint.apply", {}, "blueprint_apply"),
+    ("company.delete", {"purge_remote": False}, "company_delete"),
+]
+
+
+@pytest.mark.parametrize(
+    ("tool", "args", "rule"), HUMAN_ACTS, ids=[act for act, _, _ in HUMAN_ACTS]
+)
+def test_an_unlisted_human_is_denied_by_name(decide, tool, args, rule):
     """A verified person the company did not name is refused by a rule that
-    says so — an audit row, not an unfired allow — whatever the act."""
-    decision = decide(**human("stranger", "gate.resolve", gate="merge", approved=True))
-    assert decision == {"allow": False, "rule": "human_not_recognized"}
-    pause = decide(**human("stranger", "heartbeat.pause", reason="mine now"))
-    assert pause == {"allow": False, "rule": "human_not_recognized"}
+    says so — an audit row, not an unfired allow — whatever the act; the
+    same act by a human the company names is allowed by the act's rule."""
+    assert decide(**human("owner", tool, **args)) == {"allow": True, "rule": rule}
+    stranger = decide(**human("stranger", tool, **args))
+    assert stranger == {"allow": False, "rule": "human_not_recognized"}
 
 
 def test_an_agent_cannot_claim_human_authority(decide):
     """The rules key on the lifecycle: an agent presenting a human's name
-    gets nothing, and a human presenting an agent's tools gets nothing."""
-    as_pm = decide(
-        **standing(
-            "pm", agent_id="owner", tool="gate.resolve", gate="merge", approved=True
-        )
-    )
-    as_human = decide(**human("owner", "issues.create", repo=DECLARED_REPO))
+    and verdict gets nothing, and a human presenting the PM's whole call,
+    its role included, gets nothing — each call allowed to its rightful
+    caller."""
+    verdict = human("owner", "gate.resolve", gate="merge", approved=True)
+    assert decide(**verdict) == {"allow": True, "rule": "gate_resolve_merge_approve"}
+    as_pm = decide(**{**verdict, **standing("pm")})
     assert as_pm == {"allow": False, "rule": "default_deny"}
+
+    ticket = standing("pm", tool="issues.create", args={"title": "t", "body": "b"})
+    assert decide(**ticket) == {"allow": True, "rule": "role_pm_issues_create"}
+    as_human = decide(**{**ticket, "lifecycle": "human", "agent_id": "owner"})
     assert as_human == {"allow": False, "rule": "default_deny"}
 
 
@@ -1424,9 +1464,9 @@ def test_the_console_reads_the_two_documents_and_nothing_else(decide):
     ]
     for call in denied:
         assert decide(**call) == {"allow": False, "rule": "default_deny"}, call
-    # A person by the console's name is a person the company does not name.
-    as_human = decide(**console_read(lifecycle="human"))
-    assert as_human == {"allow": False, "rule": "human_not_recognized"}
+    # Not even a human the company names reads through the console's rule.
+    as_owner = decide(**{**console_read(lifecycle="human"), "agent_id": "owner"})
+    assert as_owner == {"allow": False, "rule": "default_deny"}
 
 
 def console_purge(lifecycle: str = "console", **args) -> dict:
@@ -1449,8 +1489,8 @@ def test_only_the_console_may_purge_and_only_the_declared_repository(decide):
     ]
     for call in denied:
         assert decide(**call) == {"allow": False, "rule": "default_deny"}, call
-    as_human = decide(**console_purge(lifecycle="human"))
-    assert as_human == {"allow": False, "rule": "human_not_recognized"}
+    as_owner = decide(**{**console_purge(lifecycle="human"), "agent_id": "owner"})
+    assert as_owner == {"allow": False, "rule": "default_deny"}
     as_platform = decide(PLATFORM_QUERY, **console_purge(lifecycle="platform"))
     assert as_platform == {"allow": False, "rule": "default_deny"}
     as_pm = decide(

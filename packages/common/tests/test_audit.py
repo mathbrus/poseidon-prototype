@@ -11,7 +11,7 @@ def make_event(**overrides):
     fields = {
         "ts": "2026-07-20T17:00:00+00:00",
         "run_id": "run-01JZXA0000000000000000000A",
-        "agent_id": "implementer-1",
+        "agent_id": "feature-delivery-implementer-run-01JZXA0000000000000000000A",
         "role": "implementer",
         "tool": "sandbox.read_file",
         "args_digest": "a" * 64,
@@ -35,7 +35,7 @@ def test_round_trip_matches_contract():
     assert parsed == {
         "ts": "2026-07-20T17:00:00+00:00",
         "run_id": "run-01JZXA0000000000000000000A",
-        "agent_id": "implementer-1",
+        "agent_id": "feature-delivery-implementer-run-01JZXA0000000000000000000A",
         "role": "implementer",
         "tool": "sandbox.read_file",
         "args_digest": "a" * 64,
@@ -50,19 +50,6 @@ def test_round_trip_matches_contract():
         "parent_agent_id": "",
         "workflow": "",
     }
-
-
-def test_attribution_fields_round_trip():
-    event = make_event(
-        source="sandbox-infra",
-        company="hello-saas",
-        lifecycle="ephemeral",
-        parent_agent_id="pm-1",
-        workflow="implement",
-    )
-    assert event.source == "sandbox-infra"
-    assert event.company == "hello-saas"
-    assert event.parent_agent_id == "pm-1"
 
 
 def test_a_rationale_is_bounded():

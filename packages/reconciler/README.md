@@ -49,9 +49,10 @@ on the next one.
    exists.
 
 Until then the handler sets `phase: activating` and raises
-`kopf.TemporaryError`, and kopf retries five seconds later. Then it sets
-`phase: converged`. `observedGeneration` says which apply a phase
-answers for.
+`kopf.TemporaryError`, and kopf retries a second later: OPA polls every
+one to three seconds, and the re-check is never the slower of the two.
+Then it sets `phase: converged`. `observedGeneration` says which apply a
+phase answers for.
 
 `reconcile_instance` creates the agent's ServiceAccount (named by
 `agentId`), then its Deployment and Service (named by `standingName`),
@@ -129,7 +130,7 @@ without holding those rights itself.
 - Agent egress reaches only the two gateways and DNS:
   `test_agent_egress_reaches_only_the_two_gateways_and_dns`.
 - The sandbox answers the gateway and reaches only the proxy:
-  `test_sandbox_answers_the_gateway_and_reaches_only_the_proxy`.
+  `test_sandbox_isolation_projects_the_infra_ir`.
 - The worker's Role is bounded:
   `test_sandbox_provisioner_rbac_is_bounded`.
 - A torn-down company serves its tombstone:

@@ -4,23 +4,23 @@ A blueprint edit shrinks hello-saas's per-run cap to a value the run's
 second implementer call must exceed; the LLM gateway refuses the run
 the heartbeat started (`budget_exhausted`, audited, never silent), the
 implement workflow parks into an API-visible `parked-budget_exhausted`
-state, a rejection signal finalizes it, the ledger fully attributes the
+state, a person's rejection finalizes it, the ledger fully attributes the
 spend, and the budget events sit in the run's one audit story. And the
 mirror image: a human who decides the run is worth more raises the cap
 (re-applies the real blueprint) and approves — the workflow re-dispatches
-with headroom and runs to a delivered PR. Unattributed model calls are
-rejected outright.
+with headroom and runs to a delivered PR. That a park escalates at half
+its deadline is shown on the merge gate (`test_split_oracle_redteam`'s
+laundered scenario) and in the run workflow's own tests; an unattributed
+model call is the LLM gateway's own test.
 
-The tiny-cap profile is the one-shot company (`max_attempts: 1`): a run the
+The tiny-cap blueprint is the one-shot company (`max_attempts: 1`): a run the
 human rejects is the company's last word on its ticket, not a retry the
 loop would start on its own. The module finalizer re-applies the pristine
-profile so later suites run against the real cap.
+blueprint so later suites run against the real cap.
 """
 
 import secrets
-import time
 
-import httpx
 import pytest
 
 from common.audit import gate_event
@@ -29,23 +29,19 @@ from common.tasks import issue_run_task
 from common.workflows import BUDGET_GATE
 
 from .blueprints import (
-    E2E_DEADLINE_MINUTES,
     derived_blueprint,
-    pristine_profile,
+    pristine_blueprint,
     restore_pristine,
     single_attempt,
 )
 from .cluster import (
-    COMPANY_NS,
     audit_story,
     await_run,
     console,
-    port_forward,
-    projected_token,
     run_by_task,
 )
 from .conftest import (
-    apply_profile,
+    apply_and_settle,
     await_gate,
     close_issue,
     close_pr_url,
@@ -67,7 +63,7 @@ def _tiny_cap():
     def shrink(document: dict) -> None:
         document["budgets"]["per_run"]["usd"] = TINY_CAP
 
-    return derived_blueprint(single_attempt(pristine_profile()), shrink, "tiny-cap")
+    return derived_blueprint(single_attempt(pristine_blueprint()), shrink, "tiny-cap")
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -82,7 +78,7 @@ def tiny_cap_applied(stack: None, env: dict) -> None:
     """Function-scoped: every test that needs the tiny cap re-applies it, so
     the approve test's mid-body cap-raise cannot leak the real cap into a
     later test — order stops mattering."""
-    apply_profile(_tiny_cap(), env)
+    apply_and_settle(_tiny_cap(), env)
 
 
 def ledger_entries(run_id: str) -> list[SpendEntryView]:
@@ -112,20 +108,7 @@ def _signal_budget(run_id: str, approved: bool, reason: str) -> None:
 def test_tiny_cap_refuses_parks_and_attributes(tiny_cap_applied, env) -> None:
     number, run_id = _parked_run(env)
     try:
-        # The park *escalates* — a real process-gate audit event fires at
-        # half the declared deadline. Wait for it before answering, exactly like
-        # the merge-gate e2e does: the escalation path proves itself on
-        # every run.
-        deadline = time.monotonic() + E2E_DEADLINE_MINUTES * 60 - 5
-        while not any(
-            e["source"] == "process-gate" and e["rule"] == "gate_escalated"
-            for e in audit_story(run_id)
-        ):
-            assert time.monotonic() < deadline, (
-                "the budget park never escalated into the audit store"
-            )
-            time.sleep(2)
-        # A human answers the escalation: no, this run does not get more budget.
+        # A human answers the park: no, this run does not get more budget.
         _signal_budget(run_id, False, "not worth more spend")
         record = await_run(issue_run_task(number), terminal=True, deadline_s=300)
     finally:
@@ -181,45 +164,24 @@ def test_tiny_cap_refuses_parks_and_attributes(tiny_cap_applied, env) -> None:
     assert late_allows == [], f"model calls after the cap's deny: {late_allows}"
 
     # And the park is in the story as first-class gate outcomes: the park
-    # itself, the escalation at half-deadline, then the human's rejection — same
-    # process-gate contract as the merge gate.
+    # itself, then the human's rejection — same process-gate contract as the
+    # merge gate.
     gate_rules = [
         e["rule"]
         for e in story
         if e["source"] == "process-gate" and e["tool"] == gate_event(BUDGET_GATE)
     ]
-    assert gate_rules == ["gate_parked", "gate_escalated", "gate_rejected"], gate_rules
+    assert gate_rules == ["gate_parked", "gate_rejected"], gate_rules
     gate_events = [e for e in story if e["source"] == "process-gate"]
     assert all(e["workflow"] == f"implement-{run_id}" for e in gate_events), gate_events
 
 
-def test_unattributed_model_call_is_rejected(stack: None) -> None:
-    """No run context, no model: with a valid workload identity but
-    no run attribution the gateway refuses before any upstream work."""
-    token = projected_token(COMPANY_NS, "pm-1")
-    with port_forward("svc/llm-gateway", 4000) as port:
-        resp = httpx.post(
-            f"http://127.0.0.1:{port}/chat/completions",
-            headers={"Authorization": f"Bearer {token}"},
-            json={"model": "mock-brain", "messages": [{"role": "user", "content": "hi"}]},
-            timeout=15,
-        )
-    assert resp.status_code == 400
-    assert resp.json()["error"]["code"] == "llm_unattributed"
-
-    with port_forward("svc/llm-gateway", 4000) as port:
-        resp = httpx.post(
-            f"http://127.0.0.1:{port}/chat/completions",
-            json={"model": "mock-brain", "messages": [{"role": "user", "content": "hi"}]},
-            timeout=15,
-        )
-    assert resp.status_code == 401
-
-
-def test_approval_raises_the_cap_and_the_run_completes(tiny_cap_applied, env) -> None:
+def test_a_raised_cap_and_an_approving_verdict_complete_the_run(
+    tiny_cap_applied, env
+) -> None:
     """The run that stopped for money is not the end: with the cap raised
-    and the human's approval, the workflow re-dispatches and delivers.
-    The approval is a `gate.budget` `gate_approved` process-gate event, the
+    and the human's approving verdict, the workflow re-dispatches and
+    delivers. The verdict is a `gate.budget` `gate_approved` process-gate event, the
     run finishes `done` with a PR, and the ledger shows spend past the tiny
     cap — real work the first stop had blocked."""
     number, run_id = _parked_run(env)
@@ -231,7 +193,7 @@ def test_approval_raises_the_cap_and_the_run_completes(tiny_cap_applied, env) ->
         # then approve — the run may continue.
         from .blueprints import apply_blueprint
 
-        apply_blueprint(single_attempt(pristine_profile()))
+        apply_blueprint(single_attempt(pristine_blueprint()))
         _signal_budget(run_id, True, "worth the spend")
         record = await_run(issue_run_task(number), terminal=True, deadline_s=600)
         assert record["status"] == "done", f"the approved run did not finish: {record}"
@@ -246,7 +208,7 @@ def test_approval_raises_the_cap_and_the_run_completes(tiny_cap_applied, env) ->
 
         # The run spent *more* after the cap was raised: the pre-park total
         # already exceeds TINY_CAP by construction, so only a strictly larger
-        # final total proves the approval actually resumed real model work.
+        # final total proves the verdict actually resumed real model work.
         final_spend = sum(e.usd for e in ledger_entries(run_id))
         assert final_spend > spend_at_park, (
             f"no spend past the raised cap ({final_spend} == {spend_at_park}) — "

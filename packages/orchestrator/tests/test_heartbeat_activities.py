@@ -3,6 +3,7 @@ the audit trail, against fakes. The tick's sequencing, the sleep cadence
 and the child start are workflow concerns, proven live by the kind e2e."""
 
 import asyncio
+import contextlib
 from dataclasses import asdict
 from typing import Any
 
@@ -14,17 +15,17 @@ import orchestrator.clients as clients
 from common.audit import HEARTBEAT_BOOTSTRAP, HEARTBEAT_DECIDE, HEARTBEAT_TICK
 from common.policy import HEARTBEAT_START
 from common.tasks import issue_run_task
-from common.topology import PLATFORM_NAMESPACE
+from common.topology import COMPANY_NAMESPACE
 from common.workflows import TICK_IDLE, TICK_STARTED, tick_rule
 from orchestrator.activities.bootstrap import BootstrapActivities
-from orchestrator.activities.heartbeat import HeartbeatActivities
+from orchestrator.activities.heartbeat import DECIDE_TASK, HeartbeatActivities
 from orchestrator.activities.observation import (
     ObservationActivities,
     consumed,
     decision_prompt,
     scope_prompt,
 )
-from orchestrator.config import WorkerSettings
+from orchestrator.activities.tickets import CLOSED_OUTSIDE, refused_comment
 from orchestrator.workflows.base import Timeouts
 from registry import Attempts
 from registry.memory import (
@@ -40,24 +41,6 @@ COMPANY = "hello-saas"
 
 HEARTBEAT_SPEC = heartbeat_spec()
 MAX_ATTEMPTS = HEARTBEAT_SPEC["max_attempts"]
-
-
-def settings(tmp_path) -> WorkerSettings:
-    token_file = tmp_path / "token"
-    token_file.write_text("projected-token")
-    return WorkerSettings(
-        opa_url="http://opa.test:8181",
-        platform_namespace=PLATFORM_NAMESPACE,
-        sandbox_image="poseidon-sandbox:abc123",
-        agent_image="poseidon-agent-host:abc123",
-        model="mock-brain",
-        egress_proxy_url="http://127.0.0.1:3128",
-        egress_proxy_key="egress-key",
-        timeout_profile="default",
-        temporal_address="temporal.test:7233",
-        gateway_token_file=str(token_file),
-        mcp_gateway_url="http://gateway.test:8080",
-    )
 
 
 @pytest.fixture
@@ -95,7 +78,7 @@ def audit(companies) -> InMemoryAuditStore:
 def instances() -> InMemoryAgentInstances:
     """The converged PM the heartbeat's conductor name resolves to."""
     store = InMemoryAgentInstances()
-    store.upsert("pm-1", COMPANY, "pm", "pm", namespace=COMPANY)
+    store.upsert("pm-1", COMPANY, "pm", "pm", namespace=COMPANY_NAMESPACE)
     return store
 
 
@@ -197,8 +180,8 @@ def _backlog_gateway(
 
 
 def _opa(monkeypatch, allow: bool, rule: str):
-    # The OPA transport lives in orchestrator.opa now (shared with crew
-    # fulfilment); patch it there.
+    # The OPA transport every decision shares lives in common.opa: patch
+    # it there.
     import common.opa as module
 
     class FakeResponse:
@@ -320,7 +303,7 @@ def test_observe_counts_every_running_run_and_todays_spend(
     ledger.record(
         company=COMPANY,
         run_id="run-a",
-        agent_id="fd-implementer-1",
+        agent_id="feature-delivery-implementer-run-a",
         parent_agent_id="pm-1",
         role="implementer",
         model="mock",
@@ -349,37 +332,43 @@ def test_consumed_is_live_or_concluded_or_at_the_cap():
     assert consumed(Attempts(count=1, live=False, concluded=False), 1) is True
 
 
-def test_observe_reoffers_an_aborted_issue_run_with_its_attempt_count(
+def test_observe_offers_what_no_run_consumed_with_the_attempts_spent(
     observation, runs, monkeypatch, fake_gateway
 ):
-    """An implement run that aborted before delivering (a timed-out model
-    call, a step cap) is not the company's last word on the ticket: under
-    `max_attempts: 2` the issue is offered again, carrying the one attempt
-    already spent for the compiled decision to bound."""
-    _backlog_gateway(monkeypatch, fake_gateway, [_issue(3)])
-    runs.start("run-a", "implement issue #3", "implement", company=COMPANY)
-    runs.finish("run-a", "failed", error="litellm.Timeout")
-    observed = asyncio.run(observation.heartbeat_observe(MAX_ATTEMPTS))
-    assert [(i["number"], i["attempts"]) for i in observed["backlog"]] == [(3, 1)]
-
-
-def test_observe_reoffers_a_ticket_whose_delivery_was_refused(
-    observation, runs, monkeypatch, fake_gateway
-):
-    """A refused delivery gives its ticket back as one spent attempt: the
-    ticket is offered again carrying it, while a merged or superseded
-    delivery keeps its ticket concluded."""
+    """Issues and delivered pull requests alike pass the one consumption
+    rule (`consumed`) on the registry's attempt aggregates: an item whose
+    runs all aborted short of a conclusion is offered again, carrying the
+    attempts already spent for the compiled decision to bound; one a run
+    is live on, or concluded, is not; and the blueprint's `max_attempts`
+    says when the attempts are spent. How the registry folds runs into
+    attempts is proven against Postgres in the registry's own suite."""
     _backlog_gateway(monkeypatch, fake_gateway, [_issue(3), _issue(5), _issue(7)])
-    for run_id, issue, pr, settled in (
-        ("run-a", 3, 4, "refused"),
-        ("run-b", 5, 6, "merged"),
-        ("run-c", 7, 8, "superseded"),
-    ):
-        runs.start(run_id, issue_run_task(issue), "implement", company=COMPANY)
-        runs.finish(run_id, "done", pr_url=f"https://github.test/example/repo/pull/{pr}")
-        runs.mark_pr_settled(COMPANY, pr, settled, "reason")
+    # Issue #3: an aborted run. Issue #5: a live one. Issue #7: delivered
+    # PR #4, whose one review aborted without a verdict.
+    runs.start("run-a", issue_run_task(3), "implement", company=COMPANY)
+    runs.finish("run-a", "failed", error="litellm.Timeout")
+    runs.start("run-b", issue_run_task(5), "implement", company=COMPANY)
+    runs.start("run-c", issue_run_task(7), "implement", company=COMPANY)
+    runs.finish("run-c", "done", pr_url="https://github.test/example/repo/pull/4")
+    runs.start("run-d", "review pull request #4", "review", company=COMPANY)
+    runs.finish("run-d", "failed", error="agent loop did not finish within 30 steps")
+    # PR #6: delivered from a ticket no longer open, its review concluded
+    # with a verdict.
+    runs.start("run-e", issue_run_task(9), "implement", company=COMPANY)
+    runs.finish("run-e", "done", pr_url="https://github.test/example/repo/pull/6")
+    runs.start("run-f", "review pull request #6", "review", company=COMPANY)
+    runs.record_verdict("run-f", "fail")
+    runs.finish("run-f", "failed", error="automated merge gate: rework ticket filed")
+
     observed = asyncio.run(observation.heartbeat_observe(MAX_ATTEMPTS))
     assert [(i["number"], i["attempts"]) for i in observed["backlog"]] == [(3, 1)]
+    assert observed["reviewable_prs"] == [
+        {"number": 4, "url": "https://github.test/example/repo/pull/4", "attempts": 1}
+    ]
+    # `max_attempts: 1` is the one-shot company: the one aborted run on
+    # each spent it.
+    one_shot = asyncio.run(observation.heartbeat_observe(1))
+    assert one_shot["backlog"] == [] and one_shot["reviewable_prs"] == []
 
 
 def test_a_run_parked_on_a_merge_verdict_holds_no_place(
@@ -400,43 +389,6 @@ def test_a_run_parked_on_a_merge_verdict_holds_no_place(
     )
 
 
-def test_observe_excludes_an_issue_with_a_live_run(
-    observation, runs, monkeypatch, fake_gateway
-):
-    _backlog_gateway(monkeypatch, fake_gateway, [_issue(3)])
-    runs.start("run-a", "implement issue #3", "implement", company=COMPANY)
-    observed = asyncio.run(observation.heartbeat_observe(MAX_ATTEMPTS))
-    assert observed["backlog"] == []
-
-
-def test_observe_excludes_a_delivered_issue_whatever_the_run_status(
-    observation, runs, monkeypatch, fake_gateway
-):
-    """Delivered is concluded: a run that opened its PR and then failed at
-    teardown still consumed the ticket."""
-    _backlog_gateway(monkeypatch, fake_gateway, [_issue(3)])
-    runs.start("run-a", "implement issue #3", "implement", company=COMPANY)
-    runs.finish("run-a", "failed", error="teardown: boom", pr_url="https://p/4")
-    observed = asyncio.run(observation.heartbeat_observe(MAX_ATTEMPTS))
-    assert observed["backlog"] == []
-
-
-def test_observe_excludes_an_issue_at_the_attempt_cap(
-    observation, runs, monkeypatch, fake_gateway
-):
-    """Two aborted runs under `max_attempts: 2`: the cap is spent and the
-    issue stays consumed — bounded, never a retry loop."""
-    _backlog_gateway(monkeypatch, fake_gateway, [_issue(3)])
-    for run_id in ("run-a", "run-b"):
-        runs.start(run_id, "implement issue #3", "implement", company=COMPANY)
-        runs.finish(run_id, "failed", error="boom")
-    observed = asyncio.run(observation.heartbeat_observe(MAX_ATTEMPTS))
-    assert observed["backlog"] == []
-    # max_attempts: 1 reproduces the one-shot rule exactly.
-    runs.rows.pop("run-b")
-    assert asyncio.run(observation.heartbeat_observe(1))["backlog"] == []
-
-
 def test_observe_offers_delivered_unreviewed_prs(
     observation, runs, monkeypatch, fake_gateway
 ):
@@ -450,51 +402,6 @@ def test_observe_offers_delivered_unreviewed_prs(
     assert observed["reviewable_prs"] == [
         {"number": 4, "url": "https://github.test/example/repo/pull/4", "attempts": 0}
     ]
-
-
-def test_observe_reoffers_a_review_that_aborted_without_a_verdict(
-    observation, runs, monkeypatch, fake_gateway
-):
-    """The finding this exists for: a review that died of a timed-out
-    model call or the step cap reached no verdict, so the PR is still
-    unreviewed — offered again with its attempt count, not abandoned."""
-    _backlog_gateway(monkeypatch, fake_gateway, [])
-    runs.start("run-a", "implement issue #3", "implement", company=COMPANY)
-    runs.finish("run-a", "done", pr_url="https://github.test/example/repo/pull/4")
-    runs.start("run-b", "review pull request #4", "review", company=COMPANY)
-    runs.finish("run-b", "failed", error="agent loop did not finish within 30 steps")
-    observed = asyncio.run(observation.heartbeat_observe(MAX_ATTEMPTS))
-    assert observed["reviewable_prs"] == [
-        {"number": 4, "url": "https://github.test/example/repo/pull/4", "attempts": 1}
-    ]
-
-
-def test_observe_excludes_a_review_that_concluded_whatever_its_status(
-    observation, runs, monkeypatch, fake_gateway
-):
-    """A verdict is a conclusion: a failed review whose reviewer judged
-    (rework filed, gate rejected or expired) stays consumed."""
-    _backlog_gateway(monkeypatch, fake_gateway, [])
-    runs.start("run-a", "implement issue #3", "implement", company=COMPANY)
-    runs.finish("run-a", "done", pr_url="https://github.test/example/repo/pull/4")
-    runs.start("run-b", "review pull request #4", "review", company=COMPANY)
-    runs.record_verdict("run-b", "fail")
-    runs.finish("run-b", "failed", error="automated merge gate: rework ticket filed")
-    observed = asyncio.run(observation.heartbeat_observe(MAX_ATTEMPTS))
-    assert observed["reviewable_prs"] == []
-
-
-def test_observe_excludes_a_review_at_the_attempt_cap(
-    observation, runs, monkeypatch, fake_gateway
-):
-    _backlog_gateway(monkeypatch, fake_gateway, [])
-    runs.start("run-a", "implement issue #3", "implement", company=COMPANY)
-    runs.finish("run-a", "done", pr_url="https://github.test/example/repo/pull/4")
-    for run_id in ("run-b", "run-c"):
-        runs.start(run_id, "review pull request #4", "review", company=COMPANY)
-        runs.finish(run_id, "failed", error="litellm.Timeout")
-    observed = asyncio.run(observation.heartbeat_observe(MAX_ATTEMPTS))
-    assert observed["reviewable_prs"] == []
 
 
 def test_observe_skips_an_unreadable_delivered_pr(
@@ -713,13 +620,8 @@ def test_observe_drops_delivered_prs_the_world_has_settled(
         (f"heartbeat-{COMPANY}", 3, "pull request #4 merged outside the platform")
     ]
     assert told == [
-        ("close_pr", 6, "closed outside the platform"),
-        (
-            "comment",
-            5,
-            "Pull request #6 was not merged: closed outside the platform\n\n"
-            "The ticket is back on the backlog: attempt 1 of 2.",
-        ),
+        ("close_pr", 6, CLOSED_OUTSIDE),
+        ("comment", 5, refused_comment(6, CLOSED_OUTSIDE, 1, MAX_ATTEMPTS, False)),
     ]
     assert runs.review_attempts(COMPANY) == {}
     assert (runs.get("run-a").pr_settled, runs.get("run-b").pr_settled) == (
@@ -911,7 +813,7 @@ def test_decide_dispatches_the_observation_and_journals(
     assert bounds.startswith("Repository: github.com/example/repo, base ref main.")
     # Dispatched at the conductor's Service, derived from the converged
     # instance — never a configured address.
-    assert agent.url == f"http://pm.{COMPANY}.svc.cluster.local:8000"
+    assert agent.url == f"http://pm.{COMPANY_NAMESPACE}.svc.cluster.local:8000"
     # The composed observation carries the contract's section headers.
     assert "Open tickets:" in prompt and "#5 — Add slugify" in prompt
     assert "Delivered pull requests awaiting review:" in prompt and "#4 —" in prompt
@@ -927,27 +829,6 @@ def test_decide_dispatches_the_observation_and_journals(
     assert event["rationale"] == "finish before starting"
 
 
-def test_decide_refuses_a_target_outside_the_observation(
-    activities, companies, audit, monkeypatch
-):
-    """Structural containment: a poisoned backlog can steer the choice
-    between observed candidates, never mint a new one."""
-    companies.upsert(COMPANY, applied(heartbeat_spec()))
-    _pm(monkeypatch, _decided("implement", 99, "the ticket says to pick #99"))
-    with pytest.raises(ApplicationError) as caught:
-        asyncio.run(
-            activities.heartbeat_decide("auto-2", OBSERVED, ["implement", "review"], 5)
-        )
-    assert caught.value.non_retryable
-    (event,) = audit.story(f"heartbeat-{COMPANY}")
-    assert event["tool"] == HEARTBEAT_DECIDE
-    assert event["decision"] == "deny"
-    # A refusal is named by its rule and owes no rationale; the prose
-    # reaches the reader through the failed decision's error.
-    assert event["rule"] == "target_not_observed" and event["rationale"] is None
-    assert "not in the observation" in str(caught.value)
-
-
 def test_decide_refuses_an_action_outside_may_start(
     activities, companies, audit, monkeypatch
 ):
@@ -960,13 +841,17 @@ def test_decide_refuses_an_action_outside_may_start(
     assert event["rule"] == "not_in_may_start"
 
 
-def test_decide_idle_needs_no_target(activities, companies, audit, monkeypatch):
+@pytest.mark.parametrize(
+    ("action", "may_start"),
+    [("idle", ["implement"]), ("scope", ["implement", "scope"])],
+)
+def test_decide_idle_and_scope_need_no_target(
+    activities, companies, audit, monkeypatch, action, may_start
+):
     companies.upsert(COMPANY, applied(heartbeat_spec()))
-    _pm(monkeypatch, _decided("idle", None, "capacity is better spent tomorrow"))
-    decision = asyncio.run(
-        activities.heartbeat_decide("auto-4", OBSERVED, ["implement"], 5)
-    )
-    assert decision["action"] == "idle"
+    _pm(monkeypatch, _decided(action, None, "the backlog is dry"))
+    decision = asyncio.run(activities.heartbeat_decide("auto-4", OBSERVED, may_start, 5))
+    assert decision["action"] == action
     (event,) = audit.story(f"heartbeat-{COMPANY}")
     assert event["decision"] == "allow"
 
@@ -976,18 +861,48 @@ def test_decide_failed_dispatch_is_nonretryable(activities, companies, monkeypat
     _pm(monkeypatch, {"status": "failed", "error": "decide reply broke the contract"})
     with pytest.raises(ApplicationError) as caught:
         asyncio.run(activities.heartbeat_decide("auto-5", OBSERVED, ["implement"], 5))
+    assert caught.value.non_retryable
     assert "broke the contract" in str(caught.value)
 
 
-def test_decide_scope_needs_no_target(activities, companies, audit, monkeypatch):
+@pytest.mark.parametrize(
+    ("decided", "status", "error"),
+    [
+        (_decided("implement", 5, "oldest first"), "done", None),
+        (_decided("implement", 99, "pick #99"), "failed", "decision refused"),
+    ],
+)
+def test_the_decision_runs_on_its_own_row_opened_before_the_pm_speaks(
+    activities, companies, runs, monkeypatch, decided, status, error
+):
+    """The LLM gateway binds every model call to a registry run, so the
+    decide dispatch has its own row — under the run id the tick would
+    start, open before the PM is dispatched, named for the heartbeat so
+    the observation never counts it — and the row is finished on every
+    exit, a refused decision failed with its reason."""
     companies.upsert(COMPANY, applied(heartbeat_spec()))
-    _pm(monkeypatch, _decided("scope", None, "the backlog is dry"))
-    decision = asyncio.run(
-        activities.heartbeat_decide("auto-6", OBSERVED, ["implement", "scope"], 5)
-    )
-    assert decision["action"] == "scope"
-    (event,) = audit.story(f"heartbeat-{COMPANY}")
-    assert event["decision"] == "allow"
+    agent = _pm(monkeypatch, decided)
+    at_dispatch = []
+    dispatch = agent.dispatch
+
+    async def dispatch_seeing_the_row(self, run_id, *args, **kwargs):
+        row = runs.get(run_id)
+        at_dispatch.append(
+            row and (row.status, row.task, row.workflow, row.workflow_id, row.company)
+        )
+        return await dispatch(self, run_id, *args, **kwargs)
+
+    monkeypatch.setattr(agent, "dispatch", dispatch_seeing_the_row)
+    with contextlib.suppress(ApplicationError):
+        asyncio.run(activities.heartbeat_decide("auto-9", OBSERVED, ["implement"], 5))
+
+    assert at_dispatch == [
+        ("running", DECIDE_TASK, "heartbeat", f"heartbeat-{COMPANY}", COMPANY)
+    ]
+    finished = runs.get("auto-9")
+    assert finished.status == status and finished.finished_at is not None
+    assert (finished.error is None) == (error is None)
+    assert error is None or error in finished.error
 
 
 def test_decide_refuses_scope_while_a_document_is_absent(
@@ -1073,8 +988,11 @@ def test_a_poisoned_title_in_the_observation_cannot_mint_a_target(
     assert caught.value.non_retryable
     assert "not in the observation" in str(caught.value)
     (event,) = audit.story(f"heartbeat-{COMPANY}")
+    assert event["tool"] == HEARTBEAT_DECIDE
     assert event["decision"] == "deny"
-    assert event["rule"] == "target_not_observed"
+    # A refusal is named by its rule and owes no rationale; the prose
+    # reaches the reader through the failed decision's error.
+    assert event["rule"] == "target_not_observed" and event["rationale"] is None
 
 
 def test_decision_prompt_shape_is_the_contract_the_brains_parse():

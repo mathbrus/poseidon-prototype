@@ -38,6 +38,7 @@ The agent host sets the run header in `agent_host.procedures.build_llm`. A refus
 | 400 | `llm_unattributed` | No run header. | deny |
 | 403 | `llm_foreign_run` | An ephemeral agent names a run other than its own. | deny |
 | 403 | `llm_unknown_run` | The run is unknown, or belongs to another company. | deny |
+| 403 | `budget_cap_missing` | The company has no applied spec, or no positive per-run cap. | deny |
 | 429 | `budget_exhausted` | The run's spend has reached its cap. | deny |
 | 502 | `llm_cost_unreported` | The upstream answered 200 without a usable cost. | deny |
 | 502 | `llm_upstream_error` | The upstream is unreachable. | allow |
@@ -48,7 +49,7 @@ The last four carry `backend_status` (`error`, or `ok` when served). The event's
 
 ### The budget is enforced here
 
-Before forwarding, the gateway reads the compiled spec's `budgets.per_run_usd` (the blueprint's `budgets.per_run.usd`) from `companies`. It compares it with `BudgetLedger.spent_for_run`. At or over the cap, the call is refused with `budget_exhausted`. A cap of zero or none means uncapped, and the call is still metered.
+Before forwarding, the gateway reads the compiled spec's `budgets.per_run_usd` (the blueprint's `budgets.per_run.usd`) from `companies`. It compares it with `BudgetLedger.spent_for_run`. At or over the cap, the call is refused with `budget_exhausted`. Every compiled company has a positive cap, so a company with no spec row or no positive cap is a broken registry: its calls are refused with `budget_cap_missing`, before any upstream call. No run spends without a cap.
 
 The gateway has no Temporal client. The implement workflow reads `budget_exhausted` in the error the agent host surfaces and parks the run as `parked-budget_exhausted`. See [Gates and runs](../../docs/how-to/gates-and-runs.md).
 
@@ -68,11 +69,11 @@ All tests are in `tests/test_llm_gateway.py`.
 
 - No token, no call: `test_unauthenticated_call_is_rejected`.
 - No run header, no call, and the refusal is audited: `test_unattributed_call_is_rejected_and_audited`.
-- A caller bills only a known run of its own company: `test_unknown_run_is_rejected`.
+- A caller bills only a known run of its own company: `test_unknown_run_is_rejected`, `test_a_run_of_another_company_is_refused`.
 - An ephemeral agent bills only its own run: `test_ephemeral_caller_cannot_bill_a_foreign_run`.
-- The deployment's model answers: `test_the_deployment_model_is_pinned_and_metered`.
+- The deployment's model answers, and the spend is recorded under the agent and its parent: `test_the_deployment_model_is_pinned_and_metered`.
 - The cap refuses with a distinguishable error and no new spend: `test_exhausted_cap_refuses_with_a_distinguishable_error`, `test_cap_bites_only_at_the_cap`.
-- An uncapped company is metered and never refused: `test_uncapped_company_is_not_blocked`.
+- A company without a positive cap spends nothing: `test_a_run_without_a_cap_is_refused`.
 - An unpriced completion is withheld and never metered: `test_unpriced_completion_is_withheld_and_never_metered`, `test_garbled_cost_header_is_withheld_too`.
 - Zero cost is recorded: `test_zero_cost_is_a_price_and_is_recorded`.
 - The Responses surface keeps the same contract and never digests prompt text: `test_responses_forwards_the_pinned_model_and_meters`, `test_responses_digest_never_contains_prompt_text`.

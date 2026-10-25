@@ -47,8 +47,9 @@ def test_sandbox_registration_survives_a_gateway_restart(
     from registry import Runs
 
     # Registration is the orchestrator's platform admin action; `sandbox.*`
-    # belongs to the run's ephemeral implementer (the lean-standing profile's only
-    # execution identity) — two identities, exactly as in a real run.
+    # belongs to the run's ephemeral implementer (the one identity that
+    # executes: the blueprint's one standing agent, the PM, holds no sandbox
+    # tool) — two identities, exactly as in a real run.
     worker_token = projected_token(PLATFORM_NS, "orchestrator-worker")
     backend = K8sJobsBackend(namespace=COMPANY_NS)
     run_id = new_run_id()

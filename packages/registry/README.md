@@ -107,7 +107,7 @@ each write is safe to repeat:
 - Revocation is final:
   `test_registry.py::test_revocation_is_final_and_a_late_mint_cannot_revive_it`.
 - Terminated rows read as absent:
-  `test_participant_active_goes_dark_on_termination`,
+  `test_terminating_an_ephemeral_agent_revokes_that_identity_alone`,
   `test_terminated_registration_is_not_served`.
 - A retried `start` lands on its own row: `test_start_is_retry_safe`.
 - One live run per issue and per pull request:

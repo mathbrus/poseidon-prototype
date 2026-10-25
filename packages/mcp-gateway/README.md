@@ -78,16 +78,19 @@ A bundle that fails verification still goes through `call`, with no changed path
 ## Invariants
 
 - Deny before side effect: `test_git_tools.py::test_pr_to_main_is_denied_and_nothing_is_pushed`.
-- One audit event per decided call: `test_gateway.py::test_every_call_appends_one_ordered_audit_line`.
+- One audit event per decided call: `test_gateway.py::test_platform_registers_sandbox_via_its_own_decision_path`.
+- An ephemeral agent is bound to its own run only, and one without its parent or crew never reaches policy: `test_gateway.py::test_an_ephemeral_agent_naming_another_run_is_refused`, `::test_an_ephemeral_agent_without_parentage_is_refused_before_policy`.
+- A standing agent is bound only to a run registered in its own namespace: `test_gateway.py::test_a_standing_agent_is_bound_only_to_a_run_in_its_own_namespace`.
 - A retired registration is a stale binding: `test_gateway.py::test_terminated_registration_is_a_stale_binding`.
 - A terminated participant row revokes before the token expires: `test_authn.py::test_row_termination_revokes_before_ttl`.
 - Policy judges the paths the bundle changes: `test_git_tools.py::test_changed_paths_are_part_of_the_policy_input`.
 - A tampered bundle is denied and audited: `test_git_tools.py::test_tampered_bundle_errors_and_is_audited`.
 - Archives carry no token: `test_git_tools.py::test_platform_archives_repo_stripped_of_remotes`.
+- No error and no audit row carries the token: the redaction tests in `test_git_hardening.py`.
 - Unsafe repos, refs and paths fail: `test_git_hardening.py`.
-- Merging and closing are platform-only: `test_tool_surface.py::test_merge_is_platform_only`.
+- Merging and closing are platform-only: proven against the compiled bundles, in `packages/compiler/tests/test_bundle_decisions.py`.
 - Only the console may purge, and a purge pages through every listing and refuses before anything changes on a protected branch: `test_repo_purge.py`.
-- A call owing a rationale is refused without one: `test_tool_surface.py::test_a_ticket_without_a_rationale_is_refused_before_policy`.
+- A call owing a rationale is refused without one: `test_tool_surface.py::test_a_blank_rationale_is_refused_before_policy`.
 
 ## Testing
 
@@ -95,7 +98,9 @@ A bundle that fails verification still goes through `call`, with no changed path
 uv run pytest packages/mcp-gateway
 ```
 
-It needs no network, cluster or Postgres (see [Contributing](../../docs/developing/contributing.md)). A real MCP client drives the real app. OPA, the tool server and GitHub are one `httpx.MockTransport`, TokenReview is faked and the registry is in memory. Git runs for real against a local bare repository. On kind, `test_governance.py`, `test_workload_identity.py` and `test_ephemeral_identity.py` drive the deployed gateway.
+It needs no network, cluster or Postgres (see [Contributing](../../docs/developing/contributing.md)). A real MCP client drives the real app. OPA, the tool server and GitHub are one `httpx.MockTransport`, TokenReview is faked and the registry is in memory. Git runs for real against a local bare repository.
+
+The callers are a cluster's: the platform identity, the console, the standing conductor `pm-1`, and the run's ephemeral agents, bound to the run under the conductor as the orchestrator binds them. The OPA stub is not the compiled policy. It allows each caller the few tools the tests drive and reads the facts the gateway injects (run binding, changed paths, counts) the way a bundle does, so the tests watch the gateway's own work. Which role may call which tool is proven against real bundles in the compiler's tests. On kind, `test_governance.py`, `test_workload_identity.py` and `test_ephemeral_identity.py` drive the deployed gateway.
 
 ## Related
 

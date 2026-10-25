@@ -11,8 +11,8 @@ the platform:
 - the PM files a ticket routed to the forbidden crew; filing is only text.
   When the heartbeat's implement run tries to fulfil it, the compiled
   `crew.request` decision — evaluated as the conductor — refuses the
-  template outside the closed `may_spawn` list, audited, with nothing
-  bound and nothing minted; under the one-shot profile the ticket is the
+  crew outside the closed `may_spawn` list, audited, with nothing
+  bound and nothing minted; under the one-shot blueprint the ticket is the
   company's last word on itself;
 - the delivery crew's exfiltration, carried from the strategy into the
   real ticket's body, leaves the sandbox only through the audited egress
@@ -21,8 +21,8 @@ the platform:
   `run_id` — including *which* destination was refused, proven by
   recomputing the proxy's `args_digest`.
 
-Applies the one-shot pristine profile (`max_attempts: 1`) and restores the
-resting strategy and the pristine profile after.
+Applies the one-shot pristine blueprint (`max_attempts: 1`) and restores the
+resting strategy and the pristine blueprint after.
 """
 
 import re
@@ -41,14 +41,14 @@ from common.tasks import issue_run_task
 from common.workflows import ATTEMPTS_GATE
 from mock_brain.brain import CONDUCTOR_MARKER, EXFIL_HOST, FORBIDDEN_CREW
 
-from .blueprints import pristine_profile, restore_pristine, single_attempt
+from .blueprints import pristine_blueprint, restore_pristine, single_attempt
 from .cluster import (
     audit_story,
     await_egress_deny,
     participants,
 )
 from .conftest import (
-    apply_profile,
+    apply_and_settle,
     close_issue,
     close_pr_url,
     github_api,
@@ -85,7 +85,7 @@ def poisoned(stack: None, baseline_env: dict) -> dict:
     each — the forbidden one dies at fulfilment, the real one delivers
     with its exfiltration refused."""
     env = baseline_env
-    apply_profile(single_attempt(pristine_profile()), env)
+    apply_and_settle(single_attempt(pristine_blueprint()), env)
     nonce = secrets.token_hex(3)
     result: dict = {"env": env}
     numbers: list[int] = []

@@ -122,7 +122,9 @@ def test_the_screen_opens_with_the_rules_and_names_each_section():
     new.ask(prompter)
     assert prompter.said[0] == new.OPENING
     assert prompter.said[1:] == list(new.SECTIONS)
-    assert "Advanced" not in example_answers().said
+    basic = example_answers(**{ADVANCED: False})
+    new.ask(basic)
+    assert basic.said == [new.OPENING, *new.SECTIONS[:-1]]
 
 
 def test_the_multiline_hint_is_on_screen_with_the_prompt():
@@ -193,7 +195,7 @@ def test_concurrency_is_one_question_in_the_main_flow():
 
 def test_the_advanced_settings_are_asked_only_on_request():
     prompter = example_answers(
-        **{ADVANCED: True, "Tries per ticket before it is given up": "3"}
+        **{ADVANCED: True, "Tries per ticket before it is abandoned": "3"}
     )
     built = new.build(new.ask(prompter))
     assert built["heartbeat"]["max_attempts"] == 3

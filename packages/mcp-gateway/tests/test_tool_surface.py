@@ -1,6 +1,7 @@
-"""The whole tool surface through the full gateway pipeline: each
-tool callable by its authorized role and denied (audited) for every other,
-and `git.merge_pr` restricted to the platform lifecycle."""
+"""The whole tool surface through the full gateway pipeline: what each
+tool asks of its backend, what it hands back, and what its audit row
+records. Which role may call which tool is proven against the compiled
+bundles, in the compiler's tests."""
 
 import json
 
@@ -8,18 +9,20 @@ import pytest
 from conftest import (
     AGENT_TOKEN,
     COMPANY,
+    CONDUCTOR,
     HEAD_SHA,
     PM_TOKEN,
+    REVIEW_CREW,
     REVIEWER_TOKEN,
+    RUN_ID,
     WORKER_TOKEN,
     audit_events,
+    bind_ephemeral,
     mcp_session,
-    register_sandbox,
 )
 
 pytestmark = pytest.mark.anyio
 
-RUN_ID = "run-01TOOLS"
 REPO = "github.test/example/target"
 
 
@@ -29,19 +32,10 @@ def payload(result) -> dict:
 
 
 def reviewer_token(participants) -> str:
-    """A bound ephemeral reviewer (the review workflow's reviewer ephemeral agent):
-    its credential is its pod's projected SA token, and the participants
-    row — looked up by SA name — is the whole identity."""
-    participants.add(
-        "reviewer-01X",
-        RUN_ID,
-        "pm-1",
-        "feature-review",
-        "reviewer",
-        company="hello-saas",
-        namespace="hello-saas",
-        service_account="ephemeral-reviewer-01x",
-    )
+    """The run's ephemeral reviewer, bound: its credential is its pod's
+    projected SA token, and the participants row — looked up by SA name —
+    is the whole identity."""
+    bind_ephemeral(participants, REVIEW_CREW, "reviewer")
     return REVIEWER_TOKEN
 
 
@@ -123,40 +117,20 @@ async def test_single_issue_read_refuses_a_pull_request(app, backends):
     assert result.isError and "pull request" in result.content[0].text
 
 
-async def test_a_ticket_without_a_rationale_is_refused_before_policy(
-    app, audit, backends
-):
-    """A committing call owes the caller's reason: without one the call is
-    malformed — refused with what is owed, nothing decided, nothing
-    recorded, nothing reaching GitHub."""
+async def test_a_blank_rationale_is_refused_before_policy(app, audit, backends):
+    """A committing call owes the caller's reason, and whitespace is none:
+    the call is malformed — refused with what is owed, nothing decided,
+    nothing recorded, nothing reaching GitHub — while the same call with a
+    reason is filed."""
+    args = {"run_id": RUN_ID, "repo": REPO, "title": "t", "body": "b"}
     async with mcp_session(app, PM_TOKEN) as session:
-        for args in (
-            {"run_id": RUN_ID, "repo": REPO, "title": "t", "body": "b"},
-            {"run_id": RUN_ID, "repo": REPO, "title": "t", "body": "b", "rationale": " "},
-        ):
-            result = await session.call_tool("issues.create", args)
-            assert result.isError and "rationale" in result.content[0].text
-    assert audit_events(audit) == [] and not backends.github_calls
-
-
-async def test_implementer_is_denied_the_pm_surface(app, audit, backends):
-    async with mcp_session(app, AGENT_TOKEN) as session:
-        result = await session.call_tool(
-            "issues.create",
-            {"run_id": RUN_ID, "repo": REPO, "title": "t", "body": "b", "rationale": "r"},
-        )
-    assert result.isError and "default_deny" in result.content[0].text
-    event = audit_events(audit)[-1]
-    assert event["tool"] == "issues.create" and event["decision"] == "deny"
-    assert not backends.github_calls  # nothing reached GitHub
-
-
-async def test_pm_is_denied_the_review_surface(app, audit):
-    async with mcp_session(app, PM_TOKEN) as session:
-        result = await session.call_tool(
-            "git.read", {"run_id": RUN_ID, "repo": REPO, "number": 5}
-        )
-    assert result.isError and "default_deny" in result.content[0].text
+        result = await session.call_tool("issues.create", {**args, "rationale": " \n"})
+        assert result.isError and "owes a rationale" in result.content[0].text
+        assert audit_events(audit) == [] and not backends.github_calls
+        assert backends.policy_inputs == []
+        filed = await session.call_tool("issues.create", {**args, "rationale": "why"})
+    assert not filed.isError, filed.content
+    assert [e["rationale"] for e in audit_events(audit)] == ["why"]
 
 
 # -- git.read / git.comment (the reviewer's surface) -------------------------
@@ -185,21 +159,7 @@ async def test_reviewer_reads_and_comments_the_pr(app, participants, audit):
     for event in audit_events(audit):
         assert event["decision"] == "allow"
         assert event["lifecycle"] == "ephemeral"
-        assert event["parent_agent_id"] == "pm-1"
-
-
-async def test_reviewer_cannot_merge_or_open_issues(app, participants):
-    token = reviewer_token(participants)
-    async with mcp_session(app, token) as session:
-        merge = await session.call_tool(
-            "git.merge_pr",
-            {"run_id": RUN_ID, "repo": REPO, "number": 5, "sha": HEAD_SHA},
-        )
-        create = await session.call_tool(
-            "issues.create",
-            {"run_id": RUN_ID, "repo": REPO, "title": "t", "body": "b", "rationale": "r"},
-        )
-    assert merge.isError and create.isError
+        assert event["parent_agent_id"] == CONDUCTOR
 
 
 # -- architecture.request (asking is not writing) ----------------------------
@@ -209,16 +169,15 @@ async def test_an_architecture_request_becomes_a_stewardship_ticket(app, backend
     """The bound implementer asks once: the platform files the proposal as
     a ticket on the company's repository with the stewardship trailer —
     the caller named neither — and the audit event is the receipt. The
-    second ask in the same run is denied by the compiled cap, read off
-    that receipt."""
-    await register_sandbox(app, RUN_ID)  # the run the caller is bound to
+    second ask in the same run is denied by the cap, read off that
+    receipt."""
     async with mcp_session(app, AGENT_TOKEN) as session:
         first = payload(
             await session.call_tool(
                 "architecture.request",
                 {
                     "run_id": RUN_ID,
-                    "rationale": "the plan allows one module",
+                    "rationale": "the masterplan allows one module",
                     "proposal": "Allow a second module.\nFor the statistics.",
                 },
             )
@@ -234,17 +193,11 @@ async def test_an_architecture_request_becomes_a_stewardship_ticket(app, backend
         body["title"] == f"Architecture request from run {RUN_ID}: Allow a second module."
     )
     assert body["body"].endswith("Crew: stewardship")
-    assert "the plan allows one module" in body["body"]
+    assert "the masterplan allows one module" in body["body"]
     assert second.isError and "architecture_request_over_cap" in second.content[0].text
     events = [e for e in audit_events(audit) if e["tool"] == "architecture.request"]
     assert [e["decision"] for e in events] == ["allow", "deny"]
     assert backends.policy_inputs[-1]["architecture_requests"] == 1
-
-    async with mcp_session(app, PM_TOKEN) as session:
-        pm = await session.call_tool(
-            "architecture.request", {"run_id": RUN_ID, "rationale": "r", "proposal": "p"}
-        )
-    assert pm.isError, "the PM reached architecture.request"
 
 
 # -- issues.dismiss (the PM, while scoping) -----------------------------------
@@ -316,15 +269,13 @@ async def test_the_dismissal_facts_say_what_the_ticket_is(app, backends, runs):
     )
 
 
-# -- repo.present (platform only) --------------------------------------------
+# -- repo.present (the platform's) ---------------------------------------------
 
 
-async def test_which_declared_paths_the_base_ref_holds_is_platform_only(
-    app, backends, audit
-):
+async def test_the_base_ref_holds_a_declared_path_or_honestly_not(app, backends):
     """The contract tree a review replays is read at base_ref by the
     platform: present where the host holds it, honestly absent where the
-    company has not written it yet — and by nobody in the company."""
+    company has not written it yet."""
     args = {
         "run_id": RUN_ID,
         "repo": REPO,
@@ -339,18 +290,13 @@ async def test_which_declared_paths_the_base_ref_holds_is_platform_only(
         "/repos/example/target/contents/tests/acceptance",
     ]
 
-    for token in (PM_TOKEN, AGENT_TOKEN):
-        async with mcp_session(app, token) as session:
-            result = await session.call_tool("repo.present", args)
-        assert result.isError, "a company role read the base ref through the platform"
+
+# -- repo.read_file (the platform's) -------------------------------------------
 
 
-# -- repo.read_file (platform only) ------------------------------------------
-
-
-async def test_reading_a_document_is_platform_only(app, backends, audit):
+async def test_a_document_reads_present_or_honestly_absent(app, backends):
     """The company's documents are read at base_ref by the platform —
-    present or honestly absent — and by nobody in the company."""
+    present or honestly absent."""
     async with mcp_session(app, WORKER_TOKEN) as session:
         strategy = payload(
             await session.call_tool(
@@ -378,24 +324,13 @@ async def test_reading_a_document_is_platform_only(app, backends, audit):
     assert masterplan == {"present": False, "text": None}
     assert backends.github_calls[-1][0].endswith("/contents/docs/ARCHITECTURE.md")
 
-    for token in (PM_TOKEN, AGENT_TOKEN):
-        async with mcp_session(app, token) as session:
-            result = await session.call_tool(
-                "repo.read_file",
-                {
-                    "run_id": RUN_ID,
-                    "repo": REPO,
-                    "ref": "main",
-                    "path": "docs/STRATEGY.md",
-                },
-            )
-        assert result.isError, "a company role read a document through the platform"
+
+# -- git.merge_pr (the platform's) ---------------------------------------------
 
 
-# -- git.merge_pr (platform only) -------------------------------------------
-
-
-async def test_merge_is_platform_only(app, backends, audit):
+async def test_a_merge_names_the_reviewed_head(app, backends):
+    """The platform's merge asks the host to merge only while the head is
+    still the commit it names."""
     async with mcp_session(app, WORKER_TOKEN) as session:
         merged = payload(
             await session.call_tool(
@@ -407,20 +342,6 @@ async def test_merge_is_platform_only(app, backends, audit):
     path, sent, _ = backends.github_calls[-1]
     assert path.endswith("/pulls/5/merge")
     assert sent == {"merge_method": "merge", "sha": HEAD_SHA}
-
-    for token in (PM_TOKEN, AGENT_TOKEN):
-        async with mcp_session(app, token) as session:
-            result = await session.call_tool(
-                "git.merge_pr",
-                {"run_id": RUN_ID, "repo": REPO, "number": 5, "sha": HEAD_SHA},
-            )
-        assert result.isError, "a company role reached git.merge_pr"
-    denies = [
-        e
-        for e in audit_events(audit)
-        if e["tool"] == "git.merge_pr" and e["decision"] == "deny"
-    ]
-    assert len(denies) == 2
 
 
 async def test_a_moved_head_merges_nothing(app, backends):
@@ -438,7 +359,7 @@ async def test_a_moved_head_merges_nothing(app, backends):
     assert backends.github_calls[-1][1]["sha"] == "0ld5ha"
 
 
-# -- issues.close and git.close_pr (platform only) ----------------------------
+# -- issues.close and git.close_pr (the platform's) ----------------------------
 
 
 @pytest.mark.parametrize(
@@ -454,35 +375,24 @@ async def test_a_moved_head_merges_nothing(app, backends):
         ("git.close_pr", 5, {"delete_branch": False}, "/pulls/5", {"state": "closed"}),
     ],
 )
-async def test_closing_is_platform_only_and_owes_a_rationale(
+async def test_a_close_states_its_rationale_on_the_item_and_the_row(
     app, backends, audit, tool, number, extra, route, body
 ):
     """The platform closes with its reason on the audit row and on the
-    item itself, the comment before the close; a call without one is
-    malformed before policy; no company role reaches it."""
+    item itself, the comment before the close."""
     args = {"run_id": RUN_ID, "repo": REPO, "number": number, **extra}
     async with mcp_session(app, WORKER_TOKEN) as session:
         closed = payload(
             await session.call_tool(tool, {**args, "rationale": "merged #5 (abc)"})
         )
-        assert closed["state"] == "closed"
-        (read, _, _), (commented, comment, _), (closing, sent, _) = backends.github_calls[
-            -3:
-        ]
-        assert read.endswith(route) and commented.endswith(f"/issues/{number}/comments")
-        assert comment == {"body": "merged #5 (abc)"}
-        assert closing.endswith(route) and sent == body
-        refused = await session.call_tool(tool, args)
-        assert refused.isError and "rationale" in refused.content[0].text
+    assert closed["state"] == "closed"
+    (read, _, _), (commented, comment, _), (closing, sent, _) = backends.github_calls[-3:]
+    assert read.endswith(route) and commented.endswith(f"/issues/{number}/comments")
+    assert comment == {"body": "merged #5 (abc)"}
+    assert closing.endswith(route) and sent == body
     (allowed,) = audit_events(audit)
     assert allowed["decision"] == "allow"
     assert allowed["rationale"] == "merged #5 (abc)"
-
-    for token in (PM_TOKEN, AGENT_TOKEN):
-        async with mcp_session(app, token) as session:
-            result = await session.call_tool(tool, {**args, "rationale": "r"})
-        assert result.isError and "default_deny" in result.content[0].text
-    assert [e["decision"] for e in audit_events(audit)] == ["allow", "deny", "deny"]
 
 
 @pytest.mark.parametrize(

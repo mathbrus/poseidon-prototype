@@ -12,7 +12,7 @@ import pytest
 
 from common.audit import args_digest
 from common.authn import Principal, ServiceAccount
-from common.topology import PLATFORM_NAMESPACE
+from common.topology import COMPANY_NAMESPACE, PLATFORM_NAMESPACE
 from llm_gateway.app import create_app
 from llm_gateway.config import LlmGatewaySettings
 from registry.memory import (
@@ -26,9 +26,16 @@ from registry.memory import (
 
 pytestmark = pytest.mark.anyio
 
-AGENT_TOKEN = "agent-token"
 RUN_ID = "run-01BUDGET"
 COMPANY = "hello-saas"
+CAP_USD = 5.0
+# The standing conductor, and the run's ephemeral implementer bound under
+# it, named and bound the way the orchestrator binds one.
+CONDUCTOR = "pm-1"
+AGENT_ID = f"feature-delivery-implementer-{RUN_ID}"
+AGENT_SA = f"ephemeral-{AGENT_ID}".lower()
+AGENT_TOKEN = "agent-token"
+CONDUCTOR_TOKEN = "conductor-token"
 
 
 @pytest.fixture
@@ -36,20 +43,15 @@ def anyio_backend():
     return "asyncio"
 
 
-CREW_TOKEN = "crew-secret"
-
-
 class FakeReviewer:
+    accounts = {
+        AGENT_TOKEN: ServiceAccount(COMPANY_NAMESPACE, AGENT_SA),
+        CONDUCTOR_TOKEN: ServiceAccount(COMPANY_NAMESPACE, CONDUCTOR),
+    }
+
     async def review(self, token: str, audience: str) -> Principal | None:
-        if token == AGENT_TOKEN:
-            return Principal.of(ServiceAccount(COMPANY, "implementer-1").username)
-        if token == CREW_TOKEN:
-            return Principal.of(
-                ServiceAccount(
-                    COMPANY, "ephemeral-feature-delivery-implementer-01x"
-                ).username
-            )
-        return None
+        account = self.accounts.get(token)
+        return None if account is None else Principal.of(account.username)
 
 
 class Upstream:
@@ -162,20 +164,24 @@ def stores() -> Stores:
     runs = InMemoryRuns()
     runs.start(RUN_ID, "task", "implement", f"implement-{RUN_ID}", COMPANY)
     instances = InMemoryAgentInstances()
-    instances.upsert(
-        "implementer-1",
-        COMPANY,
-        "implementer",
-        "implementer",
-        namespace=COMPANY,
-    )
+    instances.upsert(CONDUCTOR, COMPANY, CONDUCTOR, "pm", namespace=COMPANY_NAMESPACE)
     participants = InMemoryRunParticipants()
+    participants.add(
+        AGENT_ID,
+        RUN_ID,
+        CONDUCTOR,
+        "feature-delivery",
+        "implementer",
+        company=COMPANY,
+        namespace=COMPANY_NAMESPACE,
+        service_account=AGENT_SA,
+    )
     companies = InMemoryCompanies()
     companies.upsert(
         COMPANY,
         {
-            "namespace": COMPANY,
-            "budgets": {"per_run_usd": 5.0},
+            "namespace": COMPANY_NAMESPACE,
+            "budgets": {"per_run_usd": CAP_USD},
         },
     )
     return Stores(audit, ledger, runs, instances, participants, companies)
@@ -246,6 +252,23 @@ def call(
     return asyncio.run(go())
 
 
+def spend(ledger: InMemoryBudgetLedger, usd: float) -> None:
+    """A ledger row of earlier spend on the run, as a metered call leaves."""
+    ledger.record(
+        company=COMPANY,
+        run_id=RUN_ID,
+        agent_id=AGENT_ID,
+        parent_agent_id=CONDUCTOR,
+        role="implementer",
+        model="big-model",
+        prompt_tokens=1,
+        completion_tokens=1,
+        cached_tokens=0,
+        reasoning_tokens=0,
+        usd=usd,
+    )
+
+
 # Every guard holds on both completion surfaces: same chokepoint, different
 # wire shape.
 SURFACES = ["/chat/completions", "/v1/responses"]
@@ -269,12 +292,32 @@ def test_unattributed_call_is_rejected_and_audited(app, stores, path):
 
 @pytest.mark.parametrize("path", SURFACES)
 def test_unknown_run_is_rejected(app, stores, path):
-    resp = call(app, run_id="run-nobody-started", path=path)
+    resp = call(app, token=CONDUCTOR_TOKEN, run_id="run-nobody-started", path=path)
     assert resp.status_code == 403
     assert resp.json()["error"]["code"] == "llm_unknown_run"
 
 
+def test_a_run_of_another_company_is_refused(app, stores, upstream):
+    """A caller bills only its own company's runs: the conductor naming a
+    live run of another company is refused and audited before any budget
+    or upstream work, while its own company's run is served."""
+    stores.runs.start("run-ELSEWHERE", "task", "scope", None, "other-company")
+    resp = call(app, token=CONDUCTOR_TOKEN, run_id="run-ELSEWHERE")
+    assert resp.status_code == 403
+    assert resp.json()["error"]["code"] == "llm_unknown_run"
+    event = stores.audit.events[-1]
+    assert event.decision == "deny" and event.rule == "llm_unknown_run"
+    assert event.agent_id == CONDUCTOR and event.run_id == "run-ELSEWHERE"
+    assert upstream.requests == []
+    assert stores.ledger.entries_for_run("run-ELSEWHERE") == []
+
+    assert call(app, token=CONDUCTOR_TOKEN, run_id=RUN_ID).status_code == 200
+
+
 def test_the_deployment_model_is_pinned_and_metered(app, stores, upstream):
+    """The ephemeral implementer's call: the deployment's model answers,
+    and the spend is recorded under the agent, its role and the conductor
+    it was spawned under."""
     audit, ledger = stores.audit, stores.ledger
     resp = call(app)
     assert resp.status_code == 200
@@ -285,7 +328,8 @@ def test_the_deployment_model_is_pinned_and_metered(app, stores, upstream):
 
     (entry,) = ledger.entries_for_run(RUN_ID)
     assert entry["company"] == COMPANY
-    assert entry["agent_id"] == "implementer-1"
+    assert entry["agent_id"] == AGENT_ID
+    assert entry["parent_agent_id"] == CONDUCTOR
     assert entry["role"] == "implementer"
     assert entry["model"] == "big-model"
     assert entry["prompt_tokens"] == 100 and entry["completion_tokens"] == 50
@@ -296,24 +340,13 @@ def test_the_deployment_model_is_pinned_and_metered(app, stores, upstream):
     assert event.decision == "allow" and event.rule == "budget_headroom"
     assert event.source == "llm-gateway"
     assert event.company == COMPANY and event.workflow == "implement"
+    assert event.lifecycle == "ephemeral" and event.parent_agent_id == CONDUCTOR
 
 
 @pytest.mark.parametrize("path", SURFACES)
 def test_exhausted_cap_refuses_with_a_distinguishable_error(app, stores, path):
     audit, ledger = stores.audit, stores.ledger
-    ledger.record(
-        company=COMPANY,
-        run_id=RUN_ID,
-        agent_id="implementer-1",
-        parent_agent_id="",
-        role="implementer",
-        model="big-model",
-        prompt_tokens=1,
-        completion_tokens=1,
-        cached_tokens=0,
-        reasoning_tokens=0,
-        usd=5.0,
-    )
+    spend(ledger, CAP_USD)
 
     resp = call(app, path=path)
     assert resp.status_code == 429
@@ -329,40 +362,58 @@ def test_exhausted_cap_refuses_with_a_distinguishable_error(app, stores, path):
 
 
 def test_cap_bites_only_at_the_cap(app, stores, upstream):
-    """Below the cap calls flow and spend accrues call by call."""
+    """Just under the cap a call still flows and its spend accrues; the
+    spend it adds reaches the cap, and the next call is refused."""
     ledger = stores.ledger
-    for _ in range(3):
-        assert call(app).status_code == 200
-    assert len(ledger.entries_for_run(RUN_ID)) == 3
-    assert abs(ledger.spent_for_run(RUN_ID) - 3 * upstream.cost) < 1e-9
+    spend(ledger, CAP_USD - upstream.cost / 2)
+    assert call(app).status_code == 200
+    assert len(ledger.entries_for_run(RUN_ID)) == 2
+    assert ledger.spent_for_run(RUN_ID) >= CAP_USD
+
+    refused = call(app)
+    assert refused.status_code == 429
+    assert refused.json()["error"]["code"] == "budget_exhausted"
+    assert len(ledger.entries_for_run(RUN_ID)) == 2
+    assert len(upstream.requests) == 1
 
 
-def test_ephemeral_caller_cannot_bill_a_foreign_run(app, stores):
-    """An ephemeral identity is bound to exactly one run; naming another is
-    denied and audited before any budget or upstream work."""
-    audit, runs, participants = stores.audit, stores.runs, stores.participants
+def test_ephemeral_caller_cannot_bill_a_foreign_run(app, stores, upstream):
+    """An ephemeral identity is bound to exactly one run; naming another
+    live run of its own company is denied and audited before any budget or
+    upstream work."""
+    audit, runs = stores.audit, stores.runs
     runs.start("run-OTHER", "task", "implement", None, COMPANY)
-    participants.add(
-        "feature-delivery-implementer-01X",
-        "run-OTHER",
-        "pm-1",
-        "feature-delivery",
-        "implementer",
-        company=COMPANY,
-        namespace=COMPANY,
-        service_account="ephemeral-feature-delivery-implementer-01x",
-    )
-    resp = call(app, token=CREW_TOKEN, run_id=RUN_ID)  # not its run
+    resp = call(app, run_id="run-OTHER")  # not its run
     assert resp.status_code == 403
     assert resp.json()["error"]["code"] == "llm_foreign_run"
     assert audit.events[-1].rule == "llm_foreign_run"
+    assert upstream.requests == []
 
 
-def test_uncapped_company_is_not_blocked(app, stores, upstream):
-    """A blueprint with no per-run cap meters without stopping — metering
-    and enforcement are separable, silence is not."""
-    companies = stores.companies
-    companies.upsert(COMPANY, {"namespace": COMPANY, "budgets": {"per_run_usd": 0}})
+@pytest.mark.parametrize(
+    "spec",
+    [None, {"namespace": COMPANY_NAMESPACE, "budgets": {"per_run_usd": 0}}],
+    ids=["no-spec-row", "zero-cap"],
+)
+def test_a_run_without_a_cap_is_refused(app, stores, upstream, spec):
+    """Every compiled company has a positive per-run cap; a company the
+    registry holds without one — no spec row, or a cap of zero — is refused
+    and audited before any upstream call, and served once a cap is
+    applied."""
+    stores.companies.rows.pop(COMPANY)
+    if spec is not None:
+        stores.companies.upsert(COMPANY, spec)
+
+    resp = call(app)
+    assert resp.status_code == 403
+    assert resp.json()["error"]["code"] == "budget_cap_missing"
+    event = stores.audit.events[-1]
+    assert event.decision == "deny" and event.rule == "budget_cap_missing"
+    assert event.run_id == RUN_ID and event.source == "llm-gateway"
+    assert upstream.requests == []
+    assert stores.ledger.entries_for_run(RUN_ID) == []
+
+    stores.companies.upsert(COMPANY, {"budgets": {"per_run_usd": CAP_USD}})
     assert call(app).status_code == 200
 
 

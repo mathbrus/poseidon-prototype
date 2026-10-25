@@ -191,28 +191,22 @@ class ImplementWorkflow(RunWorkflow):
             returns = 0
             task_text = task_source
             delivery: dict[str, Any] | None = None
-            # The tickets the implement dispatches filed, across every
-            # return: a re-dispatch replaces the result, never what an
-            # earlier dispatch had the platform file.
-            filed: list[str] = []
             while True:
                 delivery = None
                 result = await self.dispatch(
                     input.run_id, implementer["url"], "implement", task_text, documents
                 )
-                filed += [
-                    u for u in (result or {}).get("ticket_urls") or [] if u not in filed
-                ]
-                if result is not None:
-                    result["ticket_urls"] = list(filed)
                 if (result or {}).get("error"):
                     break
+                filed = (result or {}).get("ticket_urls") or []
                 if filed:
                     # The implementer asked for the plan to change rather
-                    # than deviate from it: nothing here is delivered. The
-                    # run fails by name, and the attempt accounting decides
-                    # whether the ticket is offered again — a later attempt
-                    # reads the plan the steward has revised by then.
+                    # than deviate from it: nothing here is verified or
+                    # delivered, and no dispatch follows. The run fails by
+                    # name with the tickets on its result, and the attempt
+                    # accounting decides whether the ticket is offered
+                    # again — a later attempt reads the plan the steward
+                    # has revised by then.
                     error = architecture_wait(filed)
                     break
                 verify = await workflow.execute_activity(
@@ -248,15 +242,9 @@ class ImplementWorkflow(RunWorkflow):
                 elif not delivery.get("pr_url"):
                     error = "delivery finished without a PR"
                 # The deliver status carries pr_url; keep the implement
-                # iteration count alongside it, and every ticket either
-                # dispatch filed — an architecture request is the
-                # implement dispatch's, and delivery must not erase it.
+                # iteration count alongside it.
                 merged = dict(result or {})
                 merged.update({k: v for k, v in delivery.items() if v is not None})
-                merged["ticket_urls"] = [
-                    *((result or {}).get("ticket_urls") or []),
-                    *(delivery.get("ticket_urls") or []),
-                ]
                 result = merged
         except asyncio.CancelledError:
             # Cooperative cancel: compensate, then let the cancellation

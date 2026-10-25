@@ -1,52 +1,19 @@
 import base64
-import subprocess
 from pathlib import Path
 
 import pytest
+from conftest import git
 from fastapi.testclient import TestClient
 
 from sandbox.toolserver import create_app
 
-GIT_ENV = {
-    "GIT_AUTHOR_NAME": "test",
-    "GIT_AUTHOR_EMAIL": "test@example.com",
-    "GIT_COMMITTER_NAME": "test",
-    "GIT_COMMITTER_EMAIL": "test@example.com",
-    "HOME": "/nonexistent",  # keep user gitconfig out of the tests
-}
-
-
-def git(workspace: Path, *args: str) -> str:
-    proc = subprocess.run(
-        ["git", *args],
-        cwd=workspace,
-        env=GIT_ENV,
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    return proc.stdout.strip()
-
 
 @pytest.fixture
-def workspace(tmp_path: Path) -> Path:
-    """A git repo shaped like a provisioned workspace: one base commit + .poseidon-base."""
-    git(tmp_path, "init", "-b", "main")
-    (tmp_path / "hello.txt").write_text("hello\n")
-    (tmp_path / "pkg").mkdir()
-    (tmp_path / "pkg" / "mod.py").write_text("x = 1\n")
-    git(tmp_path, "add", "-A")
-    git(tmp_path, "commit", "-m", "base")
-    base_sha = git(tmp_path, "rev-parse", "HEAD")
-    (tmp_path / ".poseidon-base").write_text(base_sha + "\n")
-    # What the sandbox backend appends at provision time.
-    with (tmp_path / ".git" / "info" / "exclude").open("a") as exclude:
-        exclude.write(".poseidon-base\n__pycache__/\n*.pyc\n")
-    return tmp_path
-
-
-@pytest.fixture
-def client(workspace: Path) -> TestClient:
+def client(workspace: Path, monkeypatch) -> TestClient:
+    """The tool server over the workspace, running its default test
+    command whatever the environment running the suite sets: the command
+    is read once, when the app is built."""
+    monkeypatch.delenv("TEST_CMD", raising=False)
     return TestClient(create_app(workspace=workspace))
 
 
@@ -84,8 +51,6 @@ def test_read_file_view_range(client: TestClient, workspace: Path):
     for bad in ([0, 2], [3, 2], [9, 9]):
         resp = client.post("/files/read", json={"path": "many.txt", "view_range": bad})
         assert resp.status_code == 400, bad
-    wrong_shape = client.post("/files/read", json={"path": "many.txt", "view_range": [1]})
-    assert wrong_shape.status_code == 422  # a pair, by schema
 
 
 def test_read_missing_file_404(client: TestClient):
@@ -317,22 +282,9 @@ def test_tests_endpoint_uses_test_cmd_env(workspace: Path, monkeypatch):
     assert "running-custom-tests" in body["stdout"]
 
 
-def test_tests_endpoint_default_is_pytest(
-    client: TestClient, monkeypatch, workspace: Path
-):
-    monkeypatch.delenv("TEST_CMD", raising=False)
-    (workspace / "test_ok.py").write_text("def test_ok():\n    assert True\n")
-    body = client.post("/tests", json={}).json()
-    assert body["exit_code"] == 0
-    assert "1 passed" in body["stdout"]
-
-
-def test_tests_endpoint_scopes_to_named_paths(
-    client: TestClient, monkeypatch, workspace: Path
-):
+def test_tests_endpoint_scopes_to_named_paths(client: TestClient, workspace: Path):
     """The contract-verify call: `paths` pins the run to named test paths,
     so the rest of the suite — red or green — never runs."""
-    monkeypatch.delenv("TEST_CMD", raising=False)
     contract = workspace / "tests" / "contract"
     contract.mkdir(parents=True)
     (contract / "test_c.py").write_text("def test_c():\n    assert True\n")
@@ -342,12 +294,9 @@ def test_tests_endpoint_scopes_to_named_paths(
     assert "1 passed" in body["stdout"]
 
 
-def test_tests_endpoint_missing_named_path_is_red(
-    client: TestClient, monkeypatch, workspace: Path
-):
+def test_tests_endpoint_missing_named_path_is_red(client: TestClient):
     """An empty or absent contract tree is a red fact, not a silent pass:
     pytest exits nonzero on a named path it cannot collect."""
-    monkeypatch.delenv("TEST_CMD", raising=False)
     body = client.post("/tests", json={"paths": ["tests/contract"]}).json()
     assert body["exit_code"] != 0
 

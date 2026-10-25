@@ -13,7 +13,7 @@ What must hold:
 - reads need a verified human and touch nothing.
 """
 
-import asyncio
+import copy
 import hashlib
 
 import httpx
@@ -66,7 +66,7 @@ from common.policy import (
 )
 from common.text import UNTRUSTED_CLIP, clip_head
 from common.topology import BLUEPRINT_LIMIT_BYTES, PLATFORM_NAMESPACE
-from common.workflows import GATE_PARKED, gate_rule
+from common.workflows import GATE_PARKED, gate_rule, workflow_id
 from console import fakes
 from console import service as service_module
 from console.config import ConsoleSettings
@@ -100,6 +100,14 @@ def client(world: World) -> httpx.AsyncClient:
 def a_review_run(world: World) -> None:
     world.runs.start(RUN_ID, "Review PR #41", "review", f"review-{RUN_ID}", COMPANY)
     world.workflows.running[f"review-{RUN_ID}"] = "parked-merge_gate"
+
+
+def a_running_heartbeat(world: World) -> None:
+    world.workflows.running[workflow_id("heartbeat", COMPANY)] = "sleeping"
+
+
+def a_paused_company(world: World) -> None:
+    world.companies.pause(COMPANY, "owner")
 
 
 # -- the chokepoint ----------------------------------------------------------------
@@ -139,6 +147,54 @@ async def test_whoami_names_the_human_and_the_company(client):
     )
 
 
+# Each act as a client asks for it, in a world whose state lets it through:
+# what the world needs, then the request.
+ACTS = {
+    BLUEPRINT_APPLY: (None, "POST", "/blueprint/apply", {"blueprint": HELLO_SAAS}),
+    COMPANY_DELETE: (None, "DELETE", "/company", {"rationale": "mine now"}),
+    RUN_START: (None, "POST", "/runs", {"workflow": "implement", "number": 7}),
+    GATE_RESOLVE: (
+        a_review_run,
+        "POST",
+        f"/runs/{RUN_ID}/gates/merge",
+        {"approved": True, "rationale": "looks fine"},
+    ),
+    RUN_CANCEL: (a_review_run, "POST", f"/runs/{RUN_ID}/cancel", {"rationale": "mine"}),
+    HEARTBEAT_WAKE: (a_running_heartbeat, "POST", "/heartbeat/wake", None),
+    HEARTBEAT_PAUSE: (None, "POST", "/heartbeat/pause", {"rationale": "mine now"}),
+    HEARTBEAT_RESUME: (
+        a_paused_company,
+        "POST",
+        "/heartbeat/resume",
+        {"rationale": "mine now"},
+    ),
+}
+
+
+@pytest.mark.parametrize("act", ACTS)
+async def test_an_act_policy_denies_is_a_403_that_does_nothing(act, client, world):
+    """The refusal names policy's rule and is audited once; nothing else
+    moves — no Temporal call, no Company CR submitted or deleted, no pause
+    written or lifted. The same act, allowed, goes through: the world let
+    it, policy refused it."""
+    prepare, method, path, body = ACTS[act]
+    if prepare is not None:
+        prepare(world)
+    cr, paused = copy.deepcopy(world.cr), world.companies.paused(COMPANY)
+    world.decisions[act] = {"allow": False, "rule": "human_not_recognized"}
+    denied = await client.request(method, path, json=body, headers=as_owner())
+    assert denied.status_code == 403, denied.text
+    assert PolicyRefusal.model_validate(denied.json()).rule == "human_not_recognized"
+    assert world.events == [(act, "deny", "human_not_recognized")]
+    assert world.calls == [] and world.submitted == []
+    assert world.cr == cr and world.companies.paused(COMPANY) == paused
+    assert COMPANY in world.companies.rows
+
+    del world.decisions[act]
+    allowed = await client.request(method, path, json=body, headers=as_owner())
+    assert allowed.status_code == 200, allowed.text
+
+
 # -- a verdict: recorded, then delivered --------------------------------------
 
 
@@ -171,21 +227,6 @@ async def test_a_verdict_is_recorded_under_the_humans_name_then_delivered(client
         "rationale": "reviewed: findings are clean",
         "ts": event.ts,
     }
-
-
-async def test_a_denied_verdict_is_a_403_that_signals_nothing(client, world):
-    a_review_run(world)
-    world.decisions[GATE_RESOLVE] = {"allow": False, "rule": "human_not_recognized"}
-    response = await client.post(
-        f"/runs/{RUN_ID}/gates/merge",
-        json={"approved": True, "rationale": "looks fine"},
-        headers=as_owner(),
-    )
-    assert response.status_code == 403
-    assert PolicyRefusal.model_validate(response.json()).rule == "human_not_recognized"
-    assert world.events == [(GATE_RESOLVE, "deny", "human_not_recognized")]
-    assert world.workflows.calls == []
-    assert world.audit.latest_human_verdict(RUN_ID, "merge") is None
 
 
 async def test_a_rejection_is_recorded_as_one(client, world):
@@ -396,17 +437,6 @@ async def test_a_pause_holds_a_loop_the_worker_has_not_started_yet(client, world
     assert world.workflows.calls == []
 
 
-async def test_a_stranger_cannot_pause_the_company(client, world):
-    world.decisions[HEARTBEAT_PAUSE] = {"allow": False, "rule": "human_not_recognized"}
-    response = await client.post(
-        "/heartbeat/pause", json={"rationale": "mine now"}, headers=as_owner()
-    )
-    assert response.status_code == 403
-    assert PolicyRefusal.model_validate(response.json()).rule == "human_not_recognized"
-    assert world.companies.paused(COMPANY) is None and world.workflows.calls == []
-    assert world.events == [(HEARTBEAT_PAUSE, "deny", "human_not_recognized")]
-
-
 # -- the blueprint ---------------------------------------------------------
 
 
@@ -577,18 +607,6 @@ async def test_the_company_read_is_the_crs_phase(client, world):
     )
     state = model(CompanyView, await client.get("/company", headers=as_owner()))
     assert state.phase == "converged" and state.bundle_revision == "r1"
-
-
-async def test_a_stranger_cannot_delete_the_company(client, world):
-    a_review_run(world)
-    world.decisions[COMPANY_DELETE] = {"allow": False, "rule": "human_not_recognized"}
-    response = await client.request(
-        "DELETE", "/company", json={"rationale": "mine now"}, headers=as_owner()
-    )
-    assert response.status_code == 403
-    assert PolicyRefusal.model_validate(response.json()).rule == "human_not_recognized"
-    assert world.calls == []
-    assert world.events == [(COMPANY_DELETE, "deny", "human_not_recognized")]
 
 
 async def test_the_applied_blueprint_reads_back_byte_for_byte(client, world):
@@ -807,7 +825,7 @@ async def test_events_are_the_companys_rows_after_a_cursor_with_spend(client, wo
     world.ledger.record(
         company=COMPANY,
         run_id=RUN_ID,
-        agent_id="implementer-1",
+        agent_id=f"feature-delivery-implementer-{RUN_ID}",
         parent_agent_id="pm-1",
         role="implementer",
         model="mock",
@@ -873,22 +891,6 @@ async def test_a_decisions_story_is_the_rows_with_a_rationale(client, world):
     assert [e.tool for e in everything.events] == ["git.read", GATE_RESOLVE]
     assert [(e.tool, e.rationale) for e in decisions.events] == [
         (GATE_RESOLVE, "clean findings")
-    ]
-
-
-async def test_a_story_is_the_runs_events_in_order(client, world):
-    a_review_run(world)
-    await client.post(
-        f"/runs/{RUN_ID}/gates/merge",
-        json={"approved": True, "rationale": "reviewed"},
-        headers=as_owner(),
-    )
-    story = model(
-        StoryView, await client.get(f"/runs/{RUN_ID}/story", headers=as_owner())
-    )
-    assert story.run_id == RUN_ID
-    assert [(e.tool, e.agent_id, e.source) for e in story.events] == [
-        (GATE_RESOLVE, "owner", "console")
     ]
 
 
@@ -1067,4 +1069,3 @@ def test_settings_split_the_declared_humans():
         console_humans="owner, eval,",
     )
     assert settings.humans == ["owner", "eval"]
-    asyncio.run(asyncio.sleep(0))

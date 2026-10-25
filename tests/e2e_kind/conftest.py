@@ -20,7 +20,7 @@ Run explicitly (excluded from plain `pytest`):
     uv run pytest tests/e2e_kind -m e2e_kind
 
 The suite holds itself to the same discipline the product has — declared
-state, enforced stops, verified quiet — via four session-level guarantees:
+state, enforced stops, verified quiet — via five session-level guarantees:
 
 - **The brain of record** (`paid_brain_guard`, autouse): the session fails
   before the first dispatch unless the deployed `llm-proxy` image is the
@@ -40,22 +40,22 @@ state, enforced stops, verified quiet — via four session-level guarantees:
   conftest.py, whose merged form would neuter every later run's
   collection). Idempotent — a repo already at baseline gets reads, not
   commits. No module may depend on what a previous run left behind.
-- **One lane** (`run_ticket`, `run_review`, `apply_profile`,
-  `sweep_repo_debris`, `repo_sweeper`): every run is the standing
-  heartbeat's. A module files the ticket the loop should implement (or
-  writes the strategy it should scope from), wakes the loop, and reads the
-  run it started; what the loop may start on its own is declared in the
-  profile the module applies (`blueprints.may_start`), never by a company
-  without a heartbeat. Debris feeds contention — the loop treats any open
-  PR or issue as backlog and wakes the moment any run finishes — so a
-  module closes a PR as soon as its claims about it are read, or holds it
-  open only under a profile the loop cannot start a review on; a module
-  sweeps BEFORE it applies a profile and waits for the loop to be asleep
-  on the swept backlog (`apply_profile`), so the ticks it counts from
-  there are its own; and a run that is *meant* to fail runs under
-  `blueprints.single_attempt`, or the loop retries it. A module that
-  pauses the heartbeat resumes it before it ends — a paused loop never
-  reports asleep, so the next profile apply would wait forever. The
+- **One lane** (`run_ticket`, `run_review`, `apply_and_settle`,
+  `sweep_repo_debris`, `repo_sweeper`): every run is the heartbeat's. A
+  module files the ticket the loop should implement (or writes the
+  strategy it should scope from), wakes the loop, and reads the run it
+  started; what the loop may start on its own is declared in the derived
+  blueprint the module applies (`blueprints.may_start`), never by a
+  company without a heartbeat. Debris feeds contention — the loop treats
+  any open PR or issue as backlog and wakes the moment any run finishes —
+  so a module closes a PR as soon as its claims about it are read, or
+  holds it open only under a blueprint the loop cannot start a review
+  on; a module sweeps BEFORE it applies a blueprint and waits for the
+  loop to be asleep on the swept backlog (`apply_and_settle`), so the
+  ticks it counts from there are its own; and a run that is *meant* to
+  fail runs under `blueprints.single_attempt`, or the loop retries it. A
+  module that pauses the heartbeat resumes it before it ends — a paused
+  loop never reports asleep, so the next apply would wait forever. The
   session sweeper catches whatever a failure path dropped, a pause
   included.
 - **Read your own writes** (`file_ticket`, `scope_via_heartbeat`,
@@ -73,7 +73,7 @@ state, enforced stops, verified quiet — via four session-level guarantees:
 What a new module owes: declare repo preconditions against `baseline_env`
 (and put deviations back — a strategy that names a slice above all);
 close every PR it opens and delete the branch (`close_pr`), and close the
-tickets it filed; if it applies another blueprint profile, sweep before
+tickets it filed; if it applies a derived blueprint, sweep before
 the apply and `blueprints.restore_pristine()` after; bound the attempts
 of a run it expects to fail; act through the console (`cluster.console`),
 never by a raw Temporal signal — except a red-team proving the raw road
@@ -93,7 +93,7 @@ import os
 import re
 import secrets
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -114,18 +114,20 @@ from mock_brain.brain import (
     TEST_SLUGIFY_PY,
 )
 
+from ..brain_guard import paid_brain_problem
 from .blueprints import (
     E2E_GATE_MINUTES,
-    HELLO_SAAS,
-    apply_blueprint,
+    ensure_applied,
     restore_pristine,
-    wait_for_convergence,
 )
 from .cluster import (
     COMPANY_NS,
+    HELLO_SAAS,
     PLATFORM_NS,
     REPO_ROOT,
-    await_bare_heartbeat_asleep,
+    REWAKE_S,
+    STEP_TIMES,
+    await_heartbeat_asleep,
     await_run,
     console,
     console_url,
@@ -135,15 +137,15 @@ from .cluster import (
     kubectl,
     run_by_task,
     run_kubectl,
-    sandbox_pods,
-    wake_bare_heartbeat,
+    timed,
+    wake_heartbeat,
 )
 
 ENV_FILE = REPO_ROOT / "deploy" / "kind" / ".env"
 
 E2E_KIND_DIR = Path(__file__).resolve().parent
 # The ticket bodies the suite files: the mock brain's scripted scenarios,
-# as a company's own tickets rather than a human's task files.
+# as the world files them on the company's repository.
 TICKETS_DIR = E2E_KIND_DIR / "tickets"
 # Where the company keeps its documents, as the example declares it — the
 # suite writes strategies there and the baseline puts the resting ones back.
@@ -152,13 +154,12 @@ DOCUMENT_PATHS: dict[str, str] = yaml.safe_load(HELLO_SAAS.read_text())["company
 ]
 
 # The modules that must run after everything else, in this order: the
-# acceptance capstone reads what the whole suite produced; the two
-# autonomy capstones add runs of their own; the delete erases every row
-# and history the session made, so nothing after it may read them; the
-# quiet check comes last.
+# acceptance capstone reads what the whole suite produced; the autonomy
+# capstone adds runs of its own; the delete erases every row and history
+# the session made, so nothing after it may read them; the quiet check
+# comes last.
 ORDERED_LAST = [
     "test_acceptance.py",
-    "test_overnight.py",
     "test_automated.py",
     "test_delete.py",
     "test_quiet.py",
@@ -183,6 +184,19 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
         )
 
     items.sort(key=rank)
+
+
+def pytest_terminal_summary(terminalreporter) -> None:
+    """Where the harness's own waits went this session, per step: how
+    often, in all, and at most."""
+    if not STEP_TIMES:
+        return
+    terminalreporter.section("harness waits")
+    for step, times in sorted(STEP_TIMES.items(), key=lambda kv: -sum(kv[1])):
+        terminalreporter.write_line(
+            f"{step:<34} {len(times):>4}×  {sum(times):8.1f} s in all"
+            f"  {max(times):6.1f} s at most"
+        )
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -267,40 +281,6 @@ def deployed_brain_image() -> str:
     return proc.stdout.strip() if proc.returncode == 0 else ""
 
 
-# The mock brain's image, matched by repository name exactly: a lookalike
-# (`poseidon-mock-brain-x`, a LiteLLM tag that mentions it) is a paid brain.
-MOCK_BRAIN_IMAGE = "poseidon-mock-brain"
-
-
-def image_repository(image: str) -> str:
-    """`registry:5000/name:tag@sha256:…` → `name`."""
-    name = image.split("@", 1)[0].rsplit("/", 1)[-1]
-    return name.split(":", 1)[0]
-
-
-def paid_brain_problem(image: str, allow: str | None) -> str | None:
-    """Why the session must not run, or None. This suite dispatches real
-    LLM calls; against a paid brain those bill a provider, which is a spend
-    decision no test run may make implicitly. Pure, so the refusal logic
-    is pinned without a cluster. Fail-safe defaults: an unreadable brain
-    refuses too — the dangerous condition is the absent input."""
-    if not image:
-        return (
-            f"cannot read the deployed brain (deployment/llm-proxy in {PLATFORM_NS});"
-            " refusing to run against an unverified brain —"
-            " is the cluster up? deploy/kind/kind-up.sh"
-        )
-    if image_repository(image) == MOCK_BRAIN_IMAGE:
-        return None
-    if allow == "1":
-        return None
-    return (
-        f"the cluster runs a PAID brain ({image}): e2e runs would bill a provider."
-        " Redeploy on the mock (REAL_LLM=0 deploy/kind/kind-up.sh), or set"
-        " POSEIDON_ALLOW_PAID=1 to spend deliberately."
-    )
-
-
 @pytest.fixture(scope="session", autouse=True)
 def paid_brain_guard() -> None:
     """The LLM-cost rule, enforced rather than asked nicely: the session
@@ -331,38 +311,58 @@ def ticket_body(name: str, nonce: str) -> str:
 
 def file_ticket(env: dict, title: str, body: str) -> int:
     """File one issue on the disposable repo — the backlog entry the
-    standing heartbeat will find — and return its number once the git
-    host lists it. GitHub lists a new issue up to a minute after creating
+    heartbeat will find — and return its number once the git host lists
+    it (see `file_tickets`)."""
+    (number,) = file_tickets(env, [(title, body)])
+    return number
+
+
+def file_tickets(env: dict, tickets: list[tuple[str, str]]) -> list[int]:
+    """File each `(title, body)` and return the numbers once the git host
+    lists them all. GitHub lists a new issue up to a minute after creating
     it, and the loop reads the listing: a ticket the world filed is only
-    filed once the world can see it."""
-    created = github_api(
-        env,
-        "POST",
-        f"/repos/{target_slug(env)}/issues",
-        json={"title": title, "body": body},
-    )
-    assert created.status_code == 201, f"could not file issue: {created.text}"
-    number = int(created.json()["number"])
-    deadline = time.monotonic() + 180
-    while time.monotonic() < deadline:
-        listed = github_api(
-            env, "GET", f"/repos/{target_slug(env)}/issues?state=open&per_page=100"
-        ).json()
-        if any(int(i["number"]) == number for i in listed):
-            return number
-        time.sleep(5)
-    raise AssertionError(f"the git host never listed issue #{number}")
+    filed once the world can see it. One wait covers the batch."""
+    numbers = []
+    for title, body in tickets:
+        created = github_api(
+            env,
+            "POST",
+            f"/repos/{target_slug(env)}/issues",
+            json={"title": title, "body": body},
+        )
+        assert created.status_code == 201, f"could not file issue: {created.text}"
+        numbers.append(int(created.json()["number"]))
+    _await_listing(env, lambda listed: set(numbers) <= listed, f"issues {numbers}")
+    return numbers
 
 
-def _kill_worker_when(run_id: str, kill_after: str) -> None:
-    """The crash-resume proof's staging: kill the worker once the run has
-    its sandbox (`"sandbox"`) or its crew's own pod (`"crew"`), so the
-    replay on the replacement worker inherits live state to compensate."""
+def await_unlisted(env: dict, number: int) -> None:
+    """Block until the git host's open listing no longer shows issue
+    `number` — what the loop reads, which lags a close the way it lags a
+    creation."""
+    _await_listing(env, lambda listed: number not in listed, f"issue #{number} closed")
+
+
+def _await_listing(env: dict, done: Callable[[set[int]], bool], what: str) -> None:
+    with timed("git host listing"):
+        deadline = time.monotonic() + 180
+        while time.monotonic() < deadline:
+            listed = github_api(
+                env, "GET", f"/repos/{target_slug(env)}/issues?state=open&per_page=100"
+            ).json()
+            if done({int(i["number"]) for i in listed}):
+                return
+            time.sleep(5)
+    raise AssertionError(f"the git host's listing never showed {what}")
+
+
+def _kill_worker_once_the_crew_is_up(run_id: str) -> None:
+    """The crash-resume proof's staging: kill the worker once the run's
+    crew has its own pod — the sandbox is up by then too — so the replay
+    on the replacement worker inherits live state to compensate."""
     deadline = time.monotonic() + 300
     while time.monotonic() < deadline:
-        if kill_after == "sandbox" and sandbox_pods(run_id):
-            break
-        if kill_after == "crew" and kubectl(
+        if kubectl(
             "-n",
             COMPANY_NS,
             "get",
@@ -376,36 +376,33 @@ def _kill_worker_when(run_id: str, kill_after: str) -> None:
             break
         time.sleep(2)
     else:
-        raise AssertionError(
-            f"the run never reached its {kill_after}; cannot stage the kill"
-        )
+        raise AssertionError("the run's crew never came up; cannot stage the kill")
     kill_worker_pod()
 
 
-def run_ticket(
-    number: int, *, kill_after: str | None = None, deadline_s: int = 1800
-) -> dict:
-    """The implement run the standing heartbeat starts on ticket `number`:
-    wake the loop onto it (the platform's own signal, standing in for the
-    world the loop watches), optionally kill the worker mid-run, and wait
+def run_ticket(number: int, *, kill_worker: bool = False, deadline_s: int = 1800) -> dict:
+    """The implement run the heartbeat starts on ticket `number`: wake the
+    loop onto it (the platform's own signal, standing in for the world the
+    loop watches), with `kill_worker` kill the worker mid-run, and wait
     for the run's terminal registry row — the record every other helper
     and assertion reads. `implement` must be startable in the applied
-    profile."""
+    blueprint."""
     task = issue_run_task(number)
     wake_until_run_started(task, "implement")
-    if kill_after:
-        run = run_by_task(task, workflow="implement")
-        _kill_worker_when(run["run_id"], kill_after)
+    if kill_worker:
+        _kill_worker_once_the_crew_is_up(
+            run_by_task(task, workflow="implement")["run_id"]
+        )
     record = await_run(task, terminal=True, deadline_s=deadline_s, workflow="implement")
     return {**record, "issue_number": number}
 
 
-def run_implement(name: str, env: dict, *, kill_after: str | None = None) -> dict:
+def run_implement(name: str, env: dict, *, kill_worker: bool = False) -> dict:
     """File the scripted ticket `tickets/<name>.md` and let the heartbeat
     implement it. The ticket number rides the record for cleanup."""
     nonce = secrets.token_hex(3)
     number = file_ticket(env, f"{name} ({nonce})", ticket_body(name, nonce))
-    return run_ticket(number, kill_after=kill_after)
+    return run_ticket(number, kill_worker=kill_worker)
 
 
 def run_review(
@@ -419,7 +416,7 @@ def run_review(
     escalates and expires under the suite's gate clock. With `approve` a
     bool, wait for the merge-gate park and deliver that one human verdict.
     Returns the review run id and its terminal record. `review` must be
-    startable in the applied profile."""
+    startable in the applied blueprint."""
     task = review_run_task(pr_number)
     wake_until_run_started(task, "review")
     run_id = run_by_task(task, workflow="review")["run_id"]
@@ -474,21 +471,20 @@ def wake_until_run_started(
     covers a tick whose backlog read landed before the just-filed issue or
     just-delivered PR was visible on the git host — the extra ticks it may
     cause are idle rows, never actions."""
-    deadline = time.monotonic() + deadline_s
-    next_wake = 0.0
-    while time.monotonic() < deadline:
-        if run_by_task(task, workflow=workflow, since=since) is not None:
-            return
-        if time.monotonic() >= next_wake:
-            wake_bare_heartbeat()
-            next_wake = time.monotonic() + 60
-        time.sleep(3)
+    with timed("wake until run started"):
+        deadline = time.monotonic() + deadline_s
+        next_wake = 0.0
+        while time.monotonic() < deadline:
+            if run_by_task(task, workflow=workflow, since=since) is not None:
+                return
+            if time.monotonic() >= next_wake:
+                wake_heartbeat()
+                next_wake = time.monotonic() + REWAKE_S
+            time.sleep(3)
     raise AssertionError(f"the heartbeat never started {task!r}")
 
 
-def scope_via_heartbeat(
-    env: dict, strategy: str, deadline_s: int = 600, *, keep_strategy: bool = False
-) -> dict:
+def scope_via_heartbeat(env: dict, strategy: str, deadline_s: int = 600) -> dict:
     """Write the strategy, wake the loop onto it, and return the terminal
     record of the scope run it starts. Every scope run works the same task
     text, so the run is the one born after this write — never an earlier
@@ -498,9 +494,7 @@ def scope_via_heartbeat(
     tickets carry the slice and the resting strategy goes back. Left
     naming the slice, it would be scoped again the moment the slice's
     ticket closes with its merged pull request — the platform closes it —
-    and the module's arc would grow a second one nobody asked for.
-    `keep_strategy` keeps it naming the slice, for a module that tests
-    what the loop does while the slice still looks open."""
+    and the module's arc would grow a second one nobody asked for."""
     since = db_now()
     write_strategy(env, strategy)
     try:
@@ -513,8 +507,7 @@ def scope_via_heartbeat(
             since=since,
         )
     finally:
-        if not keep_strategy:
-            restore_strategy(env)
+        restore_strategy(env)
 
 
 # --- the repo-state contract ------------------------------------------------
@@ -661,14 +654,14 @@ REPO_PRUNED: tuple[str, ...] = (
 
 @pytest.fixture(scope="session", autouse=True)
 def suite_blueprint(stack: None, baseline_env: dict[str, str]) -> None:
-    """The company the suite runs against: the pristine profile on the
+    """The company the suite runs against: the pristine blueprint on the
     suite's clock (`blueprints.suite_document`). The bootstrap applied the
     example as written, whose gates wait a working day, and its heartbeat
     has been working whatever the repository held since — a vision-only
     repository gets its bootstrap tickets — so the suite starts from rest:
     the baseline is seeded first (the fixture dependency), the campsite
     swept, every run in flight allowed to end, and only then the pristine
-    profile applied with the suite's own waits, so a module that parks on
+    blueprint applied with the suite's own waits, so a module that parks on
     a gate watches it escalate within a minute."""
     sweep_repo_debris(baseline_env)
     await_no_runs_in_flight()
@@ -809,10 +802,11 @@ def pr_state(env: dict, pr_url: str | None) -> str:
     return str(pull.get("state") or "missing")
 
 
-def apply_profile(path: Path, env: dict, gate_minutes: int = E2E_GATE_MINUTES) -> None:
-    """Sweep, apply, converge, and wait for the standing heartbeat to be
-    asleep — the way every module that applies its own profile must
-    start. An empty campsite first: any open PR or issue an earlier module
+def apply_and_settle(path: Path, env: dict, gate_minutes: int = E2E_GATE_MINUTES) -> None:
+    """Sweep, apply, converge, and wait for the heartbeat to be asleep —
+    the way every module that applies its own blueprint must start. An
+    apply the console already enforces is not repeated
+    (`blueprints.ensure_applied`); the sweep and the wait always run. An empty campsite first: any open PR or issue an earlier module
     left becomes the loop's backlog the moment it reads the new section —
     a review the module never asked for, or a ticket it never filed. Then
     the wait: with the loop asleep over the swept backlog, the ticks a
@@ -821,9 +815,23 @@ def apply_profile(path: Path, env: dict, gate_minutes: int = E2E_GATE_MINUTES) -
     world."""
     sweep_repo_debris(env)
     lift_pause(env)
-    apply_blueprint(path, gate_minutes)
-    wait_for_convergence()
-    await_bare_heartbeat_asleep()
+    ensure_applied(path, gate_minutes)
+    with timed("heartbeat asleep"):
+        await_heartbeat_asleep()
+
+
+@contextlib.contextmanager
+def heartbeat_held(env: dict, rationale: str) -> Iterator[None]:
+    """Hold the heartbeat for a stretch of a module — a pause through the
+    console, as the owner, lifted on the way out whatever happens. A run in
+    flight finishes; what it leaves behind (a delivered PR, a ticket the
+    platform filed) waits for the module to read and clear it instead of
+    becoming the loop's next run."""
+    console(env).pause(rationale)
+    try:
+        yield
+    finally:
+        lift_pause(env)
 
 
 def lift_pause(env: dict) -> None:
@@ -835,53 +843,83 @@ def lift_pause(env: dict) -> None:
             console(env).resume("harness: the module that paused is over")
 
 
-def sweep_repo_debris(env: dict) -> None:
+def sweep_repo_debris(env: dict, deadline_s: int = 300) -> None:
     """Close every open issue, close every open PR and delete every
     feature/* branch — the stragglers per-fixture cleanup cannot see (PRs
     born inside test bodies, fixtures that died before their teardown).
     Open issues are backlog: a leftover would be the lowest-numbered ticket
     the next session's heartbeat picks first. Issues go first: a delivered
     PR the platform finds closed is refused, and gives its ticket back to
-    the loop if the ticket is still open."""
-    with contextlib.suppress(Exception):
-        slug = target_slug(env)
-        _close_open_issues(env, slug)
-        while prs := github_api(
-            env, "GET", f"/repos/{slug}/pulls?state=open&per_page=100"
-        ).json():
-            for pull in prs:
-                close_pr(env, pull["number"])
-        while True:
-            branches = github_api(
-                env, "GET", f"/repos/{slug}/branches?per_page=100"
-            ).json()
-            stale = [b["name"] for b in branches if b["name"].startswith("feature/")]
-            if not stale:
-                break
-            for name in stale:
-                github_api(env, "DELETE", f"/repos/{slug}/git/refs/heads/{name}")
-        # Anything a refusal reopened to the loop meanwhile goes too.
-        _close_open_issues(env, slug)
+    the loop if the ticket is still open. A sweep that cannot finish — a
+    throttled token, a branch that will not delete — fails within
+    `deadline_s`, by name."""
+    with timed("repo sweep"):
+        _sweep(env, target_slug(env), time.monotonic() + deadline_s)
 
 
-def _close_open_issues(env: dict, slug: str) -> None:
+def _sweep(env: dict, slug: str, deadline: float) -> None:
+    _until_unlisted(
+        env,
+        f"/repos/{slug}/issues?state=open&per_page=100",
+        deadline,
+        lambda issue: _close_issue_now(env, slug, issue),
+        keep=lambda issue: "pull_request" not in issue,
+    )
+    _until_unlisted(
+        env,
+        f"/repos/{slug}/pulls?state=open&per_page=100",
+        deadline,
+        lambda pull: close_pr(env, pull["number"]),
+    )
+    _until_unlisted(
+        env,
+        f"/repos/{slug}/branches?per_page=100",
+        deadline,
+        lambda branch: github_api(
+            env, "DELETE", f"/repos/{slug}/git/refs/heads/{branch['name']}"
+        ),
+        keep=lambda branch: branch["name"].startswith("feature/"),
+    )
+    # Anything a refusal reopened to the loop meanwhile goes too.
+    _until_unlisted(
+        env,
+        f"/repos/{slug}/issues?state=open&per_page=100",
+        deadline,
+        lambda issue: _close_issue_now(env, slug, issue),
+        keep=lambda issue: "pull_request" not in issue,
+    )
+
+
+def _until_unlisted(
+    env: dict,
+    path: str,
+    deadline: float,
+    act: Callable[[dict], Any],
+    keep: Callable[[dict], bool] = lambda item: True,
+) -> None:
+    """List `path`, `act` on every item `keep` selects, and list again
+    until none is left. The host's listing lags its writes, so an item
+    just closed may be listed once more: rounds are spaced, which spares
+    the suite's token, and bounded by `deadline`."""
     while True:
-        issues = [
-            i
-            for i in github_api(
-                env, "GET", f"/repos/{slug}/issues?state=open&per_page=100"
-            ).json()
-            if "pull_request" not in i
-        ]
-        if not issues:
-            break
-        for issue in issues:
-            github_api(
-                env,
-                "PATCH",
-                f"/repos/{slug}/issues/{issue['number']}",
-                json={"state": "closed"},
-            )
+        resp = github_api(env, "GET", path)
+        assert resp.status_code == 200, f"listing {path}: {resp.status_code} {resp.text}"
+        items = [item for item in resp.json() if keep(item)]
+        if not items:
+            return
+        assert time.monotonic() < deadline, f"still listed by {path}: {items}"
+        for item in items:
+            act(item)
+        time.sleep(3)
+
+
+def _close_issue_now(env: dict, slug: str, issue: dict) -> None:
+    github_api(
+        env,
+        "PATCH",
+        f"/repos/{slug}/issues/{issue['number']}",
+        json={"state": "closed"},
+    )
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -893,11 +931,13 @@ def repo_sweeper(env: dict[str, str]):
     still holding it. Then the loop is given its idle tick on that empty
     backlog, so `test_quiet`'s successor session starts from rest."""
     yield
-    sweep_repo_debris(env)
-    lift_pause(env)
+    try:
+        sweep_repo_debris(env)
+    finally:
+        lift_pause(env)
     with contextlib.suppress(Exception):
-        wake_bare_heartbeat()
-        await_bare_heartbeat_asleep()
+        wake_heartbeat()
+        await_heartbeat_asleep()
 
 
 # --- the shared runs ---------------------------------------------------------
@@ -905,7 +945,9 @@ def repo_sweeper(env: dict[str, str]):
 
 @pytest.fixture(scope="session")
 def implement_run(stack: None, env: dict[str, str]) -> dict:
-    """The happy-path run, with the worker killed mid-run: the company's
+    """The happy-path run, with the worker killed mid-run — once the run's
+    crew has its own pod, so the replay on the replacement worker inherits
+    a live sandbox and live ephemeral agents to compensate: the company's
     own implement run on the ticket the suite filed.
 
     The PR's openness-at-birth is verified here, then the PR and the
@@ -915,7 +957,7 @@ def implement_run(stack: None, env: dict[str, str]) -> dict:
     backlog — reviews that race whichever module comes next. The ticket
     closes before the PR: a delivered PR found closed is refused, and an
     open ticket would come back to the loop."""
-    record = run_implement("happy", env, kill_after="sandbox")
+    record = run_implement("happy", env, kill_worker=True)
     record["pr_state_at_birth"] = pr_state(env, record.get("pr_url"))
     # What the delivery carried, read before the branch goes.
     number = pr_number(record.get("pr_url"))
@@ -933,8 +975,11 @@ def implement_run(stack: None, env: dict[str, str]) -> dict:
 @pytest.fixture(scope="session")
 def injected_run(stack: None, env: dict[str, str]) -> dict:
     """The injected ticket — the planted 'hotfix runbook' steers delivery
-    onto `main`, the gateway denies it, the brain recovers onto feature/*.
-    Openness verified at birth, then closed — see `implement_run`."""
+    onto `main`, the gateway denies it, the brain recovers onto feature/*;
+    and, earlier in the same run, the verify-red scenario: the platform's
+    own verify goes red where the implementer's advisory one was green,
+    and a re-dispatch fixes it before delivery is released. Openness
+    verified at birth, then closed — see `implement_run`."""
     record = run_implement("injected", env)
     record["pr_state_at_birth"] = pr_state(env, record.get("pr_url"))
     close_issue(env, record["issue_number"])
