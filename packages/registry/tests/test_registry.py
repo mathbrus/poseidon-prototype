@@ -9,6 +9,7 @@ import pytest
 
 from common.audit import REVIEW_VERDICT, SANDBOX_EGRESS, AuditEvent, gate_event
 from common.policy import GATE_RESOLVE, verdict_rule
+from common.topology import COMPANY_NAMESPACE
 from common.workflows import MERGE_GATE
 from registry import (
     AgentInstances,
@@ -27,23 +28,28 @@ from registry import (
 )
 
 RUN_ID = "run-01REGISTRYTEST"
+# The ephemeral implementer of RUN_ID's crew, and the rule its sandbox
+# calls are allowed under.
+IMPLEMENTER = f"feature-delivery-implementer-{RUN_ID}"
+SANDBOX_EXEC_RULE = "crew_feature_delivery_implementer_sandbox_exec"
 
 
 def event(**overrides) -> AuditEvent:
     fields = {
         "ts": datetime.now(UTC).isoformat(),
         "run_id": RUN_ID,
-        "agent_id": "implementer-1",
+        "agent_id": IMPLEMENTER,
         "role": "implementer",
         "tool": "sandbox.exec",
         "args_digest": "a" * 64,
         "decision": "allow",
-        "rule": "sandbox_assigned_run",
+        "rule": SANDBOX_EXEC_RULE,
         "latency_ms": 3,
         "backend_status": "ok",
         "source": "gateway",
         "company": "hello-saas",
-        "lifecycle": "standing",
+        "lifecycle": "ephemeral",
+        "parent_agent_id": "pm-1",
         "workflow": "implement",
     }
     fields.update(overrides)
@@ -132,7 +138,7 @@ def test_registration_survives_a_new_accessor(registry: Registry):
     """The durability contract: the address outlives the
     process that recorded it, so a gateway restart mid-run is survivable."""
     SandboxRegistrations(registry).register(
-        RUN_ID, "http://10.0.0.1:8000", namespace="hello-saas", job_name="sbx"
+        RUN_ID, "http://10.0.0.1:8000", namespace=COMPANY_NAMESPACE, job_name="sbx"
     )
     # A brand-new accessor stands in for the restarted gateway.
     assert SandboxRegistrations(registry).url_for(RUN_ID) == "http://10.0.0.1:8000"
@@ -228,10 +234,8 @@ def test_story_spans_every_source(registry: Registry):
     )
     audit.append(
         event(
-            agent_id="implementer-1",
             source="llm-gateway",
             tool="llm.complete",
-            lifecycle="standing",
             ts="2026-01-01T00:00:03+00:00",
         )
     )
@@ -384,7 +388,7 @@ def test_the_teardown_sweep_erases_every_row_of_the_company(registry: Registry):
     assert left("sandbox_registrations", "run_id") == ["run-other"]
     assert left("filed_tickets", "run_id") == ["run-other"]
     assert left("budget_ledger", "run_id") == ["run-other"]
-    assert left("audit_events", "rule") == ["authn_rejected", "sandbox_assigned_run"]
+    assert left("audit_events", "rule") == ["authn_rejected", SANDBOX_EXEC_RULE]
     assert left("audit_events", "company") == ["", "other-corp"]
     # The tombstone is a revocation, not a record of the company.
     stored = bundles.get("company")
@@ -413,17 +417,11 @@ def test_an_event_written_while_applied_never_outlives_the_sweep(registry: Regis
 
 def test_agent_instance_lookup_carries_namespace(registry: Registry):
     instances = AgentInstances(registry)
-    instances.upsert(
-        "implementer-1",
-        "hello-saas",
-        "implementer",
-        "implementer",
-        namespace="hello-saas",
-    )
-    row = instances.get("implementer-1")
-    assert row["namespace"] == "hello-saas"
-    assert row["standing_name"] == "implementer"
-    assert row["role"] == "implementer"
+    instances.upsert("pm-1", "hello-saas", "pm", "pm", namespace=COMPANY_NAMESPACE)
+    row = instances.get("pm-1")
+    assert row["namespace"] == COMPANY_NAMESPACE
+    assert row["standing_name"] == "pm"
+    assert row["role"] == "pm"
     assert instances.get("nobody") is None
 
 
@@ -454,9 +452,9 @@ def test_sandbox_registration_active_row(registry: Registry):
     """The run-binding read: live row with namespace, gone
     once terminated — a stale run_id claim must resolve to nothing."""
     boxes = SandboxRegistrations(registry)
-    boxes.register(RUN_ID, "http://10.0.0.5:8000", "hello-saas", "sbx-x")
+    boxes.register(RUN_ID, "http://10.0.0.5:8000", COMPANY_NAMESPACE, "sbx-x")
     row = boxes.active(RUN_ID)
-    assert row["namespace"] == "hello-saas"
+    assert row["namespace"] == COMPANY_NAMESPACE
     assert row["url"] == "http://10.0.0.5:8000"
 
     boxes.terminate(RUN_ID)
@@ -467,10 +465,10 @@ def test_sandbox_registration_active_row(registry: Registry):
 def test_company_spec_reads(registry: Registry):
     companies = Companies(registry)
     companies.upsert(
-        "hello-saas", {"namespace": "hello-saas", "infra": {"sandbox": {"cpu": "1"}}}
+        "hello-saas", {"namespace": COMPANY_NAMESPACE, "infra": {"sandbox": {"cpu": "1"}}}
     )
     assert companies.get("hello-saas")["infra"]["sandbox"]["cpu"] == "1"
-    assert companies.by_namespace("hello-saas")["namespace"] == "hello-saas"
+    assert companies.by_namespace(COMPANY_NAMESPACE)["namespace"] == COMPANY_NAMESPACE
     assert companies.get("nobody") is None
     assert companies.by_namespace("nowhere") is None
 
@@ -481,12 +479,12 @@ def test_the_pause_is_a_company_fact_that_survives_a_re_apply(registry: Registry
     unapplied company is simply not paused."""
     companies = Companies(registry)
     assert companies.paused("hello-saas") is None
-    companies.upsert("hello-saas", {"namespace": "hello-saas"})
+    companies.upsert("hello-saas", {"namespace": COMPANY_NAMESPACE})
     assert companies.paused("hello-saas") is None
     companies.pause("hello-saas", "owner")
     paused = companies.paused("hello-saas")
     assert paused is not None and paused["by"] == "owner" and paused["at"]
-    companies.upsert("hello-saas", {"namespace": "hello-saas", "vision": "v2"})
+    companies.upsert("hello-saas", {"namespace": COMPANY_NAMESPACE, "vision": "v2"})
     assert companies.paused("hello-saas") == paused
     assert companies.get("hello-saas")["vision"] == "v2"
     companies.resume("hello-saas")
@@ -501,9 +499,9 @@ def test_budget_ledger_attributes_and_sums(registry: Registry):
     ledger.record(
         company="hello-saas",
         run_id=RUN_ID,
-        agent_id="implementer-1",
+        agent_id="pm-1",
         parent_agent_id="",
-        role="implementer",
+        role="pm",
         model="mock-brain",
         prompt_tokens=100,
         completion_tokens=50,
@@ -514,7 +512,7 @@ def test_budget_ledger_attributes_and_sums(registry: Registry):
     ledger.record(
         company="hello-saas",
         run_id=RUN_ID,
-        agent_id="fd-implementer-01X",
+        agent_id=IMPLEMENTER,
         parent_agent_id="pm-1",
         role="implementer",
         model="mock-brain",
@@ -526,7 +524,7 @@ def test_budget_ledger_attributes_and_sums(registry: Registry):
     )
     assert abs(ledger.spent_for_run(RUN_ID) - 0.0004) < 1e-9
     entries = ledger.entries_for_run(RUN_ID)
-    assert [e["agent_id"] for e in entries] == ["implementer-1", "fd-implementer-01X"]
+    assert [e["agent_id"] for e in entries] == ["pm-1", IMPLEMENTER]
     assert entries[1]["parent_agent_id"] == "pm-1"
     assert (entries[0]["cached_tokens"], entries[0]["reasoning_tokens"]) == (50, 25)
     assert (entries[1]["cached_tokens"], entries[1]["reasoning_tokens"]) == (5, 2)
@@ -887,8 +885,8 @@ def test_spent_since_a_fence_sums_the_companys_ledger_after_it(registry: Registr
         ledger.record(
             company=company,
             run_id=RUN_ID,
-            agent_id="implementer-1",
-            parent_agent_id="",
+            agent_id=IMPLEMENTER,
+            parent_agent_id="pm-1",
             role="implementer",
             model="mock-brain",
             prompt_tokens=10,

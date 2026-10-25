@@ -5,7 +5,7 @@ that matter — the isolation envelope, no credentials in a spec, the
 ownership boundary — are testable here.
 """
 
-from common.topology import PLATFORM_NAMESPACE
+from common.topology import COMPANY_NAMESPACE, PLATFORM_NAMESPACE
 from reconciler import resources
 from reconciler.config import ReconcilerSettings
 
@@ -29,19 +29,19 @@ SETTINGS = ReconcilerSettings(
 
 
 def test_company_namespace_is_labelled_for_its_company():
-    ns = resources.namespace("poseidon-company", "hello-saas")
-    assert ns["metadata"]["name"] == "poseidon-company"
+    ns = resources.namespace(COMPANY_NAMESPACE, "hello-saas")
+    assert ns["metadata"]["name"] == COMPANY_NAMESPACE
     assert ns["metadata"]["labels"]["poseidon.dev/company"] == "hello-saas"
 
 
 def test_default_deny_covers_every_pod_both_ways():
-    spec = resources.default_deny("hello-saas")["spec"]
+    spec = resources.default_deny(COMPANY_NAMESPACE)["spec"]
     assert spec["podSelector"] == {}
     assert set(spec["policyTypes"]) == {"Ingress", "Egress"}
 
 
 def test_agent_egress_reaches_only_the_two_gateways_and_dns():
-    egress = resources.agent_egress("hello-saas", PLATFORM)["spec"]["egress"]
+    egress = resources.agent_egress(COMPANY_NAMESPACE, PLATFORM)["spec"]["egress"]
     targets = {
         rule["to"][0]["podSelector"]["matchLabels"].get("app")
         or rule["to"][0]["podSelector"]["matchLabels"].get("k8s-app")
@@ -53,13 +53,13 @@ def test_agent_egress_reaches_only_the_two_gateways_and_dns():
 
 
 def test_agent_ingress_admits_only_the_orchestrator():
-    ingress = resources.agent_ingress("hello-saas", PLATFORM)["spec"]["ingress"]
+    ingress = resources.agent_ingress(COMPANY_NAMESPACE, PLATFORM)["spec"]["ingress"]
     (rule,) = ingress
     assert rule["from"][0]["podSelector"]["matchLabels"]["app"] == "orchestrator-worker"
 
 
 def test_sandbox_answers_the_gateway_and_reaches_only_the_proxy():
-    spec = resources.sandbox_isolation("hello-saas", PLATFORM)["spec"]
+    spec = resources.sandbox_isolation(COMPANY_NAMESPACE, PLATFORM)["spec"]
     _assert_sandbox_envelope(spec)
 
 
@@ -68,11 +68,11 @@ def test_sandbox_isolation_projects_the_infra_ir():
     standard emission must produce the same envelope as the defaults (a CR
     carrying no projection converges identically)."""
     projected = resources.sandbox_isolation(
-        "hello-saas",
+        COMPANY_NAMESPACE,
         PLATFORM,
         {"sandbox_ingress_from": ["mcp-gateway"], "sandbox_egress_to": ["egress-proxy"]},
     )
-    assert projected == resources.sandbox_isolation("hello-saas", PLATFORM)
+    assert projected == resources.sandbox_isolation(COMPANY_NAMESPACE, PLATFORM)
     _assert_sandbox_envelope(projected["spec"])
 
 
@@ -95,7 +95,7 @@ def test_agent_deployment_carries_no_credential_env_at_all():
     """Credential-free by construction: identity is the projected
     token file, so no token-shaped env var exists — not even a secretKeyRef.
     GPG_KEY (baked into the base image) is blanked."""
-    container = resources.agent_deployment(SPEC, "hello-saas", SETTINGS)["spec"][
+    container = resources.agent_deployment(SPEC, COMPANY_NAMESPACE, SETTINGS)["spec"][
         "template"
     ]["spec"]["containers"][0]
     env = {e["name"]: e for e in container["env"]}
@@ -108,7 +108,7 @@ def test_agent_deployment_carries_no_credential_env_at_all():
 
 
 def test_agent_pod_runs_non_root_with_no_escalation_path():
-    pod_spec = resources.agent_deployment(SPEC, "hello-saas", SETTINGS)["spec"][
+    pod_spec = resources.agent_deployment(SPEC, COMPANY_NAMESPACE, SETTINGS)["spec"][
         "template"
     ]["spec"]
     assert pod_spec["securityContext"] == {
@@ -127,9 +127,9 @@ def test_agent_pod_identity_is_the_audience_scoped_projected_token():
     """The pod runs as its agent's ServiceAccount and mounts one
     projected token, audience-scoped to the gateway; the API-server token
     stays unmounted, so the pod holds no cluster identity."""
-    pod = resources.agent_deployment(SPEC, "hello-saas", SETTINGS)["spec"]["template"][
-        "spec"
-    ]
+    pod = resources.agent_deployment(SPEC, COMPANY_NAMESPACE, SETTINGS)["spec"][
+        "template"
+    ]["spec"]
     assert pod["automountServiceAccountToken"] is False
     assert pod["enableServiceLinks"] is False
     assert pod["serviceAccountName"] == "pm-1"
@@ -143,23 +143,23 @@ def test_agent_pod_identity_is_the_audience_scoped_projected_token():
 
 
 def test_agent_service_account_is_named_by_agent_id():
-    account = resources.agent_service_account(SPEC, "hello-saas")
+    account = resources.agent_service_account(SPEC, COMPANY_NAMESPACE)
     assert account["metadata"]["name"] == "pm-1"
-    assert account["metadata"]["namespace"] == "hello-saas"
+    assert account["metadata"]["namespace"] == COMPANY_NAMESPACE
 
 
 def test_standing_agents_are_labelled_for_the_netpol_selector():
     """The egress and ingress policies select on this label, so a Deployment
     that lost it would silently gain unrestricted egress."""
-    labels = resources.agent_deployment(SPEC, "hello-saas", SETTINGS)["spec"]["template"][
-        "metadata"
-    ]["labels"]
+    labels = resources.agent_deployment(SPEC, COMPANY_NAMESPACE, SETTINGS)["spec"][
+        "template"
+    ]["metadata"]["labels"]
     assert labels["poseidon.dev/kind"] == "standing-agent"
     assert labels["poseidon.dev/agent-id"] == "pm-1"
 
 
 def test_service_targets_the_hire():
-    service = resources.agent_service(SPEC, "hello-saas")
+    service = resources.agent_service(SPEC, COMPANY_NAMESPACE)
     assert service["metadata"]["name"] == "pm"
     assert service["spec"]["selector"] == {"app": "pm"}
 
@@ -168,9 +168,9 @@ def test_spec_edits_change_the_pod_template():
     """The reconciliation contract: a blueprint edit the pod can notice (its
     vision, its repository) must converge as a rollout, so everything the
     agent reads about its company rides the template."""
-    before = resources.agent_deployment(SPEC, "hello-saas", SETTINGS)
+    before = resources.agent_deployment(SPEC, COMPANY_NAMESPACE, SETTINGS)
     after = resources.agent_deployment(
-        {**SPEC, "vision": "ship something else"}, "hello-saas", SETTINGS
+        {**SPEC, "vision": "ship something else"}, COMPANY_NAMESPACE, SETTINGS
     )
     assert before["spec"]["template"] != after["spec"]["template"]
 
@@ -190,12 +190,12 @@ def test_sandbox_provisioner_rbac_is_bounded():
     the company namespace only, pods/exec for workspace delivery, nothing
     wider — and no rolebindings verbs, so a created SA binds to nothing
     (identity, never authority)."""
-    role = resources.sandbox_provisioner_role("hello-saas")
+    role = resources.sandbox_provisioner_role(COMPANY_NAMESPACE)
     resources_granted = {
         resource for rule in role["rules"] for resource in rule["resources"]
     }
     assert resources_granted == {"jobs", "pods", "serviceaccounts", "pods/exec"}
-    binding = resources.sandbox_provisioner_binding("hello-saas", PLATFORM)
+    binding = resources.sandbox_provisioner_binding(COMPANY_NAMESPACE, PLATFORM)
     (subject,) = binding["subjects"]
     assert subject["name"] == "orchestrator-worker"
     assert binding["roleRef"]["name"] == role["metadata"]["name"]

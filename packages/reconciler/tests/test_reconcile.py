@@ -10,7 +10,7 @@ without a cluster or a database.
 import kopf
 import pytest
 
-from common.topology import PLATFORM_NAMESPACE
+from common.topology import COMPANY_NAMESPACE, PLATFORM_NAMESPACE
 from reconciler import reconcile
 from reconciler.config import ReconcilerSettings
 from registry.memory import InMemoryAgentInstances, InMemoryCompanies
@@ -144,7 +144,7 @@ def opa(monkeypatch, stores) -> FakeOpa:
 
 
 COMPANY_SPEC = {
-    "namespace": "hello-saas",
+    "namespace": COMPANY_NAMESPACE,
     "vision": "ship it",
     "policyBundle": {"authz.rego": "package poseidon.authz.hello_saas\n"},
     "blueprintSource": {
@@ -156,9 +156,9 @@ COMPANY_SPEC = {
     "platformBundle": {"platform.rego": "package poseidon.platform\n"},
     "infra": {
         "network_policy": {
-            "namespace": "hello-saas",
+            "namespace": COMPANY_NAMESPACE,
             "sandbox_ingress_from": ["mcp-gateway"],
-            "sandbox_egress_to": ["egress-proxy", "kube-dns"],
+            "sandbox_egress_to": ["egress-proxy"],
         }
     },
     "workflows": [],
@@ -187,7 +187,7 @@ def test_company_reconcile_converges_the_envelope(cluster, stores, opa):
         spec=COMPANY_SPEC, name="hello-saas", meta=META, patch=patch
     )
 
-    assert cluster.named("upsert_namespace") == [("hello-saas",)]
+    assert cluster.named("upsert_namespace") == [(COMPANY_NAMESPACE,)]
     assert {name for ns, name in cluster.named("upsert_network_policy")} == {
         "default-deny",
         "agent-egress",
@@ -196,8 +196,10 @@ def test_company_reconcile_converges_the_envelope(cluster, stores, opa):
     }
     # The orchestrator's bounded sandbox RBAC rides the reconciler-owned
     # namespace — the reconciler creates it, the worker uses it.
-    assert cluster.named("upsert_role") == [("hello-saas", "sandbox-provisioner")]
-    assert cluster.named("upsert_role_binding") == [("hello-saas", "sandbox-provisioner")]
+    assert cluster.named("upsert_role") == [(COMPANY_NAMESPACE, "sandbox-provisioner")]
+    assert cluster.named("upsert_role_binding") == [
+        (COMPANY_NAMESPACE, "sandbox-provisioner")
+    ]
 
     # Both bundles under their fixed slots — the names OPA polls; the
     # company's slot never carries the company's name.
@@ -296,7 +298,7 @@ def test_company_teardown_revokes_and_sweeps(cluster, stores, opa, sweep):
     assert bundles.stored["company"] is TOMBSTONE
     # The platform bundle is the platform's, not the company's.
     assert bundles.stored["platform"] is not TOMBSTONE
-    assert cluster.named("delete_namespace") == [("hello-saas",)]
+    assert cluster.named("delete_namespace") == [(COMPANY_NAMESPACE,)]
     # Every row of the company goes in one sweep, last.
     assert sweep.swept == ["hello-saas"]
 
@@ -320,7 +322,7 @@ def test_company_teardown_waits_until_the_revocation_is_served(
 
     opa.lagging.clear()
     reconcile.teardown_company(spec=COMPANY_SPEC, name="hello-saas")
-    assert cluster.named("delete_namespace") == [("hello-saas",)]
+    assert cluster.named("delete_namespace") == [(COMPANY_NAMESPACE,)]
     assert sweep.swept == ["hello-saas"]
 
 
@@ -333,7 +335,7 @@ def test_company_teardown_sweeps_only_once_the_namespace_is_gone(
     reconcile.reconcile_company(
         spec=COMPANY_SPEC, name="hello-saas", meta=META, patch=kopf.Patch()
     )
-    cluster.terminating = {"hello-saas"}
+    cluster.terminating = {COMPANY_NAMESPACE}
 
     with pytest.raises(kopf.TemporaryError, match="still terminating"):
         reconcile.teardown_company(spec=COMPANY_SPEC, name="hello-saas")
@@ -341,7 +343,7 @@ def test_company_teardown_sweeps_only_once_the_namespace_is_gone(
 
     cluster.terminating.clear()
     reconcile.teardown_company(spec=COMPANY_SPEC, name="hello-saas")
-    assert cluster.named("delete_namespace") == [("hello-saas",)] * 2
+    assert cluster.named("delete_namespace") == [(COMPANY_NAMESPACE,)] * 2
     assert sweep.swept == ["hello-saas"]
 
 
@@ -349,26 +351,26 @@ def test_instance_reconcile_deploys_and_registers(cluster, stores):
     _bundles, instances, _companies = stores
     patch = kopf.Patch()
     reconcile.reconcile_instance(
-        spec=INSTANCE_SPEC, namespace="hello-saas", name="pm", patch=patch
+        spec=INSTANCE_SPEC, namespace=COMPANY_NAMESPACE, name="pm", patch=patch
     )
     # The workload identity precedes the pod that runs as it.
-    assert cluster.named("upsert_service_account") == [("hello-saas", "pm-1")]
-    assert cluster.named("upsert_deployment") == [("hello-saas", "pm")]
-    assert cluster.named("upsert_service") == [("hello-saas", "pm")]
+    assert cluster.named("upsert_service_account") == [(COMPANY_NAMESPACE, "pm-1")]
+    assert cluster.named("upsert_deployment") == [(COMPANY_NAMESPACE, "pm")]
+    assert cluster.named("upsert_service") == [(COMPANY_NAMESPACE, "pm")]
     assert instances.rows["pm-1"]["status"] == "converged"
     # What the gateway checks a token's namespace against.
-    assert instances.rows["pm-1"]["namespace"] == "hello-saas"
+    assert instances.rows["pm-1"]["namespace"] == COMPANY_NAMESPACE
     assert patch.status["phase"] == "converged"
 
 
 def test_instance_teardown_removes_everything(cluster, stores):
     _bundles, instances, _companies = stores
-    instances.upsert("pm-1", "hello-saas", "pm", "pm", "standard")
-    reconcile.teardown_instance(spec=INSTANCE_SPEC, namespace="hello-saas")
-    assert cluster.named("delete_deployment") == [("hello-saas", "pm")]
-    assert cluster.named("delete_service") == [("hello-saas", "pm")]
+    instances.upsert("pm-1", "hello-saas", "pm", "pm", namespace=COMPANY_NAMESPACE)
+    reconcile.teardown_instance(spec=INSTANCE_SPEC, namespace=COMPANY_NAMESPACE)
+    assert cluster.named("delete_deployment") == [(COMPANY_NAMESPACE, "pm")]
+    assert cluster.named("delete_service") == [(COMPANY_NAMESPACE, "pm")]
     # Firing revokes: the SA's deletion kills its projected tokens.
-    assert cluster.named("delete_service_account") == [("hello-saas", "pm-1")]
+    assert cluster.named("delete_service_account") == [(COMPANY_NAMESPACE, "pm-1")]
     assert instances.rows == {}
 
 

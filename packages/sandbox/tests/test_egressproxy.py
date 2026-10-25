@@ -8,6 +8,7 @@ import base64
 import httpx
 import pytest
 
+from common.topology import COMPANY_NAMESPACE
 from registry.memory import InMemoryAuditStore
 from sandbox.egressproxy.credentials import (
     ProxyUnresolvable,
@@ -217,7 +218,7 @@ def test_registry_allowlist_resolves_run_to_company_projection():
     companies.upsert(
         "hello-saas",
         {
-            "namespace": "hello-saas",
+            "namespace": COMPANY_NAMESPACE,
             "infra": {"egress_proxy_allowlist": ["PyPI.org", " files.pythonhosted.org "]},
         },
     )
@@ -225,7 +226,7 @@ def test_registry_allowlist_resolves_run_to_company_projection():
 
     assert allowlist.hosts_for(RUN_ID) == set()  # no registration yet
 
-    sandboxes.register(RUN_ID, "http://10.0.0.9:8000", "hello-saas", "sbx")
+    sandboxes.register(RUN_ID, "http://10.0.0.9:8000", COMPANY_NAMESPACE, "sbx")
     assert allowlist.hosts_for(RUN_ID) == {"pypi.org", "files.pythonhosted.org"}
 
     sandboxes.terminate(RUN_ID)

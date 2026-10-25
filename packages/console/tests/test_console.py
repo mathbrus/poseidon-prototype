@@ -807,7 +807,7 @@ async def test_events_are_the_companys_rows_after_a_cursor_with_spend(client, wo
     world.ledger.record(
         company=COMPANY,
         run_id=RUN_ID,
-        agent_id="implementer-1",
+        agent_id=f"feature-delivery-implementer-{RUN_ID}",
         parent_agent_id="pm-1",
         role="implementer",
         model="mock",
