@@ -129,7 +129,7 @@ without holding those rights itself.
 - Agent egress reaches only the two gateways and DNS:
   `test_agent_egress_reaches_only_the_two_gateways_and_dns`.
 - The sandbox answers the gateway and reaches only the proxy:
-  `test_sandbox_answers_the_gateway_and_reaches_only_the_proxy`.
+  `test_sandbox_isolation_projects_the_infra_ir`.
 - The worker's Role is bounded:
   `test_sandbox_provisioner_rbac_is_bounded`.
 - A torn-down company serves its tombstone:
