@@ -1,6 +1,6 @@
 [project]
 name = "llm-gateway"
-version = "0.5.1+2026.10.25"
+version = "0.5.2+2026.10.25"
 description = "Poseidon LLM gateway: workload-authenticated, metered, model-pinning model access"
 requires-python = ">=3.12"
 dependencies = [

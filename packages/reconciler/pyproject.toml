@@ -1,6 +1,6 @@
 [project]
 name = "poseidon-reconciler"
-version = "0.5.1+2026.10.25"
+version = "0.5.2+2026.10.25"
 description = "Poseidon reconciler: reconciles Company/AgentInstance CRs and serves compiled policy bundles"
 requires-python = ">=3.12"
 dependencies = [

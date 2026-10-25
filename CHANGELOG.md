@@ -11,6 +11,8 @@ How a release is decided is the Releasing page of the docs site
 
 ## [Unreleased]
 
+## [0.5.2+2026.10.25] - 2026-10-25
+
 - The console reads a delivery's settlement and the company's ledger.
   `GET /runs` and `GET /runs/{run_id}` say what became of a run's pull
   request (`pr_settled`: merged, refused or superseded) and why a

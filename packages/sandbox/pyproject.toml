@@ -1,6 +1,6 @@
 [project]
 name = "sandbox"
-version = "0.5.1+2026.10.25"
+version = "0.5.2+2026.10.25"
 description = "Poseidon sandbox: backend contract, k8s_jobs backend, tool server, egress proxy"
 requires-python = ">=3.12"
 dependencies = [
