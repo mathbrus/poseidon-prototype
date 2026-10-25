@@ -434,23 +434,21 @@ def events_since(fence: str) -> list[dict[str, Any]]:
 
 
 def authn_denies(
-    rule: str, principal: str, source: str, since: str | None = None
+    rule: str, principal: str, source: str, since: str
 ) -> list[dict[str, Any]]:
-    """Authn deny events for one rule and principal from one door, since a
-    registry timestamp (the last five minutes when none). They carry no
-    run_id — the credential never mapped to one."""
+    """Authn deny events for one rule and principal from one door, after
+    `since` (a `db_now` value the caller took before its own call). They
+    carry no run_id — the credential never mapped to one."""
     return psql_json(
         "SELECT COALESCE(json_agg(e ORDER BY e.ts), '[]'::json) FROM ("
         "SELECT * FROM registry.audit_events"
         " WHERE decision = 'deny' AND rule = :'rule' AND agent_id = :'principal'"
-        "   AND source = :'source'"
-        "   AND ts > COALESCE(NULLIF(:'since', '')::timestamptz,"
-        "                     now() - interval '5 minutes')"
+        "   AND source = :'source' AND ts > :'since'"
         ") e",
         rule=rule,
         principal=principal,
         source=source,
-        since=since or "",
+        since=since,
     )
 
 
@@ -519,6 +517,15 @@ def run_spend(run_id: str) -> float:
     """The run's ledger spend, as the console reads it — the per-run cap is
     enforced there, not in the audit stream (audit events carry no usd)."""
     return console().spend(run_id).usd
+
+
+def per_run_cap() -> float:
+    """The applied blueprint's per-run cap, as the console reads it — the
+    bound a run's spend is checked against, never a number of the suite's
+    own."""
+    limits = console().company().limits
+    assert limits is not None, "the company has not converged; it has no limits yet"
+    return limits.per_run_usd
 
 
 def participants(run_id: str) -> list[EphemeralAgentView]:

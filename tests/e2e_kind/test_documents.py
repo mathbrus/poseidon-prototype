@@ -135,7 +135,7 @@ def bootstrapped(one_shot_automated: dict) -> dict:
         delete_repo_file(env, path, f"e2e: vision-only repository ({path})")
     since = db_now()
     filing = wake_and_await_ticks(1)
-    result: dict = {"env": env, "filing_tick": filing[0]}
+    result: dict = {"env": env, "since": since, "filing_tick": filing[0]}
     # The platform's own filings, read the way the platform reads them —
     # from the registry, by number — not off a listing the host has not
     # caught up with.
@@ -181,11 +181,15 @@ def test_the_platform_filed_both_bootstrap_tickets_once(bootstrapped: dict):
     assert all(len(numbers) == 1 for numbers in bootstrapped["tickets"].values()), (
         bootstrapped["tickets"]
     )
-    filed = [e for e in audit_story(HEARTBEAT_ID) if e["tool"] == HEARTBEAT_BOOTSTRAP]
-    assert {e["rule"] for e in filed} >= {
-        "bootstrap_filed:strategy",
+    filed = [
+        e
+        for e in events_since(bootstrapped["since"])
+        if e["tool"] == HEARTBEAT_BOOTSTRAP and e["run_id"] == HEARTBEAT_ID
+    ]
+    assert sorted(e["rule"] for e in filed) == [
         "bootstrap_filed:architecture",
-    }
+        "bootstrap_filed:strategy",
+    ], filed
     assert all(e["lifecycle"] == "platform" for e in filed)
 
 

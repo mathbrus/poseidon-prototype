@@ -83,11 +83,21 @@ def test_no_credential_shaped_env_in_company_pods(stack: None) -> None:
         timeout=30,
     ).splitlines()
     assert listing
+    scanned = []
     for line in listing:
         pod, _, _kind = line.partition("|")
         env = run_kubectl("-n", COMPANY_NS, "exec", pod, "--", "printenv")
-        if env.returncode != 0:  # pod terminated mid-scan (sandbox teardown)
+        if env.returncode != 0:
+            # Only a pod that ended mid-scan (a sandbox's teardown) may go
+            # unread; one still running must answer.
+            phase = run_kubectl(
+                "-n", COMPANY_NS, "get", "pod", pod, "-o", "jsonpath={.status.phase}"
+            )
+            assert phase.returncode != 0 or phase.stdout.strip() != "Running", (
+                f"could not read the env of running pod {pod}: {env.stderr}"
+            )
             continue
+        scanned.append(pod)
         leaked = [
             name
             for line in env.stdout.splitlines()
@@ -96,3 +106,6 @@ def test_no_credential_shaped_env_in_company_pods(stack: None) -> None:
             if (name.endswith("_TOKEN") or name.endswith("_KEY")) and line != "GPG_KEY="
         ]
         assert not leaked, f"credential-shaped env vars in {pod}: {leaked}"
+    # The standing agent is always there to read: a scan that read
+    # nothing proves nothing.
+    assert any(pod.startswith("pm-") for pod in scanned), scanned

@@ -62,6 +62,7 @@ from .cluster import (
     await_run,
     console,
     participants,
+    per_run_cap,
     run_spend,
 )
 from .conftest import (
@@ -388,10 +389,12 @@ def test_contract_arc_had_exactly_one_human_act(contract_first: dict):
 
 
 def test_the_contract_arc_stayed_within_budget(contract_first: dict):
-    """Bounded money across every run of the arc."""
+    """Bounded money across every run of the arc: each was metered, and
+    each stayed under the applied blueprint's per-run cap."""
+    cap = per_run_cap()
     for key in ("scope", "contract_implement", "implement"):
         spend = run_spend(contract_first[key]["run_id"])
-        assert 0 <= spend < 5.0, f"{key} overspent: {spend}"
+        assert 0 < spend < cap, f"{key} overspent: {spend}"
 
 
 # -- a reviewer that tampers with its sandbox moves no check ----------------

@@ -16,7 +16,7 @@ import yaml
 
 from orchestrator.identity import ephemeral_agent_id
 
-from .cluster import HELLO_SAAS, audit_story, sandbox_pods
+from .cluster import HELLO_SAAS, sandbox_pods
 
 # The branch pattern the applied blueprint declares — what the bounds
 # tell the implementer and what the gateway enforces; never a literal of
@@ -34,11 +34,6 @@ def test_run_completes_with_pr(implement_run: dict) -> None:
 
 def test_no_leaked_sandbox(implement_run: dict) -> None:
     assert sandbox_pods(implement_run["run_id"]) == []
-
-
-def test_audit_story_on_cluster(implement_run: dict) -> None:
-    events = audit_story(implement_run["run_id"])
-    assert events, "no audit events for the run in the registry"
 
 
 def test_pr_is_on_feature_branch(implement_run: dict, pr_info) -> None:

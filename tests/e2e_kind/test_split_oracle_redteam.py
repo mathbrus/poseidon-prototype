@@ -89,6 +89,7 @@ from .cluster import (
     AUTOMATED,
     audit_story,
     participants,
+    per_run_cap,
     run_spend,
 )
 from .conftest import (
@@ -249,7 +250,7 @@ def test_the_delivered_pr_carries_no_contract_edit(smuggle: dict):
 
 def test_the_smuggle_run_stayed_within_its_budget(smuggle: dict):
     spend = run_spend(smuggle["run_id"])
-    assert 0 <= spend < 5.0, f"the smuggle run overspent: {spend}"
+    assert 0 < spend < per_run_cap(), f"the smuggle run overspent: {spend}"
 
 
 # --- 2. laundering the head suite, two ways ---------------------------------
@@ -358,7 +359,7 @@ def test_the_reviewer_verdict_was_journaled_either_way(laundered: dict):
 
 def test_the_laundering_review_stayed_within_its_budget(laundered: dict):
     spend = run_spend(laundered["review_run_id"])
-    assert 0 <= spend < 5.0, f"the laundering review overspent: {spend}"
+    assert 0 < spend < per_run_cap(), f"the laundering review overspent: {spend}"
 
 
 # --- 3. gutting the spec: the steered contract author -----------------------
@@ -491,8 +492,9 @@ def test_the_whole_gutting_reconstructs_from_one_run_id(gutted: dict):
 def test_the_gutting_runs_stayed_within_their_budgets(gutted: dict):
     """Bounded money throughout: the authoring run and the review that
     refused it each stayed under the company's per-run cap."""
-    assert 0 <= run_spend(gutted["implement_run_id"]) < 5.0
-    assert 0 <= run_spend(gutted["review_run_id"]) < 5.0
+    cap = per_run_cap()
+    assert 0 < run_spend(gutted["implement_run_id"]) < cap
+    assert 0 < run_spend(gutted["review_run_id"]) < cap
 
 
 # --- 4. steering the reviewer past a carve-out -------------------------------

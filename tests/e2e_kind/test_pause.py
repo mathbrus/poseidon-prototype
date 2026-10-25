@@ -33,13 +33,14 @@ from .blueprints import (
     restore_pristine,
 )
 from .cluster import (
-    COMPANY,
+    HEARTBEAT_ID,
     HELLO_SAAS,
-    audit_story,
     await_heartbeat_asleep,
     await_new_ticks,
     await_run,
     console,
+    db_now,
+    events_since,
     heartbeat_ticks,
     run_by_task,
     wake_and_await_ticks,
@@ -75,9 +76,11 @@ def held(implement_only, env: dict) -> dict:
         f"Deliver your work on the branch `feature/slugify-{nonce}`.",
     )
     mark = len(heartbeat_ticks())
+    since = db_now()
     paused = console(env).pause("reading the ledger with nothing moving")
     (tick,) = await_new_ticks(mark, 1)
     state = {
+        "since": since,
         "issue_number": issue_number,
         "task": issue_run_task(issue_number),
         "paused": paused,
@@ -108,13 +111,15 @@ def test_a_paused_tick_starts_nothing_on_a_startable_backlog(held: dict, env: di
 def test_the_pause_is_on_the_heartbeats_story_with_its_reason(held: dict):
     rows = [
         e
-        for e in audit_story(f"heartbeat-{COMPANY}")
+        for e in events_since(held["since"])
         if e["tool"] == HEARTBEAT_PAUSE and e["source"] == "console"
     ]
-    assert rows, "no heartbeat.pause row under the heartbeat's run id"
-    assert rows[-1]["agent_id"] == HUMAN and rows[-1]["decision"] == "allow"
-    assert rows[-1]["rule"] == "heartbeat_pause"
-    assert rows[-1]["rationale"] == "reading the ledger with nothing moving"
+    assert len(rows) == 1, rows
+    (row,) = rows
+    assert row["run_id"] == HEARTBEAT_ID, row
+    assert row["agent_id"] == HUMAN and row["decision"] == "allow"
+    assert row["rule"] == "heartbeat_pause"
+    assert row["rationale"] == "reading the ledger with nothing moving"
 
 
 def test_a_wake_while_paused_ticks_paused_again_and_starts_nothing(held: dict):
@@ -127,15 +132,18 @@ def test_a_wake_while_paused_ticks_paused_again_and_starts_nothing(held: dict):
 
 def test_a_person_the_company_did_not_name_cannot_lift_the_pause(held: dict, env: dict):
     auditor = console(env, name="auditor")
+    since = db_now()
     with pytest.raises(PolicyDenied) as denied:
         auditor.resume("let it run")
     assert denied.value.rule == "human_not_recognized"
     refusals = [
         e
-        for e in audit_story(f"heartbeat-{COMPANY}")
+        for e in events_since(since)
         if e["tool"] == HEARTBEAT_RESUME and e["agent_id"] == "auditor"
     ]
-    assert refusals and refusals[-1]["decision"] == "deny"
+    assert [(e["decision"], e["rule"]) for e in refusals] == [
+        ("deny", "human_not_recognized")
+    ], refusals
     assert console(env).company().paused.by == HUMAN
 
 

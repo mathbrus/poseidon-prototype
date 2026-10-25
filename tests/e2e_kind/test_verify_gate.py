@@ -13,10 +13,11 @@ deliver dispatch once its own verify is green.
 import re
 
 import pytest
+import yaml
 
 from common.audit import LIFECYCLE_REVOKE
 
-from .cluster import audit_story, sandbox_pods
+from .cluster import HELLO_SAAS, audit_story, sandbox_pods
 from .conftest import close_issue, close_pr_url, run_implement
 
 
@@ -62,8 +63,18 @@ def test_the_gate_of_record_went_red_then_green(verify_red_run: dict) -> None:
 
 
 def test_red_path_is_bounded_and_clean(verify_red_run: dict) -> None:
-    """The loop is bounded by the blueprint's max_verify_retries (the run
-    finished instead of spinning) and teardown still swept the crew."""
-    assert sandbox_pods(verify_red_run["run_id"]) == []
+    """The loop is bounded by the blueprint's `max_verify_retries`: the
+    platform verified at most once per allowed re-dispatch plus the first
+    — and teardown still swept the crew."""
+    retries = yaml.safe_load(HELLO_SAAS.read_text())["workflows"]["implement"][
+        "max_verify_retries"
+    ]
     story = audit_story(verify_red_run["run_id"])
+    platform_verifies = [
+        e
+        for e in story
+        if e["tool"] == "sandbox.run_tests" and e["lifecycle"] == "platform"
+    ]
+    assert 2 <= len(platform_verifies) <= retries + 1, platform_verifies
+    assert sandbox_pods(verify_red_run["run_id"]) == []
     assert any(e["tool"] == LIFECYCLE_REVOKE for e in story)

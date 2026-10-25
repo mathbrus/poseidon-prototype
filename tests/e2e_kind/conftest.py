@@ -114,6 +114,7 @@ from mock_brain.brain import (
     TEST_SLUGIFY_PY,
 )
 
+from ..brain_guard import paid_brain_problem
 from .blueprints import (
     E2E_GATE_MINUTES,
     apply_blueprint,
@@ -265,40 +266,6 @@ def deployed_brain_image() -> str:
         timeout=30,
     )
     return proc.stdout.strip() if proc.returncode == 0 else ""
-
-
-# The mock brain's image, matched by repository name exactly: a lookalike
-# (`poseidon-mock-brain-x`, a LiteLLM tag that mentions it) is a paid brain.
-MOCK_BRAIN_IMAGE = "poseidon-mock-brain"
-
-
-def image_repository(image: str) -> str:
-    """`registry:5000/name:tag@sha256:…` → `name`."""
-    name = image.split("@", 1)[0].rsplit("/", 1)[-1]
-    return name.split(":", 1)[0]
-
-
-def paid_brain_problem(image: str, allow: str | None) -> str | None:
-    """Why the session must not run, or None. This suite dispatches real
-    LLM calls; against a paid brain those bill a provider, which is a spend
-    decision no test run may make implicitly. Pure, so the refusal logic
-    is pinned without a cluster. Fail-safe defaults: an unreadable brain
-    refuses too — the dangerous condition is the absent input."""
-    if not image:
-        return (
-            f"cannot read the deployed brain (deployment/llm-proxy in {PLATFORM_NS});"
-            " refusing to run against an unverified brain —"
-            " is the cluster up? deploy/kind/kind-up.sh"
-        )
-    if image_repository(image) == MOCK_BRAIN_IMAGE:
-        return None
-    if allow == "1":
-        return None
-    return (
-        f"the cluster runs a PAID brain ({image}): e2e runs would bill a provider."
-        " Redeploy on the mock (REAL_LLM=0 deploy/kind/kind-up.sh), or set"
-        " POSEIDON_ALLOW_PAID=1 to spend deliberately."
-    )
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -835,53 +802,80 @@ def lift_pause(env: dict) -> None:
             console(env).resume("harness: the module that paused is over")
 
 
-def sweep_repo_debris(env: dict) -> None:
+def sweep_repo_debris(env: dict, deadline_s: int = 300) -> None:
     """Close every open issue, close every open PR and delete every
     feature/* branch — the stragglers per-fixture cleanup cannot see (PRs
     born inside test bodies, fixtures that died before their teardown).
     Open issues are backlog: a leftover would be the lowest-numbered ticket
     the next session's heartbeat picks first. Issues go first: a delivered
     PR the platform finds closed is refused, and gives its ticket back to
-    the loop if the ticket is still open."""
-    with contextlib.suppress(Exception):
-        slug = target_slug(env)
-        _close_open_issues(env, slug)
-        while prs := github_api(
-            env, "GET", f"/repos/{slug}/pulls?state=open&per_page=100"
-        ).json():
-            for pull in prs:
-                close_pr(env, pull["number"])
-        while True:
-            branches = github_api(
-                env, "GET", f"/repos/{slug}/branches?per_page=100"
-            ).json()
-            stale = [b["name"] for b in branches if b["name"].startswith("feature/")]
-            if not stale:
-                break
-            for name in stale:
-                github_api(env, "DELETE", f"/repos/{slug}/git/refs/heads/{name}")
-        # Anything a refusal reopened to the loop meanwhile goes too.
-        _close_open_issues(env, slug)
+    the loop if the ticket is still open. A sweep that cannot finish — a
+    throttled token, a branch that will not delete — fails within
+    `deadline_s`, by name."""
+    slug = target_slug(env)
+    deadline = time.monotonic() + deadline_s
+    _until_unlisted(
+        env,
+        f"/repos/{slug}/issues?state=open&per_page=100",
+        deadline,
+        lambda issue: _close_issue_now(env, slug, issue),
+        keep=lambda issue: "pull_request" not in issue,
+    )
+    _until_unlisted(
+        env,
+        f"/repos/{slug}/pulls?state=open&per_page=100",
+        deadline,
+        lambda pull: close_pr(env, pull["number"]),
+    )
+    _until_unlisted(
+        env,
+        f"/repos/{slug}/branches?per_page=100",
+        deadline,
+        lambda branch: github_api(
+            env, "DELETE", f"/repos/{slug}/git/refs/heads/{branch['name']}"
+        ),
+        keep=lambda branch: branch["name"].startswith("feature/"),
+    )
+    # Anything a refusal reopened to the loop meanwhile goes too.
+    _until_unlisted(
+        env,
+        f"/repos/{slug}/issues?state=open&per_page=100",
+        deadline,
+        lambda issue: _close_issue_now(env, slug, issue),
+        keep=lambda issue: "pull_request" not in issue,
+    )
 
 
-def _close_open_issues(env: dict, slug: str) -> None:
+def _until_unlisted(
+    env: dict,
+    path: str,
+    deadline: float,
+    act: Callable[[dict], Any],
+    keep: Callable[[dict], bool] = lambda item: True,
+) -> None:
+    """List `path`, `act` on every item `keep` selects, and list again
+    until none is left. The host's listing lags its writes, so an item
+    just closed may be listed once more: rounds are spaced, which spares
+    the suite's token, and bounded by `deadline`."""
     while True:
-        issues = [
-            i
-            for i in github_api(
-                env, "GET", f"/repos/{slug}/issues?state=open&per_page=100"
-            ).json()
-            if "pull_request" not in i
-        ]
-        if not issues:
-            break
-        for issue in issues:
-            github_api(
-                env,
-                "PATCH",
-                f"/repos/{slug}/issues/{issue['number']}",
-                json={"state": "closed"},
-            )
+        resp = github_api(env, "GET", path)
+        assert resp.status_code == 200, f"listing {path}: {resp.status_code} {resp.text}"
+        items = [item for item in resp.json() if keep(item)]
+        if not items:
+            return
+        assert time.monotonic() < deadline, f"still listed by {path}: {items}"
+        for item in items:
+            act(item)
+        time.sleep(3)
+
+
+def _close_issue_now(env: dict, slug: str, issue: dict) -> None:
+    github_api(
+        env,
+        "PATCH",
+        f"/repos/{slug}/issues/{issue['number']}",
+        json={"state": "closed"},
+    )
 
 
 @pytest.fixture(scope="session", autouse=True)

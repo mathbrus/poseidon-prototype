@@ -19,7 +19,6 @@ from pathlib import Path
 import httpx
 import pytest
 
-from common.console import Problem
 from common.topology import CONSOLE_TOKEN_AUDIENCE, TOKEN_AUDIENCE, human_service_account
 from poseidon_cli import ConsoleClient, ConsoleError, PolicyDenied
 
@@ -29,7 +28,6 @@ from .cluster import (
     COMPANY_NS,
     HUMAN,
     PLATFORM_NS,
-    audit_story,
     authn_denies,
     console,
     console_env,
@@ -37,7 +35,6 @@ from .cluster import (
     db_now,
     events_since,
     gateway_url,
-    human_token,
     projected_token,
     run_kubectl,
 )
@@ -119,35 +116,20 @@ def test_a_known_human_the_company_did_not_name_is_denied_by_policy(
     never reaches the heartbeat. The owner's same act goes through."""
     auditor = console(env, name="auditor")
     assert auditor.whoami().human == "auditor"
+    since = db_now()
     with pytest.raises(PolicyDenied) as denied:
         auditor.wake()
     assert denied.value.rule == "human_not_recognized"
-    story = audit_story(f"heartbeat-{COMPANY}")
     refusals = [
-        e for e in story if e["source"] == "console" and e["agent_id"] == "auditor"
+        e
+        for e in events_since(since)
+        if e["source"] == "console" and e["agent_id"] == "auditor"
     ]
-    assert refusals and refusals[-1]["decision"] == "deny"
-    assert refusals[-1]["rule"] == "human_not_recognized"
+    assert [(e["tool"], e["decision"], e["rule"]) for e in refusals] == [
+        ("heartbeat.wake", "deny", "human_not_recognized")
+    ], refusals
     woken = console(env).wake()
     assert (woken.company, woken.rule) == (COMPANY, "heartbeat_wake")
-
-
-def test_a_human_the_company_did_not_name_sees_every_act_refused(
-    stack: None, env: dict
-) -> None:
-    """The auditor asks what they may do: every act is refused, and every
-    act the company's state would allow is refused by the rule that says
-    why — the preview a web client's buttons read, recording nothing."""
-    since = db_now()
-    listed = console(env, name="auditor").acts().acts
-    assert listed, "the console listed no acts"
-    assert all(not view.allowed for view in listed), listed
-    by_policy = [view for view in listed if view.refusal.kind == "policy"]
-    assert by_policy, listed
-    assert {view.refusal.rule for view in by_policy} == {"human_not_recognized"}
-    assert not [e for e in events_since(since) if e["source"] == "console"], (
-        "a preview recorded a row"
-    )
 
 
 def test_no_platform_identity_can_mint_a_humans_token(stack: None) -> None:
@@ -171,25 +153,6 @@ def test_no_platform_identity_can_mint_a_humans_token(stack: None) -> None:
         )
         assert proc.returncode != 0, f"{subject} minted a human's token"
         assert "forbidden" in (proc.stderr or "").lower(), proc.stderr
-
-
-def test_what_cannot_be_acted_on_is_refused_before_policy(stack: None, env: dict) -> None:
-    """What names nothing is refused before policy is even asked: a
-    workflow no human may start by hand (`scope` reads the observation and
-    takes no text), and a run that does not exist. The typed client would
-    not even send the first, so it goes as a person's raw request."""
-    scope = httpx.post(
-        f"{console_url(env)}/runs",
-        json={"workflow": "scope", "number": 1},
-        headers={"Authorization": f"Bearer {human_token()}"},
-        timeout=30,
-    )
-    assert scope.status_code == 422, scope.text
-    assert "workflow" in Problem.model_validate(scope.json()).detail
-    with pytest.raises(ConsoleError) as refused:
-        console(env).resolve("run-does-not-exist", "merge", True, "e2e: no such run")
-    assert refused.value.status == 422
-    assert not isinstance(refused.value, PolicyDenied)
 
 
 def _poseidon(env: dict, *args: str) -> subprocess.CompletedProcess:

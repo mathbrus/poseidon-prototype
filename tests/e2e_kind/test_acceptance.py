@@ -112,7 +112,6 @@ The conftest orders this module after every module whose runs it reads:
 the six-source assertion reads what the whole suite really produced.
 """
 
-import asyncio
 import json
 import subprocess
 
@@ -120,7 +119,6 @@ import yaml
 
 from blueprint.tools import RATIONALE_TOOLS
 from common.audit import RATIONALE_EVENTS, SOURCES
-from common.ids import new_run_id
 
 from .blueprints import (
     bundle_revision_from_cr,
@@ -131,19 +129,12 @@ from .cluster import (
     COMPANY,
     COMPANY_NS,
     HELLO_SAAS,
-    audit_story,
     console,
     console_env,
-    crew_activities,
     events_since,
     kubectl,
-    mcp_call,
-    projected_token,
     psql_json,
-    registry,
-    run_kubectl,
     sandbox_pods,
-    worker_settings,
 )
 from .conftest import REPO_ROOT
 
@@ -306,120 +297,6 @@ def test_the_registry_roster_is_the_blueprints_one_standing_agent(stack) -> None
         "jsonpath={.items[*].metadata.name}",
     ).split()
     assert instances == ["pm"], instances
-
-
-def test_live_implementer_cannot_exceed_its_compiled_allowlist(
-    stack, env: dict, tmp_path
-) -> None:
-    """Criterion 6's last clause, live: a *real bound* implementer — its own
-    per-run ServiceAccount, a projected token, an identity row, full
-    pipeline — is denied the tools outside its compiled allow-list at the
-    gateway (deny by rule, audited), while its in-scope surface still
-    answers. test_crew_fulfillment proves the same mid-run on a live
-    implementer; this is the bound-identity proof in isolation."""
-    from registry import Runs
-
-    run_id = new_run_id()
-    repo = env.get("TARGET_REPO", "github.com/example/repo")
-
-    with registry() as db:
-        crew = crew_activities(db, worker_settings(env, tmp_path))
-        Runs(db).start(run_id, "implementer scope check", "implement", None, COMPANY)
-        sa_name = None
-        try:
-            bound = asyncio.run(
-                crew.bind_participant(
-                    {
-                        "run_id": run_id,
-                        "company": COMPANY,
-                        "crew_template": "feature-delivery",
-                        "role": "implementer",
-                        "parent_agent_id": "pm-1",
-                    }
-                )
-            )
-            sa_name = bound["service_account"]
-            kubectl("-n", COMPANY_NS, "create", "serviceaccount", sa_name)
-            token = projected_token(COMPANY_NS, sa_name)
-
-            # Positive control: the implementer's in-scope surface answers
-            # (policy allow; the backend errors because no sandbox exists —
-            # a denied *identity* would never reach the backend).
-            control = mcp_call(
-                env, token, "sandbox.list_dir", {"run_id": run_id, "path": "."}
-            )
-            assert control.isError
-            assert "denied by policy" not in control.content[0].text
-            assert "no sandbox registered" in control.content[0].text
-
-            # Out of scope: PM-only and platform-only tools, denied by rule.
-            for tool, args in (
-                (
-                    "issues.create",
-                    {
-                        "run_id": run_id,
-                        "repo": repo,
-                        "title": "x",
-                        "body": "y",
-                        "rationale": "red-team: probing the allowlist",
-                    },
-                ),
-                (
-                    "git.merge_pr",
-                    {"run_id": run_id, "repo": repo, "number": 1, "sha": "0" * 40},
-                ),
-                # The implementer never grades its own homework: closing a
-                # ticket or a pull request is the platform's alone.
-                (
-                    "issues.close",
-                    {
-                        "run_id": run_id,
-                        "repo": repo,
-                        "number": 1,
-                        "reason": "completed",
-                        "rationale": "red-team: closing my own ticket",
-                    },
-                ),
-                (
-                    "git.close_pr",
-                    {
-                        "run_id": run_id,
-                        "repo": repo,
-                        "number": 1,
-                        "delete_branch": False,
-                        "rationale": "red-team: closing a rival pull request",
-                    },
-                ),
-            ):
-                denied = mcp_call(env, token, tool, args)
-                assert denied.isError, f"{tool} was not refused"
-                assert "default_deny" in denied.content[0].text, (
-                    f"{tool}: {denied.content[0].text}"
-                )
-
-            # Every deny is a first-class audit event under the bound
-            # identity — gateway deny, not prompt hope, reconstructable.
-            denies = {
-                e["tool"]
-                for e in audit_story(run_id)
-                if e["source"] == "gateway"
-                and e["decision"] == "deny"
-                and e["agent_id"] == bound["agent_id"]
-            }
-            assert {
-                "issues.create",
-                "git.merge_pr",
-                "issues.close",
-                "git.close_pr",
-            } <= denies, denies
-        finally:
-            asyncio.run(crew.revoke_participants(run_id))
-            if sa_name:
-                run_kubectl("-n", COMPANY_NS, "delete", "serviceaccount", sa_name)
-            db.execute(
-                "DELETE FROM registry.run_participants WHERE run_id = %s", (run_id,)
-            )
-            db.execute("DELETE FROM registry.runs WHERE run_id = %s", (run_id,))
 
 
 # -- 4 governance: every audit source, real, in this suite execution ---------

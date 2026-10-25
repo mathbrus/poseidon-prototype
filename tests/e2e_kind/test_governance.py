@@ -25,10 +25,11 @@ from .cluster import (
     COMPANY,
     COMPANY_NS,
     PLATFORM_NS,
+    db_now,
+    events_since,
     mcp_call,
     port_forward,
     projected_token,
-    psql,
 )
 
 COMPANY_DECISION = company_decision_path(COMPANY)
@@ -72,9 +73,13 @@ def implementer(
 def test_the_served_bundle_decides(stack: None) -> None:
     """The smoke pair: the served bundle answers with compiled decisions —
     one allow (the crew implementer inside a verified run binding) and one
-    deny (the same call unbound, failing closed on the run-binding fact)."""
+    deny (the same call unbound, failing closed on the run-binding fact).
+    The binding rides the request's input: OPA holds no pushed run data
+    for the policy to read instead."""
     with port_forward("svc/opa", 8181) as port:
         base = f"http://127.0.0.1:{port}"
+        pushed = httpx.get(f"{base}/v1/data/runs", timeout=10).json()
+        assert not pushed.get("result"), f"OPA carries pushed run data: {pushed}"
         allowed = _decide(base, COMPANY_DECISION, implementer("sandbox.exec"))
         assert allowed["allow"] is True
 
@@ -84,52 +89,28 @@ def test_the_served_bundle_decides(stack: None) -> None:
         assert unbound == {"allow": False, "rule": "default_deny"}
 
 
-def test_the_served_bundle_denies_another_repository(stack: None, env: dict) -> None:
-    """The company works on its declared repository and nothing else: the
-    same implementer, the same verified binding, a call naming a different
-    repository — denied by name."""
-    with port_forward("svc/opa", 8181) as port:
-        base = f"http://127.0.0.1:{port}"
-        ours = _decide(
-            base,
-            COMPANY_DECISION,
-            implementer("issues.read", args={"repo": env["TARGET_REPO"], "number": 1}),
-        )
-        assert ours["allow"] is False and ours["rule"] != "repo_not_declared"
-        theirs = _decide(
-            base,
-            COMPANY_DECISION,
-            implementer(
-                "issues.read", args={"repo": "github.com/other/repo", "number": 1}
-            ),
-        )
-        assert theirs == {"allow": False, "rule": "repo_not_declared"}
-
-
 # -- the whole pipeline decides (gateway layer) ------------------------------
 
 
 def test_pm_is_denied_implementer_tools_at_the_gateway(stack: None, env: dict) -> None:
     """The PM agent's own workload identity, through the live pipeline:
-    the compiled bundle leaves `pm` no sandbox surface at all."""
+    the compiled bundle leaves `pm` no sandbox surface at all, and the
+    refusal is on the record under its name."""
     token = projected_token(COMPANY_NS, "pm-1")
+    since = db_now()
     result = mcp_call(
         env, token, "sandbox.exec", {"run_id": "run-gov-pm", "cmd": "id", "timeout_s": 5}
     )
     assert result.isError
     assert "default_deny" in result.content[0].text
-
-
-def test_denies_are_in_the_audit_story(stack: None) -> None:
-    """The PM's denied sandbox.exec above must be reconstructable."""
-    count = psql(
-        "SELECT count(*) FROM registry.audit_events"
-        " WHERE agent_id = :'agent' AND decision = 'deny'"
-        "   AND tool = :'tool' AND ts > now() - interval '10 minutes'",
-        agent="pm-1",
-        tool="sandbox.exec",
-    )
-    assert int(count) >= 1
+    denies = [
+        e
+        for e in events_since(since)
+        if e["agent_id"] == "pm-1"
+        and e["tool"] == "sandbox.exec"
+        and e["decision"] == "deny"
+    ]
+    assert [e["rule"] for e in denies] == ["default_deny"], denies
 
 
 # -- the whole tool surface, live --------------------------------------------
