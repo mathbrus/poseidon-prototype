@@ -9,7 +9,9 @@ Pipeline per completion call:
     -> budget headroom: the applied blueprint's per-run cap against the
        ledger SUM; exhausted -> a distinguishable `budget_exhausted` error,
        audited, never silent degradation (enforcement is local here,
-       no Temporal client — the workflow observes the surfaced error)
+       no Temporal client — the workflow observes the surfaced error).
+       A company with no positive cap is refused (`budget_cap_missing`):
+       spend is never unbounded by omission
     -> the deployment's model is pinned into the request
     -> forward upstream (LiteLLM holding the provider keys, or the mock)
     -> meter: the provider-reported cost (`x-litellm-response-cost`) and
@@ -267,7 +269,17 @@ def create_app(
             return cap, ledger.spent_for_run(run_id)
 
         cap, spent = await asyncio.to_thread(read_budget)
-        if cap > 0 and spent >= cap:
+        if not cap > 0:
+            # Every compiled company has a positive cap; a call without one
+            # reads a broken registry, and is refused rather than unbounded.
+            await audited("deny", "budget_cap_missing", run_id=run_id, workflow=workflow)
+            return _error(
+                403,
+                f"budget_cap_missing: company {company!r} has no per-run cap;"
+                " no model call is made without one",
+                "budget_cap_missing",
+            )
+        if spent >= cap:
             await audited("deny", "budget_exhausted", run_id=run_id, workflow=workflow)
             return _error(
                 429,

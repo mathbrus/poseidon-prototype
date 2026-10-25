@@ -362,12 +362,19 @@ def test_exhausted_cap_refuses_with_a_distinguishable_error(app, stores, path):
 
 
 def test_cap_bites_only_at_the_cap(app, stores, upstream):
-    """Below the cap calls flow and spend accrues call by call."""
+    """Just under the cap a call still flows and its spend accrues; the
+    spend it adds reaches the cap, and the next call is refused."""
     ledger = stores.ledger
-    for _ in range(3):
-        assert call(app).status_code == 200
-    assert len(ledger.entries_for_run(RUN_ID)) == 3
-    assert abs(ledger.spent_for_run(RUN_ID) - 3 * upstream.cost) < 1e-9
+    spend(ledger, CAP_USD - upstream.cost / 2)
+    assert call(app).status_code == 200
+    assert len(ledger.entries_for_run(RUN_ID)) == 2
+    assert ledger.spent_for_run(RUN_ID) >= CAP_USD
+
+    refused = call(app)
+    assert refused.status_code == 429
+    assert refused.json()["error"]["code"] == "budget_exhausted"
+    assert len(ledger.entries_for_run(RUN_ID)) == 2
+    assert len(upstream.requests) == 1
 
 
 def test_ephemeral_caller_cannot_bill_a_foreign_run(app, stores, upstream):
@@ -383,13 +390,30 @@ def test_ephemeral_caller_cannot_bill_a_foreign_run(app, stores, upstream):
     assert upstream.requests == []
 
 
-def test_uncapped_company_is_not_blocked(app, stores, upstream):
-    """A blueprint with no per-run cap meters without stopping — metering
-    and enforcement are separable, silence is not."""
-    companies = stores.companies
-    companies.upsert(
-        COMPANY, {"namespace": COMPANY_NAMESPACE, "budgets": {"per_run_usd": 0}}
-    )
+@pytest.mark.parametrize(
+    "spec",
+    [None, {"namespace": COMPANY_NAMESPACE, "budgets": {"per_run_usd": 0}}],
+    ids=["no-spec-row", "zero-cap"],
+)
+def test_a_run_without_a_cap_is_refused(app, stores, upstream, spec):
+    """Every compiled company has a positive per-run cap; a company the
+    registry holds without one — no spec row, or a cap of zero — is refused
+    and audited before any upstream call, and served once a cap is
+    applied."""
+    stores.companies.rows.pop(COMPANY)
+    if spec is not None:
+        stores.companies.upsert(COMPANY, spec)
+
+    resp = call(app)
+    assert resp.status_code == 403
+    assert resp.json()["error"]["code"] == "budget_cap_missing"
+    event = stores.audit.events[-1]
+    assert event.decision == "deny" and event.rule == "budget_cap_missing"
+    assert event.run_id == RUN_ID and event.source == "llm-gateway"
+    assert upstream.requests == []
+    assert stores.ledger.entries_for_run(RUN_ID) == []
+
+    stores.companies.upsert(COMPANY, {"budgets": {"per_run_usd": CAP_USD}})
     assert call(app).status_code == 200
 
 
