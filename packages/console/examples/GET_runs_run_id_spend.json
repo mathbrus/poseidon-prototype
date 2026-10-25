@@ -10,6 +10,7 @@
         "agent_id": "feature-delivery-implementer-run-01implement",
         "cached_tokens": 1024,
         "completion_tokens": 212,
+        "id": 2,
         "model": "mock",
         "parent_agent_id": "pm-1",
         "prompt_tokens": 1830,

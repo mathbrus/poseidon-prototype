@@ -12,6 +12,12 @@ from typing import Any
 
 from registry.db import Registry
 
+# What a reader of one entry sees: every column, the id its cursor.
+_ENTRY = (
+    "id, ts, company, run_id, agent_id, parent_agent_id, role, model,"
+    " prompt_tokens, completion_tokens, cached_tokens, reasoning_tokens, usd"
+)
+
 
 class BudgetLedger:
     def __init__(self, registry: Registry) -> None:
@@ -99,9 +105,18 @@ class BudgetLedger:
 
     def entries_for_run(self, run_id: str) -> list[dict[str, Any]]:
         return self._db.query(
-            "SELECT ts, company, run_id, agent_id, parent_agent_id, role,"
-            " model, prompt_tokens, completion_tokens, cached_tokens,"
-            " reasoning_tokens, usd"
-            " FROM registry.budget_ledger WHERE run_id = %s ORDER BY ts, id",
+            f"SELECT {_ENTRY} FROM registry.budget_ledger"
+            " WHERE run_id = %s ORDER BY ts, id",
             (run_id,),
+        )
+
+    def after(self, company: str, after: int, limit: int = 500) -> list[dict[str, Any]]:
+        """The company's entries with an id above `after`, in id order —
+        every run's, a tick's decision run included. The serial is the
+        cursor, as in `AuditStore.after`: a reader that resumes from the
+        last id it saw repeats nothing and skips nothing."""
+        return self._db.query(
+            f"SELECT {_ENTRY} FROM registry.budget_ledger"
+            " WHERE company = %s AND id > %s ORDER BY id LIMIT %s",
+            (company, after, limit),
         )

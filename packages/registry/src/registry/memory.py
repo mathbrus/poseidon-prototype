@@ -165,6 +165,7 @@ class InMemoryBudgetLedger:
     ) -> None:
         self.entries.append(
             {
+                "id": len(self.entries) + 1,
                 "ts": datetime.now(UTC).isoformat(),
                 "company": company,
                 "run_id": run_id,
@@ -189,6 +190,12 @@ class InMemoryBudgetLedger:
 
     def entries_for_run(self, run_id: str) -> list[dict[str, Any]]:
         return [dict(e) for e in self.entries if e["run_id"] == run_id]
+
+    def after(self, company: str, after: int, limit: int = 500) -> list[dict[str, Any]]:
+        # The fake's ids are positions in the append order, from 1.
+        return [
+            dict(e) for e in self.entries if e["company"] == company and e["id"] > after
+        ][:limit]
 
     def spent_since(self, company: str, since: str | None) -> dict[str, Any]:
         mine = [

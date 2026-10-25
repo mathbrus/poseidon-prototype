@@ -22,6 +22,8 @@
       "gate": "merge",
       "since": "2025-12-31T23:57:00Z"
     },
+    "pr_settled": null,
+    "pr_settled_reason": null,
     "pr_url": null,
     "run_id": "run-01REVIEW",
     "status": "running",

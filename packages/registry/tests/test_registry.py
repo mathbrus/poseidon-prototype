@@ -1019,6 +1019,39 @@ def test_spent_since_a_fence_sums_the_companys_ledger_after_it(registry: Registr
     assert ledger.spent_since("hello-saas", None)["usd"] == 0.75
 
 
+def test_the_companys_ledger_entries_page_by_their_id(registry: Registry):
+    """Every run's entries, in id order, above the cursor; another
+    company's never."""
+    ledger = BudgetLedger(registry)
+    Runs(registry).start(RUN_ID, "task", company="hello-saas")
+
+    def entry(run_id: str, company: str = "hello-saas") -> None:
+        ledger.record(
+            company=company,
+            run_id=run_id,
+            agent_id="pm-1",
+            parent_agent_id="",
+            role="pm",
+            model="mock-brain",
+            prompt_tokens=10,
+            completion_tokens=5,
+            cached_tokens=0,
+            reasoning_tokens=0,
+            usd=0.1,
+        )
+
+    entry(RUN_ID)
+    entry("run-decide")
+    entry(RUN_ID, company="other-co")
+    entry(RUN_ID)
+    first = ledger.after("hello-saas", 0, limit=2)
+    assert [e["run_id"] for e in first] == [RUN_ID, "run-decide"]
+    rest = ledger.after("hello-saas", first[-1]["id"])
+    assert [e["run_id"] for e in rest] == [RUN_ID]
+    assert rest[0]["id"] > first[-1]["id"] and rest[0]["company"] == "hello-saas"
+    assert ledger.after("hello-saas", rest[-1]["id"]) == []
+
+
 def test_story_since_a_fence(registry: Registry):
     audit = AuditStore(registry)
     audit.append(event(tool="before"))

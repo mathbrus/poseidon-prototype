@@ -631,12 +631,23 @@ def _render_run(record: RunDetail) -> None:
             ("took", render.dim(_elapsed(record))),
             ("iterations", record.iterations or None),
             ("pull request", record.pr_url),
+            ("settled", _settled(record)),
             ("tickets", ", ".join(record.ticket_urls) or None),
             ("verdict", render.status(record.verdict) if record.verdict else None),
             ("error", Text(record.error, style="red") if record.error else None),
             ("execution", workflow_line),
         ]
     )
+
+
+def _settled(record: RunDetail) -> Text | None:
+    """What became of the run's pull request, and why when it was refused."""
+    if record.pr_settled is None:
+        return None
+    settled = render.status(record.pr_settled)
+    if record.pr_settled_reason:
+        settled.append(f" ({record.pr_settled_reason})", style=render.DIM)
+    return settled
 
 
 @run_app.command(

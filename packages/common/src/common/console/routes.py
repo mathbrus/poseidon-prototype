@@ -186,6 +186,12 @@ ROUTES: tuple[Route, ...] = (
     Route("GET", "/spend", "the company's spend since a fence", m.SpendView),
     Route(
         "GET",
+        "/spend/entries",
+        "the company's ledger entries after a cursor (`?after=`), every run's",
+        m.SpendEntriesPage,
+    ),
+    Route(
+        "GET",
         "/events",
         "the company's audit rows after a cursor (`?after=&run=`), with its spend to date",
         m.EventsPage,

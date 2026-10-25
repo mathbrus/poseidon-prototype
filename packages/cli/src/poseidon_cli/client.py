@@ -45,6 +45,7 @@ from common.console import (
     RunList,
     RunSpendView,
     RunStarted,
+    SpendEntriesPage,
     SpendView,
     StartRunRequest,
     StoryView,
@@ -275,6 +276,11 @@ class ConsoleClient:
 
     def spend_since(self, since: str | None = None) -> SpendView:
         return self._call("GET", "/spend", SpendView, params=_since(since))
+
+    def spend_entries(self, after: int = 0, limit: int = 200) -> SpendEntriesPage:
+        """The company's ledger entries above a cursor, every run's."""
+        params = {"after": after, "limit": limit}
+        return self._call("GET", "/spend/entries", SpendEntriesPage, params=params)
 
     def events(
         self, after: int = 0, run_id: str | None = None, limit: int = 200

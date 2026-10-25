@@ -1034,6 +1034,15 @@
         "title": "PolicyRefusal",
         "type": "object"
       },
+      "PrSettled": {
+        "enum": [
+          "merged",
+          "refused",
+          "superseded"
+        ],
+        "title": "PrSettled",
+        "type": "string"
+      },
       "PreviewResult": {
         "additionalProperties": false,
         "description": "`POST /blueprint/preview`: what applying the blueprint would\nchange, against what the cluster hosts. Nothing is written.",
@@ -1186,6 +1195,27 @@
               }
             ]
           },
+          "pr_settled": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PrSettled"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "pr_settled_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pr Settled Reason"
+          },
           "pr_url": {
             "anyOf": [
               {
@@ -1242,6 +1272,8 @@
           "task",
           "status",
           "pr_url",
+          "pr_settled",
+          "pr_settled_reason",
           "verdict",
           "ticket_urls",
           "iterations",
@@ -1350,7 +1382,7 @@
       },
       "RunView": {
         "additionalProperties": false,
-        "description": "One run's record: its task, status and what it delivered, and the\ngate it is parked on, if any (null for a run that is not).",
+        "description": "One run's record: its task, status and what it delivered, what\nbecame of its pull request once the platform learned it, and the gate\nit is parked on, if any (null for a run that is not).",
         "properties": {
           "company": {
             "anyOf": [
@@ -1412,6 +1444,27 @@
               }
             ]
           },
+          "pr_settled": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PrSettled"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "pr_settled_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pr Settled Reason"
+          },
           "pr_url": {
             "anyOf": [
               {
@@ -1468,6 +1521,8 @@
           "task",
           "status",
           "pr_url",
+          "pr_settled",
+          "pr_settled_reason",
           "verdict",
           "ticket_urls",
           "iterations",
@@ -1479,9 +1534,32 @@
         "title": "RunView",
         "type": "object"
       },
+      "SpendEntriesPage": {
+        "additionalProperties": false,
+        "description": "`GET /spend/entries`: the company's ledger entries above the\ncursor, in id order \u2014 every run's, a tick's decision run included \u2014\nand the cursor to continue from.",
+        "properties": {
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/SpendEntryView"
+            },
+            "title": "Entries",
+            "type": "array"
+          },
+          "next": {
+            "title": "Next",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "entries",
+          "next"
+        ],
+        "title": "SpendEntriesPage",
+        "type": "object"
+      },
       "SpendEntryView": {
         "additionalProperties": false,
-        "description": "One model call in the ledger, attributed.",
+        "description": "One model call in the ledger, attributed; `id` is its place in the\nledger, the cursor `GET /spend/entries` pages by.",
         "properties": {
           "agent_id": {
             "title": "Agent Id",
@@ -1493,6 +1571,10 @@
           },
           "completion_tokens": {
             "title": "Completion Tokens",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
             "type": "integer"
           },
           "model": {
@@ -1530,6 +1612,7 @@
           }
         },
         "required": [
+          "id",
           "ts",
           "run_id",
           "agent_id",
@@ -3753,6 +3836,86 @@
           }
         },
         "summary": "the company's spend since a fence"
+      }
+    },
+    "/spend/entries": {
+      "get": {
+        "operationId": "spend_entries_spend_entries_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "title": "After",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 200,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpendEntriesPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "the company's ledger entries after a cursor (`?after=`), every run's"
       }
     },
     "/tickets": {

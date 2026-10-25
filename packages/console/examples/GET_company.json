@@ -16,7 +16,7 @@
       },
       "max_concurrent_runs": 1,
       "per_run_usd": 5.0,
-      "spent_today_usd": 0.0042
+      "spent_today_usd": 0.006
     },
     "message": "",
     "observed_generation": 2,

@@ -25,6 +25,7 @@ from common.console.enums import (
     ExecutionStatus,
     Gate,
     HeartbeatState,
+    PrSettled,
     RefusalKind,
     RunState,
     RunStatus,
@@ -323,8 +324,9 @@ class ParkedView(Model):
 
 
 class RunView(Model):
-    """One run's record: its task, status and what it delivered, and the
-    gate it is parked on, if any (null for a run that is not)."""
+    """One run's record: its task, status and what it delivered, what
+    became of its pull request once the platform learned it, and the gate
+    it is parked on, if any (null for a run that is not)."""
 
     run_id: str
     workflow: Workflow
@@ -333,6 +335,13 @@ class RunView(Model):
     task: str
     status: RunStatus
     pr_url: str | None
+    # What became of the delivered pull request: `merged`, `refused`
+    # (closed without merging; its ticket returns to the backlog) or
+    # `superseded` by a rework ticket. Null while it is open, or for a run
+    # that delivered none. A refusal carries its reason, in the platform's
+    # words.
+    pr_settled: PrSettled | None
+    pr_settled_reason: str | None
     # The reviewer's verdict on a review run (`pass`, `fail`).
     verdict: str | None
     ticket_urls: list[str]
@@ -464,8 +473,10 @@ class SpendView(Model):
 
 
 class SpendEntryView(Model):
-    """One model call in the ledger, attributed."""
+    """One model call in the ledger, attributed; `id` is its place in the
+    ledger, the cursor `GET /spend/entries` pages by."""
 
+    id: int
     ts: datetime
     run_id: str
     agent_id: str
@@ -485,6 +496,15 @@ class RunSpendView(Model):
     run_id: str
     usd: float
     entries: list[SpendEntryView]
+
+
+class SpendEntriesPage(Model):
+    """`GET /spend/entries`: the company's ledger entries above the
+    cursor, in id order — every run's, a tick's decision run included —
+    and the cursor to continue from."""
+
+    entries: list[SpendEntryView]
+    next: int
 
 
 # -- the heartbeat -------------------------------------------------------------
