@@ -23,7 +23,9 @@ E2E_TARGET_REPO=github.com/<you>/<disposable> scripts/acceptance.sh
 The script checks the cluster first and fails in seconds if something is
 wrong. Then it runs `tests/e2e_kind` in full. pytest's summary gives the
 count, and `tests/e2e_kind/test_acceptance.py` indexes which module proves
-what.
+what. After the summary, a *harness waits* section shows where the suite's
+own waiting went: blueprint applies, the GitHub listing, repository
+sweeps, and waits for the heartbeat.
 
 ## What it does
 

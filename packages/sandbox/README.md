@@ -86,7 +86,7 @@ The sandbox has no DNS. The proxy resolves target hosts, and the orchestrator re
 uv run pytest packages/sandbox
 ```
 
-See [Contributing](../../docs/developing/contributing.md). No cluster or database is needed. The proxy tests use real sockets on localhost and an in-memory registry. The e2e suite covers provisioning in `tests/e2e_kind/test_sandbox_k8s.py`, `test_containment.py` and `test_redteam.py`.
+See [Contributing](../../docs/developing/contributing.md). No cluster or database is needed. The proxy tests use real sockets on localhost and an in-memory registry. The e2e suite covers provisioning in `tests/e2e_kind/test_containment.py` and `test_redteam.py`.
 
 ## Related
 
