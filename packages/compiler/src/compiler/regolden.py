@@ -7,11 +7,29 @@ updating them is an explicit act whose diff a human reads, never something
 a test run does quietly on the way past.
 """
 
+import hashlib
 import json
 from pathlib import Path
+from typing import Any
+
+from compiler.plan import DeploymentPlan
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 GOLDEN = REPO_ROOT / "packages" / "compiler" / "tests" / "golden"
+
+
+def golden_plan(plan: DeploymentPlan) -> dict[str, Any]:
+    """The plan as its golden file holds it: each bundle file by the sha256
+    of its text, which the bundle directory beside it holds readable — the
+    Rego is pinned once."""
+    document = plan.as_dict()
+    for bundle in ("bundle", "platform_bundle"):
+        files = document[bundle]["files"]
+        document[bundle]["files"] = {
+            name: hashlib.sha256(body.encode()).hexdigest()
+            for name, body in files.items()
+        }
+    return document
 
 
 def main() -> None:
@@ -21,7 +39,7 @@ def main() -> None:
     plan = compile_blueprint(load_blueprint(REPO_ROOT / "examples" / "hello-saas.yaml"))
     GOLDEN.mkdir(parents=True, exist_ok=True)
     (GOLDEN / "hello-saas.plan.json").write_text(
-        json.dumps(plan.as_dict(), indent=2, sort_keys=True) + "\n"
+        json.dumps(golden_plan(plan), indent=2, sort_keys=True) + "\n"
     )
     bundle_dir = GOLDEN / "hello-saas-bundle"
     bundle_dir.mkdir(exist_ok=True)

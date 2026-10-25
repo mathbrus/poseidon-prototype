@@ -48,7 +48,7 @@ Rules over `blueprint.tools.RUN_SCOPED` tools end in `bound_to_run`, which requi
 
 ### Golden files are generated and never hand-edited
 
-`tests/golden/` holds the compiled plan (`hello-saas.plan.json`) and both bundles (`hello-saas-bundle/`, ten `.rego` files) for `examples/hello-saas.yaml`. After any change to what the compiler emits, including a comment written into Rego, regenerate them and read the diff:
+`tests/golden/` holds both bundles (`hello-saas-bundle/`, ten `.rego` files) and the compiled plan (`hello-saas.plan.json`) for `examples/hello-saas.yaml`. The plan holds each bundle file as the sha256 of its text, so the Rego is pinned once, in the bundle directory. After any change to what the compiler emits, including a comment written into Rego, regenerate them and read the diff:
 
 ```bash
 uv run python -m compiler.regolden
@@ -60,16 +60,16 @@ Regenerating is a separate step, so a widened scope shows up as a Rego diff some
 
 ## Invariants
 
-- Compiling writes no file and opens no socket: `tests/test_purity.py::test_compiling_writes_nothing_and_calls_nobody`.
+- Compiling writes no file, starts no process and opens no socket: `tests/test_purity.py::test_compiling_writes_nothing_and_calls_nobody`.
 - Compiling does not mutate its input: `tests/test_purity.py::test_compiling_does_not_mutate_its_input`.
-- The same input compiles to the same plan: `tests/test_plan.py::test_compilation_is_deterministic`.
+- The same input compiles to the same plan: `tests/test_plan.py::test_plan_matches_the_golden_file`.
 - No secret enters a plan: `tests/test_plan.py::test_agent_specs_carry_no_secrets`.
 - A standing implementer or steward is a compile error: `tests/test_checks.py::test_standing_implementer_is_a_compile_error`, `::test_a_standing_steward_is_a_compile_error`.
 - Spawn authority cannot be widened: `tests/test_checks.py::test_spawn_authority_cannot_be_widened`.
 - An ephemeral agent's tools need not be a subset of its conductor's: `tests/test_checks.py::test_child_scope_need_not_be_a_subset_of_the_conductor`.
 - Every emitted rule is in `common.policy.RULES`, and every registered rule is emitted by some example: `tests/test_rule_registry.py`.
 - Sandbox tools require a verified run binding: `tests/test_bundle_decisions.py::test_sandbox_tools_require_a_verified_run_binding`.
-- Only the platform may merge: `tests/test_bundle_decisions.py::test_only_the_platform_may_merge`.
+- Only the platform may merge, or call any other tool in `PLATFORM_SCOPE` a role does not share: `tests/test_bundle_decisions.py::test_the_platform_scope_is_the_platform_identitys_alone`.
 - A backtick in a branch pattern cannot inject policy: `tests/test_bundle_decisions.py::test_pattern_with_a_backtick_cannot_inject_policy`.
 
 ## Testing
