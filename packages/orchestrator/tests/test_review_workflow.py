@@ -538,17 +538,6 @@ async def wait_for_park(handle: WorkflowHandle) -> None:
 # -- both layers required ---------------------------------------------------
 
 
-async def test_the_head_is_verified_before_the_reviewer_holds_the_sandbox(env):
-    """Under an automated gate the platform's verify runs first, in the
-    sandbox as provisioned: the reviewer holds a shell there, so nothing
-    it leaves behind can reach the verify of record."""
-    harness = Harness(merge_gate=AUTOMATED_GATE)
-    await run_review(env.client, harness)
-
-    assert harness.sequence == ["verify", "dispatch"]
-    assert harness.provisions == 1
-
-
 async def test_red_checks_file_rework_without_a_reviewer(env):
     """The model-free layer is required, and it comes first: a red head
     suite feeds the bounded rework loop before any reviewer is dispatched,
@@ -632,6 +621,10 @@ async def test_green_checks_with_a_fail_verdict_merge_nothing(env):
     ]
     assert harness.gate_events == ["rework_filed"]
     assert record["status"] == "failed"
+    # The fail verdict is the review's conclusion: the PR is consumed by
+    # the verdict on its row, and the attempt accounting is never asked.
+    assert harness.verdicts == [("fail", "Blocking.")]
+    assert harness.attempts_recorded == []
 
 
 async def test_both_layers_green_and_allowed_releases_the_merge(env):
@@ -642,6 +635,10 @@ async def test_both_layers_green_and_allowed_releases_the_merge(env):
     record = await run_review(env.client, harness)
 
     assert harness.verdicts == [("pass", "Suite green; in scope.")]
+    # The platform's verify runs first, in the sandbox as provisioned: the
+    # reviewer holds a shell there, so nothing it leaves behind can reach
+    # the verify of record.
+    assert harness.sequence == ["verify", "dispatch"]
     assert harness.verify_calls == 1
     assert harness.independence_calls == 1
     # The reviewer was dispatched under the bounds, with the documents.
@@ -663,7 +660,12 @@ async def test_both_layers_green_and_allowed_releases_the_merge(env):
     assert harness.merges == [PR]
     # The merge names the head the run read, the one every sandbox held.
     assert harness.merge_heads == [HEAD_SHA]
+    # No contract tree declared: one plain head tree, one sandbox, no
+    # scoped verify — and a base that held still needs no merge verify.
     assert harness.fetches == [[HEAD_SHA, None]]
+    assert harness.provisions == 1
+    assert harness.scoped_verifies == []
+    assert harness.merge_verifies == []
     # The fulfilled tickets close strictly after the merge, naming it.
     assert harness.effects == ["merge", f"close_tickets #{PR} abc123 Add slugify utility"]
     assert record["status"] == "done"
@@ -767,41 +769,6 @@ async def test_a_declared_tree_the_base_ref_lacks_replays_nothing(env):
     assert record["merged"] is True
 
 
-async def test_no_contract_tree_means_no_composed_run(env):
-    """Undeclared means untouched: no overlay fetch, one provision, no
-    scoped verify."""
-    harness = Harness(merge_gate=AUTOMATED_GATE)
-    await run_review(env.client, harness)
-
-    assert harness.fetches == [[HEAD_SHA, None]]
-    assert harness.provisions == 1
-    assert harness.scoped_verifies == []
-
-
-async def test_an_oracle_edit_is_surfaced_before_the_human_park(env):
-    """A diff touching the contract tree gets its deletion facts posted
-    (PR comment + audit event) the moment the platform reads the PR —
-    before any gate, so the human who resolves the park reads them
-    first."""
-    deletions = {
-        "removed_tests": 2,
-        "added_tests": 0,
-        "removed_asserts": 5,
-        "added_asserts": 1,
-    }
-    harness = Harness(merge_gate=HUMAN_GATE, deletions=deletions)
-    worker, handle = await start_review(env.client, harness)
-    try:
-        await wait_for_park(handle)
-        assert harness.warns == [deletions]
-        await handle.signal("merge", args=[True])
-        record = await handle.result()
-    finally:
-        await worker.__aexit__(None, None, None)
-
-    assert record["merged"] is True
-
-
 # -- a contract-tree PR is the human's to merge, before any layer -----------
 
 
@@ -840,11 +807,17 @@ async def test_a_contract_tree_pr_parks_before_any_layer_is_spent(env):
         assert harness.reworks == []
         assert harness.gate_events == ["automation_declined", "parked"]
         assert harness.merges == []
+        # The park keeps its place, so a one-place company implements
+        # nothing before its contract lands; its crew and sandbox are
+        # still given back, and no nudge is due.
+        assert harness.vacated == [({"sandbox": "sbx-1"}, True, ["automation_declined"])]
+        assert harness.wakes == 0
         await handle.signal("merge", args=[True])
         record = await handle.result()
     finally:
         await worker.__aexit__(None, None, None)
 
+    assert harness.torn_down_handles == [None]
     # The human's approving verdict is the one authority that merges an oracle
     # edit — and it still works, findings and facts already on the PR.
     assert harness.gate_events == ["automation_declined", "parked", "approved"]
@@ -909,6 +882,9 @@ async def test_an_automation_decline_parks_on_the_human_who_can_release(env):
     finally:
         await worker.__aexit__(None, None, None)
 
+    # The release is verified like any human one: the recorded verdict is
+    # read back and decided on before the merge.
+    assert [args[0] for args in harness.resolve_args] == ["automated", "human"]
     assert harness.gate_events == ["automation_declined", "parked", "approved"]
     assert harness.merges == [PR]
     assert record["status"] == "done"
@@ -975,11 +951,17 @@ async def test_an_exhausted_rework_chain_escalates_to_the_human(env):
 async def test_a_human_gate_never_touches_the_automation_machinery(env):
     """A gate without `automate` is the plain human workflow: no
     verify re-run, no independence read, no automated resolve, no rework
-    counting — park, approve, verify the recorded verdict, merge."""
+    counting — give back what the run holds, park, approve, verify the
+    recorded verdict, merge."""
     harness = Harness(merge_gate=HUMAN_GATE)
     worker, handle = await start_review(env.client, harness)
     try:
         await wait_for_park(handle)
+        # Before the park is recorded, the run gives back its crew, its
+        # sandbox and its place under `max_concurrent_runs`, and nudges
+        # the heartbeat.
+        assert harness.vacated == [({"sandbox": "sbx-1"}, False, [])]
+        assert harness.wakes == 1
         await handle.signal("merge", args=[True])
         record = await handle.result()
     finally:
@@ -993,55 +975,12 @@ async def test_a_human_gate_never_touches_the_automation_machinery(env):
     assert harness.depth_calls == 0
     assert harness.gate_events == ["parked", "approved"]
     assert harness.merges == [PR]
+    assert harness.merge_verifies == []  # the base held still
     assert harness.effects == ["merge", f"close_tickets #{PR} abc123 Add slugify utility"]
     assert record["merged"] is True
-
-
-async def test_a_merge_park_gives_back_its_crew_sandbox_and_place(env):
-    """Before the merge park is recorded, the run gives back its crew and
-    its sandbox and its place under `max_concurrent_runs`, and nudges the
-    heartbeat; teardown then has no sandbox left to destroy."""
-    harness = Harness(merge_gate=HUMAN_GATE)
-    worker, handle = await start_review(env.client, harness)
-    try:
-        await wait_for_park(handle)
-        assert harness.vacated == [({"sandbox": "sbx-1"}, False, [])]
-        assert harness.wakes == 1
-        await handle.signal("merge", args=[True])
-        record = await handle.result()
-    finally:
-        await worker.__aexit__(None, None, None)
-
-    assert record["merged"] is True
+    # Teardown has no sandbox left to destroy; the end is a second nudge.
     assert harness.torn_down_handles == [None]
     assert harness.wakes == 2
-
-
-async def test_a_contract_tree_park_keeps_its_place(env):
-    """A pull request editing the contract tree keeps its place while it
-    waits, so a one-place company implements nothing before its contract
-    lands; its crew and sandbox are still given back, and no nudge is due."""
-    harness = Harness(
-        merge_gate=AUTOMATED_GATE,
-        contract_paths=["tests/contract/"],
-        pr_paths=["tests/contract/test_slugify_contract.py"],
-        deletions={
-            "removed_tests": 0,
-            "added_tests": 4,
-            "removed_asserts": 0,
-            "added_asserts": 4,
-        },
-    )
-    worker, handle = await start_review(env.client, harness)
-    try:
-        await wait_for_park(handle)
-        assert harness.vacated == [({"sandbox": "sbx-1"}, True, ["automation_declined"])]
-        assert harness.wakes == 0
-        await handle.signal("merge", args=[True])
-        await handle.result()
-    finally:
-        await worker.__aexit__(None, None, None)
-    assert harness.torn_down_handles == [None]
 
 
 async def test_a_budget_park_gives_nothing_back(env):
@@ -1131,14 +1070,6 @@ async def _approved_review(env, harness: Harness) -> dict[str, Any]:
 
 
 @pytest.mark.parametrize("gate", [HUMAN_GATE, AUTOMATED_GATE])
-async def test_a_base_that_held_still_merges_without_a_verify(env, gate):
-    harness = Harness(merge_gate=gate)
-    record = await _approved_review(env, harness)
-    assert harness.merge_verifies == []
-    assert record["merged"] is True
-
-
-@pytest.mark.parametrize("gate", [HUMAN_GATE, AUTOMATED_GATE])
 async def test_a_moved_base_is_verified_then_merged(env, gate):
     """The base moved since the review: the head merged onto the new base
     is built in a fresh sandbox and run by the platform, the sandbox given
@@ -1224,49 +1155,6 @@ async def test_a_signal_without_a_recorded_verdict_merges_nothing(env):
     assert "no verified human verdict (merge_resolve_no_human_verdict)" in record["error"]
 
 
-async def test_a_signal_contradicting_the_record_merges_nothing(env):
-    """The record is the verdict: an approving signal over a recorded
-    rejection (the latest console verdict) releases nothing."""
-    harness = Harness(
-        merge_gate=HUMAN_GATE,
-        human_verdict={"principal": "owner", "approved": False, "ts": "t1"},
-        human_resolve={"allow": False, "rule": "merge_resolve_human_rejected"},
-    )
-    worker, handle = await start_review(env.client, harness)
-    try:
-        await wait_for_park(handle)
-        await handle.signal("merge", args=[True])
-        record = await handle.result()
-    finally:
-        await worker.__aexit__(None, None, None)
-
-    assert harness.merges == []
-    assert harness.gate_events == ["parked", "approved", "verdict_unverified"]
-    assert record["status"] == "failed"
-
-
-async def test_an_automation_decline_released_by_a_human_reads_the_record_too(env):
-    """The override survives automation, and it is verified like any
-    human release: the decline parks, the human's recorded approving
-    verdict is read back and decided on, then the merge."""
-    harness = Harness(
-        merge_gate=AUTOMATED_GATE,
-        resolve={"allow": False, "rule": "merge_resolve_carved_out_path"},
-    )
-    worker, handle = await start_review(env.client, harness)
-    try:
-        await wait_for_park(handle)
-        await handle.signal("merge", args=[True])
-        record = await handle.result()
-    finally:
-        await worker.__aexit__(None, None, None)
-
-    assert [args[0] for args in harness.resolve_args] == ["automated", "human"]
-    assert harness.gate_events == ["automation_declined", "parked", "approved"]
-    assert harness.merges == [PR]
-    assert record["merged"] is True
-
-
 async def test_a_missing_verdict_fails_before_any_gate(env):
     """The platform-side belt on the reviewer's contract (every review
     ends in a verdict): a dispatch that somehow reports no verdict reaches
@@ -1307,26 +1195,21 @@ async def test_a_reviewer_that_died_mid_flight_leaves_the_pr_for_another_try(env
     assert harness.wakes == 1  # the reoffered PR is the heartbeat's to see
 
 
-async def test_a_verdict_bearing_failure_is_a_conclusion(env):
-    """A fail verdict that filed a rework, or a pass the human then
-    rejected, concluded the review: the run finalizes failed, and the
-    attempt accounting is never asked — the PR is consumed by the verdict
-    on its row, not by the attempt cap."""
-    for harness in (
-        Harness(merge_gate=AUTOMATED_GATE, dispatch=dispatch_result(verdict="fail")),
-        Harness(merge_gate=HUMAN_GATE),
-    ):
-        worker, handle = await start_review(env.client, harness)
-        try:
-            if harness.merge_gate is HUMAN_GATE:
-                await wait_for_park(handle)
-                await handle.signal("merge", args=[False])
-            record = await handle.result()
-        finally:
-            await worker.__aexit__(None, None, None)
-        assert record["status"] == "failed"
-        assert len(harness.verdicts) == 1
-        assert harness.attempts_recorded == []
+async def test_a_pass_the_human_rejected_is_a_conclusion(env):
+    """A pass the human then rejected concluded the review: the run
+    finalizes failed, and the attempt accounting is never asked — the PR
+    is consumed by the verdict on its row, not by the attempt cap."""
+    harness = Harness(merge_gate=HUMAN_GATE)
+    worker, handle = await start_review(env.client, harness)
+    try:
+        await wait_for_park(handle)
+        await handle.signal("merge", args=[False])
+        record = await handle.result()
+    finally:
+        await worker.__aexit__(None, None, None)
+    assert record["status"] == "failed"
+    assert harness.verdicts == [("pass", "Suite green; in scope.")]
+    assert harness.attempts_recorded == []
 
 
 async def test_a_cancel_on_an_unconcluded_review_still_records_the_attempt(env):

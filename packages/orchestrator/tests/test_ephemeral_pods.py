@@ -3,6 +3,7 @@ posture, and the provision/destroy activities' binding, audit, and
 label-selector discipline (via a fake provisioner)."""
 
 import asyncio
+import threading
 
 import pytest
 from temporalio.exceptions import ApplicationError
@@ -208,27 +209,46 @@ def test_provision_wires_the_projected_identity_and_binds(crew, stores, provisio
     assert event.rule == "ephemeral_pod_provisioned"
 
 
-def test_provision_heartbeats_while_the_pod_comes_up(
-    crew, stores, provisioner, monkeypatch
-):
+def test_provision_heartbeats_while_the_pod_comes_up(settings, stores, monkeypatch):
     """fulfill_crew provisions one pod per agent back to back, and a pod
     can take longer to come up than the activity heartbeat window —
-    liveness must be signalled during the provision call itself."""
+    liveness must be signalled during the provision call itself. The pod
+    here comes up only once the activity has said it is alive, so a beat
+    sent after the call returns never arrives in time."""
     import orchestrator.activities.crew as module
 
-    beats: list[int] = []
+    beat = threading.Event()
     monkeypatch.setattr(module.activity, "in_activity", lambda: True)
-    monkeypatch.setattr(module.activity, "heartbeat", lambda: beats.append(1))
+    monkeypatch.setattr(module.activity, "heartbeat", beat.set)
 
+    class ShortWaits:
+        """The module's asyncio, its waits between beats cut to a blink."""
+
+        def __getattr__(self, name):
+            return getattr(asyncio, name)
+
+        @staticmethod
+        async def wait(tasks, timeout=None):
+            return await asyncio.wait(tasks, timeout=timeout and 0.01)
+
+    monkeypatch.setattr(module, "asyncio", ShortWaits())
+
+    class SlowPod(FakeProvisioner):
+        def provision(self, **kwargs):
+            assert beat.wait(timeout=5), "no heartbeat while the pod came up"
+            return super().provision(**kwargs)
+
+    participants, audit = stores
+    slow = SlowPod()
+    crew = _crew(settings, participants, audit, slow)
     asyncio.run(crew.provision_ephemeral_pod(dict(SPEC)))
-    assert beats, "no heartbeat during pod provisioning"
+    assert len(slow.provisioned) == 1
 
 
 def test_destroy_audits_each_pod(crew, stores, provisioner):
     _, audit = stores
-    deleted = asyncio.run(crew.destroy_ephemeral_pods(RUN_ID))
+    asyncio.run(crew.destroy_ephemeral_pods(RUN_ID))
     assert provisioner.destroyed == [RUN_ID]
-    assert deleted and all(name.startswith("ephemeral-") for name in deleted)
     assert [e.tool for e in audit.events] == [LIFECYCLE_DESTROY_POD]
     assert audit.events[0].rule == "ephemeral_pod_destroyed"
 

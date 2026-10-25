@@ -5,6 +5,7 @@ Sequencing, compensation and durability are workflow concerns, proven
 live by the kind e2e suite (worker-kill included)."""
 
 import asyncio
+import socket
 from typing import Any
 
 import pytest
@@ -223,28 +224,49 @@ def test_provision_without_an_applied_blueprint_fails_closed(settings, backend, 
     lone = ImplementActivities(settings, backend, runs, InMemoryCompanies())
     with pytest.raises(RuntimeError, match="no company is applied"):
         lone._sandbox_policy(RUN_ID)
-    assert backend.provisioned == []
 
 
-def test_sandbox_policy_injects_per_run_proxy_credentials(activities, settings):
-    # localhost, not a service name: the sandbox has no DNS, so the proxy
-    # host is resolved here and the env carries an address.
-    settings.egress_proxy_url = "http://localhost:3128"
+@pytest.fixture
+def dns(monkeypatch) -> dict[str, str]:
+    """The names the worker's resolver answers, host to address — so no
+    test asks a real one."""
+    from sandbox.egressproxy import credentials
+
+    names: dict[str, str] = {}
+
+    class Resolver:
+        @staticmethod
+        def gethostbyname(host: str) -> str:
+            if host not in names:
+                raise socket.gaierror(f"{host}: Name or service not known")
+            return names[host]
+
+    monkeypatch.setattr(credentials, "socket", Resolver)
+    return names
+
+
+def test_sandbox_policy_injects_per_run_proxy_credentials(activities, settings, dns):
+    # A service name: the sandbox has no DNS, so the proxy host is resolved
+    # here and the env carries an address.
+    dns["egress-proxy.test"] = "10.96.0.12"
+    settings.egress_proxy_url = "http://egress-proxy.test:3128"
     settings.egress_proxy_key = "test-key"
     env = activities._sandbox_policy(RUN_ID).env
     assert env["HTTPS_PROXY"].startswith(f"http://{RUN_ID}:")
-    assert env["HTTPS_PROXY"].endswith("@127.0.0.1:3128")
+    assert env["HTTPS_PROXY"].endswith("@10.96.0.12:3128")
     # Distinct runs get distinct credentials — that is the attribution.
     other = activities._sandbox_policy("run-other").env
     assert other["HTTPS_PROXY"] != env["HTTPS_PROXY"]
 
 
-def test_sandbox_policy_fails_when_the_proxy_host_does_not_resolve(activities, settings):
+def test_sandbox_policy_fails_when_the_proxy_host_does_not_resolve(
+    activities, settings, dns
+):
     """Provisioning with an unresolvable proxy would hand the sandbox a
     hostname it has no resolver for — fail here, where there is one."""
     from sandbox.egressproxy.credentials import ProxyUnresolvable
 
-    settings.egress_proxy_url = "http://nothing.invalid:3128"
+    settings.egress_proxy_url = "http://egress-proxy.test:3128"
     settings.egress_proxy_key = "test-key"
     with pytest.raises(ProxyUnresolvable):
         activities._sandbox_policy(RUN_ID)

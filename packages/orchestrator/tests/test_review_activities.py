@@ -21,6 +21,7 @@ from common.policy import GATE_RESOLVE, MERGE_RESOLVE
 from common.topology import COMPANY_NAMESPACE, PLATFORM_NAMESPACE
 from common.workflows import MERGE_GATE
 from orchestrator.activities.review import ReviewActivities
+from orchestrator.activities.tickets import CLOSED_OUTSIDE, refused_comment
 from orchestrator.config import WorkerSettings
 from registry.memory import (
     InMemoryAuditStore,
@@ -891,14 +892,8 @@ def test_read_pr_settles_a_pr_settled_by_hand(settings, monkeypatch, merged, clo
     )
     assert runs.get("run-impl").pr_settled == ("merged" if merged else "refused")
     if not merged:
-        assert gateway.closed_prs == [(41, "closed outside the platform")]
-        assert gateway.comments == [
-            (
-                7,
-                "Pull request #41 was not merged: closed outside the platform\n\n"
-                "The ticket is back on the backlog: attempt 1 of 2.",
-            )
-        ]
+        assert gateway.closed_prs == [(41, CLOSED_OUTSIDE)]
+        assert gateway.comments == [(7, refused_comment(41, CLOSED_OUTSIDE, 1, 2, False))]
         assert runs.issue_attempts("hello-saas")[7].concluded is False
 
 

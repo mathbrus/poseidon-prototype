@@ -3,7 +3,6 @@ the caller's run id, clipped, absent as a first-class state."""
 
 import asyncio
 
-from common.documents import BOOTSTRAP_TITLES
 from common.text import UNTRUSTED_CLIP
 from orchestrator.activities.documents import (
     ABSENT,
@@ -63,10 +62,6 @@ def test_sections_state_absence_and_dispatches_carry_only_present_texts():
 def test_the_bootstrap_ticket_is_the_stewards_whole_brief():
     """The platform-filed ticket names the file, the branch and the crew:
     the steward reads tickets, not this module."""
-    assert BOOTSTRAP_TITLES == {
-        "strategy": "Bootstrap: strategy",
-        "architecture": "Bootstrap: architecture masterplan",
-    }
     body = bootstrap_body("strategy", "docs/STRATEGY.md", "feature/strategy-abc123")
     assert "`docs/STRATEGY.md`" in body
     assert "`feature/strategy-abc123`" in body

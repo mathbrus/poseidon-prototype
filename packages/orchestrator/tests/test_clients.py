@@ -106,8 +106,11 @@ def test_a_real_cancellation_is_still_a_cancellation(monkeypatch):
     activity while it is connecting, the CancelledError belongs to the
     caller and must not be swallowed into a GatewayError."""
 
+    reached = asyncio.Event()
+
     @contextlib.asynccontextmanager
     async def slow_connect(*args, **kwargs):
+        reached.set()
         await asyncio.sleep(30)  # cancelled long before this returns
         yield ("read", "write", None)
 
@@ -115,7 +118,8 @@ def test_a_real_cancellation_is_still_a_cancellation(monkeypatch):
 
     async def run() -> None:
         connecting = asyncio.ensure_future(_attempt())
-        await asyncio.sleep(0.05)  # let it reach the await inside __aenter__
+        # Cancel once it waits inside __aenter__, where the conversion lives.
+        await reached.wait()
         connecting.cancel()
         with pytest.raises(asyncio.CancelledError):
             await connecting
