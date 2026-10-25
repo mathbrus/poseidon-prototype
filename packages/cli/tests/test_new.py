@@ -122,9 +122,9 @@ def test_the_screen_opens_with_the_rules_and_names_each_section():
     new.ask(prompter)
     assert prompter.said[0] == new.OPENING
     assert prompter.said[1:] == list(new.SECTIONS)
-    declined = example_answers(**{ADVANCED: False})
-    new.ask(declined)
-    assert declined.said == [new.OPENING, *new.SECTIONS[:-1]]
+    basic = example_answers(**{ADVANCED: False})
+    new.ask(basic)
+    assert basic.said == [new.OPENING, *new.SECTIONS[:-1]]
 
 
 def test_the_multiline_hint_is_on_screen_with_the_prompt():

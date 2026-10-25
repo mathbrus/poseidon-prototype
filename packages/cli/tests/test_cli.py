@@ -351,16 +351,16 @@ def test_company_delete_asks_before_acting(runner, console):
     """Without --yes the question is the last step before the act: a no
     deletes nothing, a yes deletes."""
     question = "delete hello-saas and erase everything recorded about it?"
-    declined = runner.invoke(
+    answered_no = runner.invoke(
         cli.app, ["company", "delete", "--reason", "done"], input="n\n"
     )
-    assert declined.exit_code == 1
-    assert question in declined.output
+    assert answered_no.exit_code == 1
+    assert question in answered_no.output
     assert ("DELETE", "/company") not in [(m, p) for m, p, _, _ in console.requests]
-    confirmed = runner.invoke(
+    answered_yes = runner.invoke(
         cli.app, ["company", "delete", "--reason", "done"], input="y\n"
     )
-    assert confirmed.exit_code == 0, confirmed.output
+    assert answered_yes.exit_code == 0, answered_yes.output
     assert console.requests[-1][:3] == (
         "DELETE",
         "/company",

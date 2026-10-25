@@ -473,7 +473,9 @@ def test_a_crew_token_resolves_to_its_live_binding_by_service_account(
     assert participants.by_service_account(IMPLEMENTER_ACCOUNT) is None
 
 
-def test_terminating_a_participant_revokes_that_identity_alone(registry: Registry):
+def test_terminating_an_ephemeral_agent_revokes_that_identity_alone(
+    registry: Registry,
+):
     """Revocation-before-TTL rides on this row leaving the live reads: from
     the write on, neither `active` nor the ServiceAccount read finds it.
     The run's other agents stay live, the row stays in the run's lineage,

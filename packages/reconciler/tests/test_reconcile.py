@@ -109,7 +109,7 @@ class FakeOpa:
 
 
 @pytest.fixture(autouse=True)
-def operator_settings(monkeypatch) -> None:
+def reconciler_settings(monkeypatch) -> None:
     """The env the chart would set, without a chart."""
     monkeypatch.setattr(
         reconcile,
