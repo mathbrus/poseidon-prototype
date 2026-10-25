@@ -58,11 +58,6 @@ def test_agent_ingress_admits_only_the_orchestrator():
     assert rule["from"][0]["podSelector"]["matchLabels"]["app"] == "orchestrator-worker"
 
 
-def test_sandbox_answers_the_gateway_and_reaches_only_the_proxy():
-    spec = resources.sandbox_isolation(COMPANY_NAMESPACE, PLATFORM)["spec"]
-    _assert_sandbox_envelope(spec)
-
-
 def test_sandbox_isolation_projects_the_infra_ir():
     """The envelope comes from the compiled projection; the compiler's
     standard emission must produce the same envelope as the defaults (a CR
@@ -99,12 +94,11 @@ def test_agent_deployment_carries_no_credential_env_at_all():
         "template"
     ]["spec"]["containers"][0]
     env = {e["name"]: e for e in container["env"]}
-    assert "AGENT_BEARER_TOKEN" not in env
+    token_shaped = {name for name in env if name.endswith(("_TOKEN", "_KEY"))}
+    assert token_shaped == {"GPG_KEY"}
     assert env["GPG_KEY"]["value"] == ""
-    for name, entry in env.items():
-        if name.endswith("_TOKEN") or name.endswith("_KEY"):
-            assert not entry.get("value"), name
-        assert "valueFrom" not in entry, name
+    assert [name for name, entry in env.items() if "valueFrom" in entry] == []
+    assert "envFrom" not in container
 
 
 def test_agent_pod_runs_non_root_with_no_escalation_path():

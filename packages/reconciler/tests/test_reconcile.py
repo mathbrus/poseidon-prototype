@@ -7,6 +7,8 @@ objects it converges, what it sweeps at teardown, what status it writes —
 without a cluster or a database.
 """
 
+import copy
+
 import kopf
 import pytest
 
@@ -17,8 +19,14 @@ from registry.memory import InMemoryAgentInstances, InMemoryCompanies
 
 
 class FakeCluster:
+    """Records every call, and holds what the calls left in the cluster:
+    `changes` are the calls that altered it — an upsert of an object that
+    differs from the one held, a delete of one that is there."""
+
     def __init__(self) -> None:
         self.calls: list[tuple] = []
+        self.changes: list[tuple] = []
+        self.objects: dict[tuple, dict] = {}
         # Namespaces asked to go that Kubernetes has not finished deleting.
         self.terminating: set[str] = set()
 
@@ -29,12 +37,18 @@ class FakeCluster:
         if method.startswith("upsert_") or method.startswith("delete_"):
 
             def record(*args):
-                name = (
-                    args[-1]["metadata"]["name"]
-                    if isinstance(args[-1], dict)
-                    else args[-1]
-                )
-                self.calls.append((method, *args[:-1], name))
+                sent = args[-1]
+                name = sent["metadata"]["name"] if isinstance(sent, dict) else sent
+                call = (method, *args[:-1], name)
+                self.calls.append(call)
+                kind = method.split("_", 1)[1]
+                key = (kind, *args[:-1], name)
+                if method.startswith("upsert_"):
+                    if self.objects.get(key) != sent:
+                        self.changes.append(call)
+                        self.objects[key] = copy.deepcopy(sent)
+                elif self.objects.pop(key, None) is not None:
+                    self.changes.append(call)
 
             return record
         raise AttributeError(method)
@@ -263,15 +277,24 @@ def test_a_lagging_platform_bundle_holds_convergence(cluster, stores, opa):
 
 
 def test_company_reconcile_is_idempotent(cluster, stores, opa):
+    """A second reconcile of an unchanged spec — a restart, a resync —
+    changes nothing the first one converged: no object in the cluster, no
+    stored bundle, no registry row."""
+    bundles, _instances, companies = stores
+    reconcile.reconcile_company(
+        spec=COMPANY_SPEC, name="hello-saas", meta=META, patch=kopf.Patch()
+    )
+    converged = list(cluster.changes)
+    assert converged  # the first reconcile did create the envelope
+    stored, rows = copy.deepcopy(bundles.stored), copy.deepcopy(companies.rows)
+
     patch = kopf.Patch()
     reconcile.reconcile_company(
         spec=COMPANY_SPEC, name="hello-saas", meta=META, patch=patch
     )
-    first = list(cluster.calls)
-    reconcile.reconcile_company(
-        spec=COMPANY_SPEC, name="hello-saas", meta=META, patch=kopf.Patch()
-    )
-    assert cluster.calls == first + first  # same intents, no accumulation
+    assert cluster.changes == converged
+    assert bundles.stored == stored and companies.rows == rows
+    assert patch.status["phase"] == "converged"
 
 
 def test_company_without_a_bundle_stores_no_company_bundle(cluster, stores, opa):
