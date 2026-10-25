@@ -11,6 +11,21 @@ How a release is decided is the Releasing page of the docs site
 
 ## [Unreleased]
 
+- Tests prove what they are named for, and run faster. A refusal test
+  names the rule that refused and shows the rightful caller allowed; a
+  spend or retry bound comes from the applied blueprint; a read of the
+  audit history is fenced to the test's own window. The thirteen package
+  suites run in about a minute instead of almost three (one OPA server
+  per bundle, one Temporal test server per module), and the acceptance
+  suite in about 53 minutes instead of 78: arcs that drove the same
+  chain are folded, and the harness reports where its own waiting goes.
+  *Changed:* the LLM gateway refuses a model call of a company with no
+  positive per-run cap (403 `budget_cap_missing`) instead of letting it
+  through unbounded; OPA polls its bundles every one to three seconds
+  and the reconciler re-checks activation every second, so an applied
+  blueprint reads `converged` sooner; `poseidon blueprint new` asks for
+  "tries per ticket before it is abandoned" (#101)
+
 ## [0.5.0+2026.10.25] - 2026-10-25
 
 - One name per concept for the company's document and for merging
