@@ -69,7 +69,7 @@ Regenerating is a separate step, so a widened scope shows up as a Rego diff some
 - An ephemeral agent's tools need not be a subset of its conductor's: `tests/test_checks.py::test_child_scope_need_not_be_a_subset_of_the_conductor`.
 - Every emitted rule is in `common.policy.RULES`, and every registered rule is emitted by some example: `tests/test_rule_registry.py`.
 - Sandbox tools require a verified run binding: `tests/test_bundle_decisions.py::test_sandbox_tools_require_a_verified_run_binding`.
-- Only the platform may merge, or call any other tool in `PLATFORM_SCOPE` a role does not share: `tests/test_bundle_decisions.py::test_the_platform_scope_is_the_platform_identitys_alone`.
+- Only the platform may merge, or call any other tool in `PLATFORM_SCOPE` a role does not share; the console may read the company's documents: `tests/test_bundle_decisions.py::test_the_platform_scope_is_the_platform_identitys_alone`.
 - A backtick in a branch pattern cannot inject policy: `tests/test_bundle_decisions.py::test_pattern_with_a_backtick_cannot_inject_policy`.
 
 ## Testing
