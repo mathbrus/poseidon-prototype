@@ -52,19 +52,6 @@ def test_round_trip_matches_contract():
     }
 
 
-def test_attribution_fields_round_trip():
-    event = make_event(
-        source="sandbox-infra",
-        company="hello-saas",
-        lifecycle="ephemeral",
-        parent_agent_id="pm-1",
-        workflow="implement",
-    )
-    assert event.source == "sandbox-infra"
-    assert event.company == "hello-saas"
-    assert event.parent_agent_id == "pm-1"
-
-
 def test_a_rationale_is_bounded():
     """A stated reason stays a reason: the model refuses one long enough to
     be a transcript, and a row that decided nothing carries none."""

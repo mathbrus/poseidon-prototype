@@ -29,6 +29,29 @@ from typing import Any
 
 OTLP_ENDPOINT_ENV = "OTEL_EXPORTER_OTLP_ENDPOINT"
 
+# The attributes every LogRecord carries; anything else on a record is an
+# extra its caller attached.
+_RECORD_ATTRS = frozenset(vars(logging.makeLogRecord({}))) | {"message", "asctime"}
+# Python's level names that OTel spells differently.
+_SEVERITY_TEXT = {"WARNING": "WARN", "CRITICAL": "FATAL"}
+
+
+def _attributes(record: logging.LogRecord) -> dict[str, Any]:
+    """A record's extras as OTLP attributes, the `bound` dict (run_id,
+    agent_id, …) flattened into them — OTLP attributes must be primitives,
+    so a non-primitive value is stringified and the dict itself never
+    rides through — and where the record was logged from."""
+    extras = {k: v for k, v in vars(record).items() if k not in _RECORD_ATTRS}
+    extras.update(extras.pop("bound", None) or {})
+    attributes = {
+        key: value if isinstance(value, (bool, int, float, str, bytes)) else str(value)
+        for key, value in extras.items()
+    }
+    attributes["code.file.path"] = record.pathname
+    attributes["code.function.name"] = record.funcName
+    attributes["code.line.number"] = record.lineno
+    return attributes
+
 
 class JsonFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
@@ -66,10 +89,10 @@ def _otel_handler(exporter: Any | None = None) -> logging.Handler | None:
         # underscore; accept either so a version bump in uv.lock cannot
         # silently disable export.
         try:
-            from opentelemetry.sdk.logs import LoggerProvider, LoggingHandler
+            from opentelemetry.sdk.logs import LoggerProvider
             from opentelemetry.sdk.logs.export import BatchLogRecordProcessor
         except ImportError:
-            from opentelemetry.sdk._logs import LoggerProvider, LoggingHandler
+            from opentelemetry.sdk._logs import LoggerProvider
             from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
         try:
             from opentelemetry.exporter.otlp.proto.http.log_exporter import (
@@ -79,6 +102,7 @@ def _otel_handler(exporter: Any | None = None) -> logging.Handler | None:
             from opentelemetry.exporter.otlp.proto.http._log_exporter import (
                 OTLPLogExporter,
             )
+        from opentelemetry._logs import SeverityNumber
         from opentelemetry.sdk.resources import Resource
     except ImportError:
         logging.getLogger(__name__).warning(
@@ -88,22 +112,35 @@ def _otel_handler(exporter: Any | None = None) -> logging.Handler | None:
         )
         return None
 
-    class BoundAwareHandler(LoggingHandler):
-        """Flattens the `bound` dict (run_id, agent_id, …) into log-record
-        attributes — OTLP attributes must be primitives, so the dict
-        itself must never ride through."""
+    def severity(levelno: int) -> Any:
+        # Python's five levels onto OTel's: DEBUG 5, INFO 9, WARN 13,
+        # ERROR 17, FATAL 21.
+        if levelno < logging.DEBUG:
+            return SeverityNumber.UNSPECIFIED
+        return SeverityNumber(min(levelno // 10, 5) * 4 + 1)
 
-        @staticmethod
-        def _get_attributes(record: logging.LogRecord) -> dict[str, Any]:
-            attributes = dict(LoggingHandler._get_attributes(record))
-            bound = attributes.pop("bound", None) or {}
-            for key, value in bound.items():
-                attributes[key] = (
-                    value
-                    if isinstance(value, (bool, int, float, str, bytes))
-                    else str(value)
+    class OtlpHandler(logging.Handler):
+        """Each record emitted on the provider as an OTel log record: the
+        message as the body, the extras as attributes (`_attributes`), an
+        exception's type, message and stack when the record carries one,
+        and the active span's context, which the record picks up itself."""
+
+        def __init__(self, provider: Any) -> None:
+            super().__init__()
+            self.provider = provider
+
+        def emit(self, record: logging.LogRecord) -> None:
+            try:
+                self.provider.get_logger(record.name).emit(
+                    timestamp=int(record.created * 1e9),
+                    severity_number=severity(record.levelno),
+                    severity_text=_SEVERITY_TEXT.get(record.levelname, record.levelname),
+                    body=record.getMessage(),
+                    attributes=_attributes(record),
+                    exception=record.exc_info[1] if record.exc_info else None,
                 )
-            return attributes
+            except Exception:
+                self.handleError(record)
 
     # Resource.create() honors OTEL_SERVICE_NAME / OTEL_RESOURCE_ATTRIBUTES;
     # the provider registers its own atexit shutdown, which flushes the
@@ -112,7 +149,7 @@ def _otel_handler(exporter: Any | None = None) -> logging.Handler | None:
     provider.add_log_record_processor(
         BatchLogRecordProcessor(exporter if exporter is not None else OTLPLogExporter())
     )
-    return BoundAwareHandler(logger_provider=provider)
+    return OtlpHandler(provider)
 
 
 def _ensure_configured() -> None:

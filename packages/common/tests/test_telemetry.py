@@ -64,18 +64,11 @@ def test_otel_handler_exports_bound_fields_as_attributes():
     log-record attributes (never the `bound` dict itself), the body is the
     message, and the stdout JSON contract is untouched by the extra
     handler's presence."""
-    try:
-        from opentelemetry.sdk._logs.export import (
-            InMemoryLogRecordExporter as InMemoryExporter,
-        )
-    except ImportError:
-        from opentelemetry.sdk.logs.export import (
-            InMemoryLogRecordExporter as InMemoryExporter,
-        )
+    from opentelemetry.sdk._logs.export import InMemoryLogRecordExporter
 
     from common import telemetry
 
-    exporter = InMemoryExporter()
+    exporter = InMemoryLogRecordExporter()
     handler = telemetry._otel_handler(exporter=exporter)
     assert handler is not None
 
@@ -85,7 +78,7 @@ def test_otel_handler_exports_bound_fields_as_attributes():
     try:
         log = get_logger("t-otel").bind(run_id="run-z", agent_id="pm-1")
         log.info("exported", extra={"iterations": 3, "handle": object()})
-        assert handler._logger_provider.force_flush()
+        assert handler.provider.force_flush()
     finally:
         underlying.removeHandler(handler)
 
@@ -104,19 +97,12 @@ def test_otel_handler_exports_bound_fields_as_attributes():
 
 
 def test_otel_service_name_rides_the_resource(monkeypatch):
+    from opentelemetry.sdk._logs.export import InMemoryLogRecordExporter
+
     from common import telemetry
 
-    try:
-        from opentelemetry.sdk._logs.export import (
-            InMemoryLogRecordExporter as InMemoryExporter,
-        )
-    except ImportError:
-        from opentelemetry.sdk.logs.export import (
-            InMemoryLogRecordExporter as InMemoryExporter,
-        )
-
     monkeypatch.setenv("OTEL_SERVICE_NAME", "mcp-gateway")
-    handler = telemetry._otel_handler(exporter=InMemoryExporter())
+    handler = telemetry._otel_handler(exporter=InMemoryLogRecordExporter())
     assert handler is not None
-    resource = handler._logger_provider.resource
+    resource = handler.provider.resource
     assert resource.attributes["service.name"] == "mcp-gateway"
