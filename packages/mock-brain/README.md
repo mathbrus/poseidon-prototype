@@ -67,7 +67,7 @@ The mock does not simulate reasoning, refusal, streaming, sampling, latency or r
 ## Invariants
 
 - Every marker is mapped to a carrier, a script and a platform check: `test_scenarios.py::test_every_marker_is_mapped`.
-- The mock reads the header the host writes: `test_header_pin.py::test_the_mock_reads_the_header_the_host_writes`.
+- The mock reads the header the host writes: `test_contract.py::test_the_mock_reads_the_header_the_host_writes`.
 - Titles, trailers and document headers match the platform's: `test_contract_vocabulary.py`.
 - The canned code passes the canned tests: `test_brain.py::test_canned_slugify_satisfies_the_task`.
 - Both surfaces report cost in the LiteLLM header: `test_responses.py::test_both_surfaces_report_their_cost_in_the_litellm_header`.

@@ -32,7 +32,9 @@ from agent_host.procedures import (
     run_implement,
     run_review,
 )
+from agent_host.prompting import PROCEDURE_HEADER as HOST_HEADER
 from mock_brain.app import create_app
+from mock_brain.brain import PROCEDURE_HEADER as MOCK_HEADER
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 # The scripted ticket bodies the e2e suite files; the same texts drive
@@ -170,6 +172,13 @@ def bridged(gateway: FakeGateway):
     return patch.object(
         procedures, "GatewayBridge", lambda url, token: FakeBridge(gateway)
     )
+
+
+def test_the_mock_reads_the_header_the_host_writes():
+    """The mock keys its scripts on the agent host's procedure header. The
+    two packages spell it independently (the mock image carries no agent
+    code), so the spelling is pinned here rather than trusted."""
+    assert MOCK_HEADER == HOST_HEADER
 
 
 def test_happy_task_claims_then_delivers_on_the_feature_branch(mock_llm_url):
