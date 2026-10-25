@@ -5,20 +5,26 @@ part that matters. Every case here is a governance guarantee or a threat, so
 a refactor of the emitter that quietly widens a scope fails here rather
 than in production.
 
-Needs the `opa` binary or Docker; skips when neither is present so a laptop
-without them still gets a green run (CI has Docker).
+Needs Docker, which serves each bundle from the OPA image the chart deploys;
+skips without it so a laptop without Docker still gets a green run (CI has
+Docker).
 """
 
 import copy
+import http.client
 import json
 import os
 import shutil
 import subprocess
+import time
+import urllib.request
+from pathlib import Path
 
 import pytest
 import yaml
 from conftest import HELLO_SAAS
 
+from common.policy import PLATFORM_DECISION_PATH, company_decision_path
 from compiler import compile_blueprint
 from compiler.rego import REPO_TOOLS
 
@@ -27,69 +33,118 @@ from compiler.rego import REPO_TOOLS
 # would make.
 OPA_IMAGE = "openpolicyagent/opa:1.19.0"
 
-# Per-company packages; the platform scope lives in its
-# own bundle. Both are loaded together here — their packages (and therefore
-# bundle roots) are disjoint by construction.
-COMPANY_QUERY = "data.poseidon.authz.hello_saas.decision"
-PLATFORM_QUERY = "data.poseidon.platform.decision"
+# The decision paths the gateways query: the company's own package, and the
+# platform's bundle beside it. Both are loaded together here — their
+# packages (and therefore bundle roots) are disjoint by construction.
+COMPANY_QUERY = company_decision_path("hello-saas")
+PLATFORM_QUERY = PLATFORM_DECISION_PATH
+
+# The servers listen on the loopback only; no proxy stands between.
+_LOCAL = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 
-def _runner():
-    if shutil.which("opa"):
-        return lambda bundle, stdin, query: subprocess.run(
-            ["opa", "eval", "-d", bundle, "-f", "raw", "-I", query],
-            input=stdin,
-            capture_output=True,
-            text=True,
-            timeout=60,
+def _docker(*args: str) -> str:
+    proc = subprocess.run(["docker", *args], capture_output=True, text=True, timeout=120)
+    assert proc.returncode == 0, proc.stderr
+    return proc.stdout.strip()
+
+
+def _published_url(container: str) -> str | None:
+    """The loopback URL Docker published the server on, or None once the
+    container has stopped: its port goes with it."""
+    proc = subprocess.run(
+        ["docker", "port", container, "8181/tcp"],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    return f"http://{proc.stdout.splitlines()[0]}" if proc.returncode == 0 else None
+
+
+class OpaServers:
+    """`opa run --server` containers, one per bundle directory, removed
+    together."""
+
+    def __init__(self) -> None:
+        self._containers: list[str] = []
+
+    def serve(self, bundle: Path) -> str:
+        """Start a server on `bundle` and return its URL once it answers."""
+        container = _docker(
+            "run",
+            "--detach",
+            # As the invoking user, so reading the bundle directory does not
+            # depend on the image's default uid matching whoever ran the tests.
+            "--user",
+            f"{os.getuid()}:{os.getgid()}",
+            "--volume",
+            f"{bundle}:/b:ro",
+            # Docker picks a free loopback port; `docker port` reads it back.
+            "--publish",
+            "127.0.0.1::8181",
+            OPA_IMAGE,
+            "run",
+            "--server",
+            "--addr=0.0.0.0:8181",
+            "/b",
         )
-    if shutil.which("docker"):
-        return lambda bundle, stdin, query: subprocess.run(
-            [
-                "docker",
-                "run",
-                "--rm",
-                "-i",
-                # As the invoking user, so reading the bundle directory does
-                # not depend on the image's default uid matching whoever ran
-                # the tests.
-                "--user",
-                f"{os.getuid()}:{os.getgid()}",
-                "-v",
-                f"{bundle}:/b:ro",
-                OPA_IMAGE,
-                "eval",
-                "-d",
-                "/b",
-                "-f",
-                "raw",
-                "-I",
-                query,
-            ],
-            input=stdin,
-            capture_output=True,
-            text=True,
-            timeout=120,
+        self._containers.append(container)
+        url = _published_url(container)
+        deadline = time.monotonic() + 60
+        while url is not None and time.monotonic() < deadline:
+            try:
+                with _LOCAL.open(f"{url}/health", timeout=5):
+                    return url
+            except (OSError, http.client.HTTPException):
+                # A bundle OPA refuses to load stops the server: say why.
+                if _docker("inspect", "--format={{.State.Running}}", container) != "true":
+                    break
+                time.sleep(0.05)
+        logs = subprocess.run(
+            ["docker", "logs", container], capture_output=True, text=True
         )
-    return None
+        pytest.fail(f"OPA did not serve {bundle}:\n{logs.stdout}{logs.stderr}")
+
+    def remove_all(self) -> None:
+        if self._containers:
+            _docker("rm", "--force", *self._containers)
+            self._containers.clear()
+
+
+_SERVERS = OpaServers()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def opa_servers():
+    """The servers `_decider` starts, removed when the session ends, however
+    its tests ended."""
+    yield _SERVERS
+    _SERVERS.remove_all()
 
 
 def _decider(tmp_path_factory, blueprint: dict, platform: bool = True):
     """Compile the blueprint, write its bundle (with the platform bundle
-    beside it unless `platform` is off), and return a query runner."""
-    runner = _runner()
-    if runner is None:
-        pytest.skip("neither the opa binary nor docker is available")
+    beside it unless `platform` is off), serve it, and return a query
+    runner."""
+    if shutil.which("docker") is None:
+        pytest.skip("docker is not available")
     plan = compile_blueprint(blueprint)
     bundle = tmp_path_factory.mktemp("bundle")
     files = {**plan.bundle.files, **(plan.platform_bundle.files if platform else {})}
     for name, body in files.items():
         (bundle / name).write_text(body)
+    url = _SERVERS.serve(bundle)
 
     def run(_query: str = COMPANY_QUERY, **input_fields) -> dict:
-        proc = runner(str(bundle), json.dumps(input_fields), _query)
-        assert proc.returncode == 0, proc.stderr
-        return json.loads(proc.stdout)
+        request = urllib.request.Request(
+            f"{url}/v1/data/{_query}",
+            data=json.dumps({"input": input_fields}).encode(),
+            headers={"Content-Type": "application/json"},
+        )
+        with _LOCAL.open(request, timeout=30) as response:
+            answer = json.loads(response.read())
+        assert "result" in answer, f"{_query} is undefined for {input_fields}"
+        return answer["result"]
 
     return run
 
@@ -387,7 +442,7 @@ def test_open_pr_without_paths_is_denied(decide):
 # -- emitter edge cases (fresh bundles, not the module fixture) -------------
 
 
-def _eval_bundle(tmp_path_factory, blueprint, name, input_fields) -> dict:
+def _eval_bundle(tmp_path_factory, blueprint, input_fields) -> dict:
     """One company-only decision on a fresh bundle."""
     return _decider(tmp_path_factory, blueprint, platform=False)(**input_fields)
 
@@ -400,7 +455,6 @@ def test_bundle_without_policies_still_loads(tmp_path_factory, blueprint):
     decision = _eval_bundle(
         tmp_path_factory,
         blueprint,
-        "no-policies",
         standing("pm", tool="issues.purge", args={}),
     )
     assert decision == {"allow": False, "rule": "default_deny"}
@@ -413,7 +467,6 @@ def test_pattern_with_a_backtick_cannot_inject_policy(tmp_path_factory, blueprin
     decision = _eval_bundle(
         tmp_path_factory,
         blueprint,
-        "backtick-pattern",
         ephemeral(
             "feature-delivery",
             "implementer",
@@ -431,7 +484,6 @@ def test_uppercase_protected_branch_still_protects(tmp_path_factory, blueprint):
     decision = _eval_bundle(
         tmp_path_factory,
         blueprint,
-        "uppercase-protected",
         ephemeral(
             "feature-delivery",
             "implementer",
@@ -1105,7 +1157,6 @@ def test_a_declared_owner_passes_the_contract_rule(tmp_path_factory, blueprint):
     decision = _eval_bundle(
         tmp_path_factory,
         blueprint,
-        "contract-owner",
         ephemeral(
             "feature-delivery",
             "implementer",

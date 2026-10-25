@@ -78,7 +78,7 @@ Regenerating is a separate step, so a widened scope shows up as a Rego diff some
 uv run pytest packages/compiler
 ```
 
-Run tests per package, as [Contributing](../../docs/developing/contributing.md) explains. `test_bundle_decisions.py` loads the emitted bundles into a real OPA, `openpolicyagent/opa:1.19.0`, through the `opa` binary or Docker. It skips when neither exists. CI also runs `opa check` on the offline compile of `examples/hello-saas.yaml`. On kind, the e2e suite runs every gateway call against the compiled bundles.
+Run tests per package, as [Contributing](../../docs/developing/contributing.md) explains. `test_bundle_decisions.py` serves each emitted bundle from a real OPA, `openpolicyagent/opa:1.19.0`, in a Docker container that lives for the test session. It skips without Docker. CI also runs `opa check` on the offline compile of `examples/hello-saas.yaml`. On kind, the e2e suite runs every gateway call against the compiled bundles.
 
 ## Related
 
