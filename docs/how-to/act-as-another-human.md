@@ -1,10 +1,10 @@
 # Act as another person
 
 Every `poseidon` command runs as a person, and the console records each
-act under that person's name. On kind, the chart declares two people,
-`owner` and `auditor`, and `kind-up.sh` signs you in as `owner`. This
-guide switches to another person, for example to check what someone
-the blueprint doesn't name can do.
+act under that person's name. On kind, the chart declares three people,
+`owner`, `auditor` and `eval`, and `kind-up.sh` signs you in as
+`owner`. This guide switches to another person, for example to check
+what someone the blueprint doesn't name can do.
 
 ## Before you start
 

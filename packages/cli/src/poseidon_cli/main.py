@@ -156,7 +156,7 @@ def _call(fn, *args: Any, **kwargs: Any) -> Any:
 )
 def login(
     name: str = typer.Argument(
-        ..., help="A human the chart declares (on kind: owner, auditor)."
+        ..., help="A human the chart declares (on kind: owner, auditor, eval)."
     ),
     namespace: str = typer.Option(
         PLATFORM_NAMESPACE, help="The namespace the platform is installed into."

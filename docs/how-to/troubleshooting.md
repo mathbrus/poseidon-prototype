@@ -25,7 +25,7 @@ Look up the error you see. Each row gives the cause and the fix.
 | You see | Cause and fix |
 |---|---|
 | `this cluster hosts 'a'; delete it before applying 'b'` | A cluster hosts one company. Run `uv run poseidon company delete --reason "…"` first, or keep the same `company.name`. |
-| `company.humans names 'x', whom this console cannot verify` | On kind, a blueprint may only name the people the chart declares: `owner` and `auditor`. |
+| `company.humans names 'x', whom this console cannot verify` | On kind, a blueprint may only name the people the chart declares: `owner`, `auditor` and `eval`. |
 | A validation error quoting the schema | A field is misspelled, missing or of the wrong type. Unknown keys are errors. Check the [blueprint reference](../reference/blueprint.md). |
 | `still activating after 600s` | The policy for the company has not reached OPA. Run `uv run poseidon company show` for the message, and `kubectl get company` for the reconciler's view. |
 

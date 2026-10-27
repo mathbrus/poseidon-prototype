@@ -17,9 +17,13 @@ console:
   # kind-up.sh logs you in as the first. `auditor` is named by no
   # blueprint on purpose: the acceptance suite's proof that a person the
   # console knows is still only what the company's policy lets them be.
+  # `eval` is the evaluation harness (poseidon-eval), which acts on each
+  # trial's company under its own name; like `auditor`, no blueprint in
+  # this repository names it.
   humans:
     - owner
     - auditor
+    - eval
 
 # The egress allowlist comes from the applied blueprint
 # (hello-saas admits the PyPI hosts, so the `pip install` allow path stays
