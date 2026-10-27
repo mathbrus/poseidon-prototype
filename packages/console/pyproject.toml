@@ -1,6 +1,6 @@
 [project]
 name = "console"
-version = "0.5.2+2026.10.25"
+version = "0.5.3+2026.10.27"
 description = "Poseidon console: the human's chokepoint — verify the person, ask policy, act, audit"
 requires-python = ">=3.12"
 dependencies = [

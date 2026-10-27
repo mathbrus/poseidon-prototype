@@ -11,6 +11,8 @@ How a release is decided is the Releasing page of the docs site
 
 ## [Unreleased]
 
+## [0.5.3+2026.10.27] - 2026-10-27
+
 - A kind cluster declares a third human, `eval`: the evaluation
   harness acts on each trial's company under that name, so the audit
   record tells its acts from a person's. No blueprint in this
