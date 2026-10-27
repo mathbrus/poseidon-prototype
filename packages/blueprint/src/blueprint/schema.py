@@ -82,7 +82,7 @@ _COMPANY = {
             "description": "The people who may act on the company through the"
             " console: answer its gates, start or cancel runs, pause, resume or"
             " wake the heartbeat, apply the blueprint, delete the company. On"
-            " kind, only the people the chart declares (`owner`, `auditor`).",
+            " kind, only the people the chart declares (`owner`, `auditor`, `eval`).",
         },
         "documents": {
             "type": "object",

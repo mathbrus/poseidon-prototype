@@ -11,6 +11,11 @@ How a release is decided is the Releasing page of the docs site
 
 ## [Unreleased]
 
+- A kind cluster declares a third human, `eval`: the evaluation
+  harness acts on each trial's company under that name, so the audit
+  record tells its acts from a person's. No blueprint in this
+  repository names it (#105).
+
 ## [0.5.2+2026.10.25] - 2026-10-25
 
 - The console reads a delivery's settlement and the company's ledger.

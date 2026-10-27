@@ -229,7 +229,7 @@ def ask(prompter: Prompter, defaults: Answers | None = None) -> Answers:
             "Who may steer the company?",
             default=", ".join(a.humans),
             help="login names, comma-separated; they answer merge and budget gates, "
-            "pause the company and can delete it. On kind: owner, auditor",
+            "pause the company and can delete it. On kind: owner, auditor, eval",
             validate=valid_names,
         )
     )

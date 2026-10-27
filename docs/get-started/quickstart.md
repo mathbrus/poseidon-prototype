@@ -61,7 +61,7 @@ platform and signs you in. It prints eight steps and the time each took:
       docker: 20 GiB free under /var/lib/docker
       cluster poseidon, platform namespace poseidon-platform, build tag 89415694df84
       version v0.2.0+2026.10.21-3-g02ecb48: what the images will answer to
-      humans: owner auditor — you will be owner
+      humans: owner auditor eval — you will be owner
       brain: mock (poseidon-mock-brain), zero spend
       sandbox image: poseidon-sandbox:89415694df84
       done in 2s
@@ -75,7 +75,7 @@ platform and signs you in. It prints eight steps and the time each took:
       loaded into the cluster
       done in 522s
 [5/8] chart (CRDs, then the Poseidon release)
-      release poseidon installed; humans declared: owner auditor
+      release poseidon installed; humans declared: owner auditor eval
       done in 3s
 [6/8] platform rollout
       postgres, opa, llm-proxy, llm-gateway, mcp-gateway, egress-proxy, bundle-server, reconciler ready

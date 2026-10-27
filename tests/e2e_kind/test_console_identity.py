@@ -109,11 +109,12 @@ def test_an_unnamed_human_is_refused_by_name(stack: None, env: dict) -> None:
 def test_a_known_human_the_company_did_not_name_is_denied_by_policy(
     stack: None, env: dict
 ) -> None:
-    """The kind chart declares two humans, `owner` and `auditor`; the
-    blueprint names only `owner`. The auditor is a verified person to the
-    console — and nobody to the company: the act is refused by the
-    compiled rule that says so, audited under their name, and the nudge
-    never reaches the heartbeat. The owner's same act goes through."""
+    """The kind chart declares three humans, `owner`, `auditor` and
+    `eval`; the blueprint names only `owner`. The auditor is a verified
+    person to the console — and nobody to the company: the act is
+    refused by the compiled rule that says so, audited under their name,
+    and the nudge never reaches the heartbeat. The owner's same act goes
+    through."""
     auditor = console(env, name="auditor")
     assert auditor.whoami().human == "auditor"
     since = db_now()
