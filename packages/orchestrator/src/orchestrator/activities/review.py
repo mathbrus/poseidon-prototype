@@ -39,6 +39,9 @@ Retry safety, per activity:
                           already-merged PR (it answers 405, surfaced as a
                           backend error the workflow reports honestly); a
                           head that moved answers the host's refusal.
+    mark_merged         — marks the merged PR on the run that delivered
+                          it, an idempotent update. Its own activity, so a
+                          retried write never asks the host to merge again.
 
 The merge itself: `git.merge_pr` is a *gateway tool
 call* under the orchestrator's platform identity — one of the two mediation
@@ -70,7 +73,7 @@ from common.identity import LIFECYCLE_PLATFORM, ORCHESTRATOR_ID, PLATFORM_ROLE
 from common.opa import evaluate_decision
 from common.policy import MERGE_RESOLVE
 from common.telemetry import get_logger
-from common.workflows import MERGE_GATE, PR_SUPERSEDED, workflow_id
+from common.workflows import MERGE_GATE, PR_MERGED, PR_SUPERSEDED, workflow_id
 from orchestrator.activities.blueprint import company_repo
 from orchestrator.activities.company import applied_company
 from orchestrator.activities.tickets import (
@@ -634,6 +637,19 @@ class ReviewActivities:
             raise RuntimeError(f"merge of pull request #{pr_number} did not land")
         return result
 
+    @activity.defn(name="mark_merged")
+    async def mark_merged(self, run_id: str, pr_number: int) -> None:
+        """Remember the platform's merge on the implement run that delivered
+        the PR (`pr_settled: merged`): the console reads the delivery as
+        merged, and no later observation offers the PR again. A PR no
+        implement run delivered has no row to mark."""
+        await asyncio.to_thread(
+            self._runs.mark_pr_settled, self._company(), pr_number, PR_MERGED
+        )
+        self._log.bind(run_id=run_id).info(
+            "merge recorded", extra={"pr_number": pr_number}
+        )
+
     @activity.defn(name="close_superseded_pr")
     async def close_superseded_pr(
         self, run_id: str, pr_number: int, ticket_number: int
@@ -717,5 +733,6 @@ class ReviewActivities:
             self.close_superseded_pr,
             self.refuse_delivery,
             self.merge_pr,
+            self.mark_merged,
             self.close_tickets,
         ]

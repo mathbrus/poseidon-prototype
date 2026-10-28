@@ -14,10 +14,11 @@
     posts findings via git.comment, ends with a structured pass/fail
     verdict) -> record_verdict (the journaled judgement) -> MERGE GATE ->
     approve: the orchestrator merges that same head commit via
-    git.merge_pr under its platform identity, then closes the tickets the
-    PR fulfilled (issues.close); reject, expiry, an unverified verdict or a
-    head that moved: the delivery is refused (refuse_delivery) and the run
-    fails honestly -> teardown.
+    git.merge_pr under its platform identity, marks the delivery merged
+    on the run that delivered it (mark_merged), then closes the tickets
+    the PR fulfilled (issues.close); reject, expiry, an unverified
+    verdict or a head that moved: the delivery is refused
+    (refuse_delivery) and the run fails honestly -> teardown.
 
 The merge gate owns the merge guarantee, and the blueprint says whether
 it is automated — gate config comes from the compiled plan, never
@@ -700,6 +701,15 @@ class ReviewWorkflow(RunWorkflow):
                 raise _ReviewOver()
             result["merged"] = True
             result["merge_sha"] = outcome["released"].get("sha")
+            # Act, then remember: the merge is on the delivering run's row
+            # before anything else follows it, so the console reads the
+            # delivery as merged however the rest of the run ends.
+            await workflow.execute_activity(
+                "mark_merged",
+                args=[input.run_id, input.pr_number],
+                start_to_close_timeout=timedelta(seconds=self._profile.step_s),
+                retry_policy=STEP_RETRY,
+            )
             # The merge fulfilled the PR's ticket (a rework chain's, all of
             # them): the platform closes them, with the merge as its reason.
             # A close that finally fails ends the run in error with the

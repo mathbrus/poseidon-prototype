@@ -662,12 +662,16 @@ def test_a_rejection_refuses_the_delivery_and_its_ticket_comes_back(
 
 def test_the_first_approving_verdict_merges_as_reviewed(gate_endings: dict) -> None:
     """Nothing merged since its review: the redelivery merges with no
-    verify on a moved base, and closes its ticket."""
+    verify on a moved base, is on the record as merged, and closes its
+    ticket."""
     env = gate_endings["env"]
     assert gate_endings["a2_record"]["status"] == "done", gate_endings["a2_record"]
     assert _pull(env, gate_endings["a2"])["merged"] is True
     assert len(_archives(gate_endings["a2_story"])) == 1
-    assert issue_state(env, gate_endings["tickets"][0]) == "closed"
+    first = gate_endings["tickets"][0]
+    attempts = runs_by_task(issue_run_task(first), workflow="implement")
+    assert [a["pr_settled"] for a in attempts] == ["refused", "merged"], attempts
+    assert issue_state(env, first) == "closed"
 
 
 def test_a_conflicting_merge_onto_a_moved_base_is_refused(gate_endings: dict) -> None:
