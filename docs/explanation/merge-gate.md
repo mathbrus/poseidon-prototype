@@ -167,6 +167,8 @@ the base, so a narrow window stays: see
 
 Whoever resolved the gate, the orchestrator performs the merge under its
 own identity. No agent holds the merge tool. Right after, the platform
+records the merge on the run that delivered the pull request: its
+`pr_settled` reads `merged`, and `poseidon run show` prints it. Then it
 closes the tickets the pull request fulfilled. For a rework chain, that
 is every ticket in the chain.
 

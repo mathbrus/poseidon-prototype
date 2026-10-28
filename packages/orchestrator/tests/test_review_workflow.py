@@ -148,9 +148,10 @@ class Harness:
     merges: list[int] = field(default_factory=list)
     # The head commit each merge named.
     merge_heads: list[str] = field(default_factory=list)
-    # The world-changing platform acts in order: the merge, the closing of
-    # the tickets it fulfilled, a rework ticket and the PR it supersedes,
-    # a refused delivery.
+    # The world-changing platform acts in order: the merge, the merge
+    # marked on the delivering run, the closing of the tickets it
+    # fulfilled, a rework ticket and the PR it supersedes, a refused
+    # delivery.
     effects: list[str] = field(default_factory=list)
     # The reasons each refused delivery was refused with, in order.
     refusals: list[str] = field(default_factory=list)
@@ -396,6 +397,10 @@ class Harness:
             harness.effects.append("merge")
             return {"merged": True, "sha": "abc123"}
 
+        @activity.defn(name="mark_merged")
+        async def mark_merged(run_id: str, pr_number: int) -> None:
+            harness.effects.append(f"mark_merged #{pr_number}")
+
         @activity.defn(name="refuse_delivery")
         async def refuse_delivery(run_id: str, pr_number: int, reason: str) -> None:
             harness.effects.append(f"refuse #{pr_number}")
@@ -470,6 +475,7 @@ class Harness:
             pr_tips,
             record_gate_outcome,
             merge_pr,
+            mark_merged,
             close_tickets,
             abandon_exhausted,
             vacate,
@@ -645,8 +651,13 @@ async def test_both_layers_green_and_allowed_releases_the_merge(env):
     assert harness.provisions == 1
     assert harness.scoped_verifies == []
     assert harness.merge_verifies == []
-    # The fulfilled tickets close strictly after the merge, naming it.
-    assert harness.effects == ["merge", f"close_tickets #{PR} abc123 Add slugify utility"]
+    # The merge is marked on the delivering run, then the fulfilled
+    # tickets close, naming it.
+    assert harness.effects == [
+        "merge",
+        f"mark_merged #{PR}",
+        f"close_tickets #{PR} abc123 Add slugify utility",
+    ]
     assert record["status"] == "done"
     assert record["merged"] is True
     assert record["merge_sha"] == "abc123"
@@ -956,7 +967,11 @@ async def test_a_human_gate_never_touches_the_automation_machinery(env):
     assert harness.gate_events == ["parked", "approved"]
     assert harness.merges == [PR]
     assert harness.merge_verifies == []  # the base held still
-    assert harness.effects == ["merge", f"close_tickets #{PR} abc123 Add slugify utility"]
+    assert harness.effects == [
+        "merge",
+        f"mark_merged #{PR}",
+        f"close_tickets #{PR} abc123 Add slugify utility",
+    ]
     assert record["merged"] is True
     # Teardown has no sandbox left to destroy; the end is a second nudge.
     assert harness.torn_down_handles == [None]
@@ -1014,14 +1029,17 @@ async def test_a_budget_park_not_approved_ends_the_review_at_its_cap(
     assert harness.attempts_recorded == [RUN_ID]
 
 
-async def test_a_close_that_keeps_failing_ends_the_run_with_the_merge_recorded(env):
+@pytest.mark.parametrize("gate", [HUMAN_GATE, AUTOMATED_GATE])
+async def test_a_close_that_keeps_failing_ends_the_run_with_the_merge_recorded(env, gate):
     """The merge landed; the tickets did not close. The run ends in error
     rather than leaving the open ticket silent, and the record still says
-    what was merged."""
-    harness = Harness(merge_gate=AUTOMATED_GATE, close_fails=True)
-    record = await run_review(env.client, harness)
+    what was merged: whichever resolver released it, the merge was marked
+    on the delivering run before the close was tried."""
+    harness = Harness(merge_gate=gate, close_fails=True)
+    record = await _approved_review(env, harness)
 
     assert harness.merges == [PR]
+    assert harness.effects == ["merge", f"mark_merged #{PR}"]
     assert record["status"] == "failed"
     assert "issues.close" in record["error"]
     assert record["merged"] is True

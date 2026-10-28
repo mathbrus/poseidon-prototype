@@ -757,6 +757,24 @@ def _issue(number, title, state="open"):
     return {"number": number, "title": title, "state": state}
 
 
+def test_a_platform_merge_is_marked_on_the_delivering_run(settings):
+    """The merge gate's own merge settles the delivery like a merge by
+    hand: the delivering run reads `merged` with no reason, its ticket
+    stays concluded, and the PR leaves the deliveries the observation
+    reads. A PR no implement run delivered marks nothing."""
+    runs = InMemoryRuns()
+    _delivered(runs, "run-impl", "implement issue #7", 41)
+    _delivered(runs, "run-other", "implement issue #8", 42)
+    activities = _activities(settings, runs=runs)
+    asyncio.run(activities.mark_merged(RUN_ID, 41))
+    asyncio.run(activities.mark_merged(RUN_ID, 39))
+    merged = runs.get("run-impl")
+    assert (merged.pr_settled, merged.pr_settled_reason) == ("merged", None)
+    assert runs.get("run-other").pr_settled is None
+    assert runs.issue_attempts("hello-saas")[7].concluded is True
+    assert runs.delivered_pr_urls("hello-saas") == ["https://git.test/r/pull/42"]
+
+
 def test_close_tickets_closes_the_consumed_ticket(settings, monkeypatch):
     import orchestrator.activities.review as module
 

@@ -242,6 +242,10 @@ def test_the_contract_pr_needed_the_one_human_verdict(contract_first: dict):
     assert contract_first["contract_merged"]["merged"] is True, (
         "the contract never landed"
     )
+    # The console says so without asking the git host: the run that
+    # delivered the contract reads merged.
+    delivery = console().run(contract_first["contract_implement"]["run_id"])
+    assert delivery.pr_settled == "merged", delivery
 
 
 def test_the_implementation_merged_on_a_green_contract_with_no_person(
@@ -256,6 +260,8 @@ def test_the_implementation_merged_on_a_green_contract_with_no_person(
     assert contract_first["implement_merged"]["merged"] is True, (
         "automated work did not merge"
     )
+    delivery = console().run(contract_first["implement"]["run_id"])
+    assert delivery.pr_settled == "merged", delivery
     gate_rules = gate_merge_rules(story)
     assert "gate_automated" in gate_rules, gate_rules
     assert "gate_approved" not in gate_rules, "a person's verdict sneaked in"
