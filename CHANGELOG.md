@@ -11,6 +11,12 @@ How a release is decided is the Releasing page of the docs site
 
 ## [Unreleased]
 
+- A delivery the merge gate merges, automated or on a person's verdict,
+  is on the record as merged: its implement run's `pr_settled` reads
+  `merged` (in `GET /runs` and `poseidon run show`), where it stayed
+  null as if the pull request were still open. The platform marks it
+  right after the merge, before the tickets close (#107).
+
 ## [0.5.3+2026.10.27] - 2026-10-27
 
 - A kind cluster declares a third human, `eval`: the evaluation
