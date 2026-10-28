@@ -1,6 +1,6 @@
 [project]
 name = "compiler"
-version = "0.5.3+2026.10.27"
+version = "0.5.4+2026.10.28"
 description = "Poseidon compiler: blueprint + catalog + registry snapshot -> deployment plan"
 requires-python = ">=3.12"
 dependencies = [

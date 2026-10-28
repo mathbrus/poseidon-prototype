@@ -1,6 +1,6 @@
 [project]
 name = "mcp-gateway"
-version = "0.5.3+2026.10.27"
+version = "0.5.4+2026.10.28"
 description = "Poseidon MCP gateway: tool mux, OPA client, git backend, audit"
 requires-python = ">=3.12"
 dependencies = [

@@ -1,6 +1,6 @@
 [project]
 name = "poseidon-cli"
-version = "0.5.3+2026.10.27"
+version = "0.5.4+2026.10.28"
 description = "The poseidon CLI and the console client it is built on"
 requires-python = ">=3.12"
 dependencies = [

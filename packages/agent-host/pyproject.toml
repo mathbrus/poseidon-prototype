@@ -1,6 +1,6 @@
 [project]
 name = "agent-host"
-version = "0.5.3+2026.10.27"
+version = "0.5.4+2026.10.28"
 description = "Poseidon agent host: the dispatch HTTP API + OpenHands Agent SDK loop behind Hands"
 requires-python = ">=3.12"
 dependencies = [

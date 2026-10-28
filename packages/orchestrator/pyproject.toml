@@ -1,6 +1,6 @@
 [project]
 name = "orchestrator"
-version = "0.5.3+2026.10.27"
+version = "0.5.4+2026.10.28"
 description = "Poseidon orchestrator: durable workflows (Temporal), activities, gates, worker"
 requires-python = ">=3.12"
 dependencies = [

@@ -1,6 +1,6 @@
 [project]
 name = "registry"
-version = "0.5.3+2026.10.27"
+version = "0.5.4+2026.10.28"
 description = "Poseidon registry: Postgres models and write-scoped accessors"
 requires-python = ">=3.12"
 dependencies = [

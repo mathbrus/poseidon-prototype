@@ -7,5 +7,5 @@ description: >-
   The same chart and values structure serves kind and real clusters;
   kind-specific overrides live in values-kind.yaml.
 type: application
-version: 0.5.3+2026.10.27
-appVersion: "0.5.3+2026.10.27"
+version: 0.5.4+2026.10.28
+appVersion: "0.5.4+2026.10.28"

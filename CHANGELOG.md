@@ -11,6 +11,8 @@ How a release is decided is the Releasing page of the docs site
 
 ## [Unreleased]
 
+## [0.5.4+2026.10.28] - 2026-10-28
+
 - A delivery the merge gate merges, automated or on a person's verdict,
   is on the record as merged: its implement run's `pr_settled` reads
   `merged` (in `GET /runs` and `poseidon run show`), where it stayed
