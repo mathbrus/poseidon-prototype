@@ -51,8 +51,8 @@ let policy approve merges in the paths you choose.
 
 ## Quickstart
 
-You need Docker, kind, kubectl, helm, [uv](https://docs.astral.sh/uv/),
-Python 3.12, and a GitHub token for a **disposable** repository. The
+You need Docker, kind, kubectl, helm, [uv](https://docs.astral.sh/uv/)
+and a GitHub token for a **disposable** repository. The
 agents open real pull requests on it.
 
 ```bash

@@ -6,6 +6,7 @@
 #   deploy/build-images.sh TAG [NAME...]   build every image (or only the named
 #                                          ones) as NAME:TAG; prints each reference
 #   deploy/build-images.sh --list          print the image names
+#   deploy/build-images.sh --base          print the base image every image is built on
 #   deploy/build-images.sh --version       print the version the images are stamped with
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -18,6 +19,10 @@ cd "$(dirname "$0")/.."
 version() {
   git describe --tags --match 'v*' --always --dirty 2>/dev/null || true
 }
+
+# The base image: the Python `.python-version` pins, so the images run the
+# interpreter the host and CI resolve and test with.
+BASE="python:$(cat .python-version)-slim"
 
 # name | workspace package | source packages installed | extra | apt packages | workspace dir | entrypoint
 MATRIX='
@@ -36,12 +41,16 @@ if [ "${1:-}" = "--list" ]; then
   printf '%s\n' "$MATRIX" | sed '/^$/d' | cut -d'|' -f1
   exit 0
 fi
+if [ "${1:-}" = "--base" ]; then
+  echo "$BASE"
+  exit 0
+fi
 if [ "${1:-}" = "--version" ]; then
   version
   exit 0
 fi
 
-TAG=${1:?usage: build-images.sh TAG [NAME...] | --list | --version}
+TAG=${1:?usage: build-images.sh TAG [NAME...] | --list | --base | --version}
 shift
 wanted=("$@")
 VERSION=$(version)
@@ -52,6 +61,7 @@ while IFS='|' read -r name package src extra apt workspace entrypoint; do
     continue
   fi
   docker build --quiet -t "$name:$TAG" \
+    --build-arg BASE="$BASE" \
     --build-arg PACKAGE="$package" \
     --build-arg SRC="$src" \
     --build-arg EXTRA="$extra" \

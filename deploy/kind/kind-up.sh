@@ -111,14 +111,16 @@ for tool in kind kubectl helm docker uv curl; do
 done
 [ "${#missing[@]}" -eq 0 ] || fail "missing tools: ${missing[*]}"
 PLATFORM_NS=$(uv run python -c 'from common.topology import PLATFORM_NAMESPACE; print(PLATFORM_NAMESPACE)')
-docker_root=$(docker info -f '{{.DockerRootDir}}' 2>/dev/null) || fail "docker is not reachable"
-free_gib=$(df -BG --output=avail "$docker_root" 2>/dev/null | tail -1 | tr -dc '0-9')
-if [ -n "$free_gib" ]; then
-  if [ "$free_gib" -lt 10 ]; then
-    note "warning: ${free_gib} GiB free under $docker_root — kind and the images need room (\`docker system df\`, \`docker image prune\`)"
-  else
-    note "docker: ${free_gib} GiB free under $docker_root"
-  fi
+docker info >/dev/null 2>&1 || fail "docker is not reachable"
+# Free space is measured from inside a container: its root filesystem sits
+# on the disk Docker keeps its data on, which on macOS is the Docker VM's,
+# not the host's. The image is the one every build starts from.
+free_kib=$(docker run --rm "$(deploy/build-images.sh --base)" df -Pk / 2>>"$LOG" | awk 'END { print $4 }')
+free_gib=$((free_kib / 1024 / 1024))
+if [ "$free_gib" -lt 10 ]; then
+  note "warning: ${free_gib} GiB free on Docker's disk — kind and the images need room (\`docker system df\`, \`docker image prune\`)"
+else
+  note "docker: ${free_gib} GiB free on its disk"
 fi
 
 [ -f "$ENV_FILE" ] || fail "$ENV_FILE not found — copy $SCRIPT_DIR/.env.example and fill it in"
@@ -165,7 +167,7 @@ KIND_HUMAN=${HUMANS[0]}
 # unchanged tree yields the same tag and stays a no-op, so this script
 # remains idempotent.
 BUILD_TAG=${BUILD_TAG:-$(
-  find packages Dockerfile deploy/build-images.sh pyproject.toml uv.lock -type f \
+  find packages Dockerfile deploy/build-images.sh .python-version pyproject.toml uv.lock -type f \
     -not -path '*/__pycache__/*' -not -name '*.pyc' -print0 \
     | sort -z | xargs -0 sha1sum | sha1sum | cut -c1-12
 )}

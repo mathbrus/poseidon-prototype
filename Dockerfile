@@ -11,10 +11,14 @@
 #
 # Build from the repo root, e.g.
 #   docker build -t poseidon-mcp-gateway \
-#     --build-arg PACKAGE=gateway --build-arg SRC="common registry gateway" \
+#     --build-arg BASE="$(deploy/build-images.sh --base)" \
+#     --build-arg PACKAGE=mcp-gateway --build-arg SRC="common blueprint registry mcp-gateway" \
 #     --build-arg APT=git \
 #     --build-arg ENTRYPOINT="uvicorn --factory mcp_gateway.app:create_app --host 0.0.0.0 --port 8080" .
-ARG BASE=python:3.12-slim
+#
+# The base image has no default: its Python is the one `.python-version`
+# pins for the host and CI, and deploy/build-images.sh passes it.
+ARG BASE
 
 # The workspace's dependency declarations and nothing else — what the
 # dependency layer is keyed on, so a source edit does not rebuild it.

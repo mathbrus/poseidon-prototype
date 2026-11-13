@@ -13,10 +13,10 @@ wait for you to approve the merge.
 
 | You need | Why |
 |---|---|
-| [uv](https://docs.astral.sh/uv/) and Python 3.12 | Installs Poseidon and runs the `poseidon` CLI. |
+| [uv](https://docs.astral.sh/uv/) | Installs Poseidon and runs the `poseidon` CLI. It fetches the Python that `.python-version` pins. |
 | Docker | Builds the images and hosts the cluster. |
 | [kind](https://kind.sigs.k8s.io/), `kubectl` and `helm` | Run Kubernetes locally and install the platform. |
-| About 20 GB of free disk | The cluster and its images. |
+| About 20 GB of free disk | The cluster and its images. On macOS this is the Docker VM's disk. |
 | A **disposable** GitHub repository, with at least one commit on `main` | The agents open real pull requests and issues on it. Don't use a repository you care about. |
 | A GitHub token for that repository | It must push branches and manage pull requests and issues. A classic personal access token with the `repo` scope works. |
 
@@ -58,7 +58,7 @@ platform and signs you in. It prints eight steps and the time each took:
 
 ```text
 [1/8] preflight
-      docker: 20 GiB free under /var/lib/docker
+      docker: 20 GiB free on its disk
       cluster poseidon, platform namespace poseidon-platform, build tag 89415694df84
       version v0.2.0+2026.10.21-3-g02ecb48: what the images will answer to
       humans: owner auditor eval — you will be owner

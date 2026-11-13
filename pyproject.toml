@@ -2,7 +2,7 @@
 name = "poseidon"
 version = "0.5.4+2026.10.28"
 description = "Poseidon — agent companies under declarative governance"
-requires-python = ">=3.12"
+requires-python = "==3.12.*"
 dependencies = [
     "common",
     "agent-host",
@@ -42,7 +42,6 @@ members = ["packages/*"]
 # Every workspace package's import root is first-party.
 src = ["packages/*/src", "."]
 line-length = 90
-target-version = "py312"
 
 [tool.ruff.lint]
 # Deliberately narrow: the errors worth failing CI over (real bugs and dead
