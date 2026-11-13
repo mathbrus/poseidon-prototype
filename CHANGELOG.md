@@ -11,6 +11,12 @@ How a release is decided is the Releasing page of the docs site
 
 ## [Unreleased]
 
+- The platform builds with one Python on every machine: `.python-version`
+  pins 3.12 for `uv`, CI and the image base, and `requires-python` refuses
+  any other. A newer Python on the host no longer breaks `kind-up.sh`,
+  whose preflight now measures Docker's free disk from inside a
+  container, so it starts on macOS (#110).
+
 ## [0.5.4+2026.10.28] - 2026-10-28
 
 - A delivery the merge gate merges, automated or on a person's verdict,

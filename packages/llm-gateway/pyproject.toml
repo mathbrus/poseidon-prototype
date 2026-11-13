@@ -2,7 +2,7 @@
 name = "llm-gateway"
 version = "0.5.4+2026.10.28"
 description = "Poseidon LLM gateway: workload-authenticated, metered, model-pinning model access"
-requires-python = ">=3.12"
+requires-python = "==3.12.*"
 dependencies = [
     "common[otel]",
     "registry",

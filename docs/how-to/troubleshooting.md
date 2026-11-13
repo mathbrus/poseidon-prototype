@@ -7,7 +7,7 @@ Look up the error you see. Each row gives the cause and the fix.
 | You see | Cause and fix |
 |---|---|
 | `kind-up.sh` stops at a numbered step | The step's tools failed. The script prints the tail of `deploy/kind/kind-up.log`, and the full output is in that file. Run with `VERBOSE=1` to stream everything. |
-| `warning: … GiB free under /var/lib/docker` | The cluster and the images need room. Free space with `docker image prune` and check with `docker system df`. |
+| `warning: … GiB free on Docker's disk` | The cluster and the images need room. Free space with `docker image prune` and check with `docker system df`. |
 | `deploy/kind/.env not found` | Copy `deploy/kind/.env.example` to `deploy/kind/.env` and set `GIT_TOKEN`. |
 | A pod runs old code after you changed it | Run `kind-up.sh` again. It rebuilds the images and checks that every platform pod runs the new build. |
 

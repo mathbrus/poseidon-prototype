@@ -26,8 +26,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.3.0
-        with:
-          python-version: "3.12"
       - run: uv sync
       - run: uv run ruff check .
       - run: uv run ruff format --check .
@@ -41,8 +39,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.3.0
-        with:
-          python-version: "3.12"
       # The images build with `uv export --frozen`, so a stale lockfile
       # means the images and the host resolve different versions.
       - name: Lockfile is current
@@ -162,8 +158,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.3.0
-        with:
-          python-version: "3.12"
       - run: uv sync
       # Per package: the suites share fixture module names (conftest.py),
       # which collide in a single rootdir-wide collection. Discovered from
@@ -183,8 +177,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.3.0
-        with:
-          python-version: "3.12"
       - run: uv sync
       - name: Compiled bundle parses
         run: |
@@ -200,8 +192,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.3.0
-        with:
-          python-version: "3.12"
       - run: uv sync
       # The image matrix is deploy/build-images.sh: a new image is built
       # and inspected without anyone remembering to add it here.
@@ -260,8 +250,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.3.0
-        with:
-          python-version: "3.12"
       - run: uv sync --group docs
       # The docs, the READMEs and the glossary are written in American
       # English (docs/developing/writing-docs.md); a British spelling fails.
@@ -298,8 +286,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.3.0
-        with:
-          python-version: "3.12"
       - run: uv sync
       - uses: helm/kind-action@v1
         with:
