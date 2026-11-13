@@ -46,7 +46,7 @@ fi
 # The Unreleased section, without the blank lines that frame it: the
 # release's notes, the tag's message and the commit's body.
 NOTES=$(awk '/^## \[Unreleased\]/{on=1; next} /^## \[/{on=0} on' CHANGELOG.md \
-  | sed -e '1{/^$/d}' -e '${/^$/d}')
+  | sed -e '1{/^$/d;}' -e '${/^$/d;}')
 [ -n "$(printf '%s' "$NOTES" | tr -d '[:space:]')" ] || fail "CHANGELOG.md has nothing under Unreleased"
 
 ci=$(gh run list --workflow ci --commit "$(git rev-parse HEAD)" --json status,conclusion --limit 1 \

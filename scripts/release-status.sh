@@ -28,7 +28,7 @@ echo "pull requests merged since $BASE:"
 # A merge commit's subject names the pull request, its body's first line
 # is the pull request's title; one pass yields "number<TAB>title".
 MERGED=$(git log --merges --first-parent --format='%s%x1f%b' "$BASE..$HEAD_REF" \
-  | sed -n 's/^Merge pull request #\([0-9]*\) [^\x1f]*\x1f\(.*\)$/\1\t\2/p')
+  | sed -n $'s/^Merge pull request #\\([0-9]*\\) [^\x1f]*\x1f\\(.*\\)$/\\1\t\\2/p')
 if [ -z "$MERGED" ]; then
   echo "  none"
 fi
@@ -51,7 +51,7 @@ touched=0
 while IFS='|' read -r surface paths; do
   [ -z "$surface" ] && continue
   # shellcheck disable=SC2086
-  files=$(git diff --name-only "$BASE" "$HEAD_REF" -- $paths | wc -l)
+  files=$(git diff --name-only "$BASE" "$HEAD_REF" -- $paths | wc -l | tr -d " ")
   if [ "$files" -gt 0 ]; then
     echo "  $surface: $files file(s)"
     touched=1

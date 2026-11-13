@@ -16,6 +16,9 @@ How a release is decided is the Releasing page of the docs site
   any other. A newer Python on the host no longer breaks `kind-up.sh`,
   whose preflight now measures Docker's free disk from inside a
   container, so it starts on macOS (#110).
+- `scripts/release.sh` and `scripts/release-status.sh` run with macOS's
+  `sed`: the release no longer stops before its first step, and the
+  status lists the merged pull requests again (#111).
 
 ## [0.5.4+2026.10.28] - 2026-10-28
 
