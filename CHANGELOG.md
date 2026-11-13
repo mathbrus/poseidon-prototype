@@ -11,6 +11,8 @@ How a release is decided is the Releasing page of the docs site
 
 ## [Unreleased]
 
+## [0.5.5+2026.11.13] - 2026-11-13
+
 - The platform builds with one Python on every machine: `.python-version`
   pins 3.12 for `uv`, CI and the image base, and `requires-python` refuses
   any other. A newer Python on the host no longer breaks `kind-up.sh`,

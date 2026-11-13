@@ -34,7 +34,7 @@ wheels = [
 
 [[package]]
 name = "agent-host"
-version = "0.5.4+2026.10.28"
+version = "0.5.5+2026.11.13"
 source = { editable = "packages/agent-host" }
 dependencies = [
     { name = "blueprint" },
@@ -246,7 +246,7 @@ wheels = [
 
 [[package]]
 name = "blueprint"
-version = "0.5.4+2026.10.28"
+version = "0.5.5+2026.11.13"
 source = { editable = "packages/blueprint" }
 dependencies = [
     { name = "common" },
@@ -432,7 +432,7 @@ wheels = [
 
 [[package]]
 name = "common"
-version = "0.5.4+2026.10.28"
+version = "0.5.5+2026.11.13"
 source = { editable = "packages/common" }
 dependencies = [
     { name = "httpx" },
@@ -460,7 +460,7 @@ provides-extras = ["otel"]
 
 [[package]]
 name = "compiler"
-version = "0.5.4+2026.10.28"
+version = "0.5.5+2026.11.13"
 source = { editable = "packages/compiler" }
 dependencies = [
     { name = "blueprint" },
@@ -475,7 +475,7 @@ requires-dist = [
 
 [[package]]
 name = "console"
-version = "0.5.4+2026.10.28"
+version = "0.5.5+2026.11.13"
 source = { editable = "packages/console" }
 dependencies = [
     { name = "blueprint" },
@@ -1322,7 +1322,7 @@ wheels = [
 
 [[package]]
 name = "llm-gateway"
-version = "0.5.4+2026.10.28"
+version = "0.5.5+2026.11.13"
 source = { editable = "packages/llm-gateway" }
 dependencies = [
     { name = "common", extra = ["otel"] },
@@ -1506,7 +1506,7 @@ wheels = [
 
 [[package]]
 name = "mcp-gateway"
-version = "0.5.4+2026.10.28"
+version = "0.5.5+2026.11.13"
 source = { editable = "packages/mcp-gateway" }
 dependencies = [
     { name = "blueprint" },
@@ -1631,7 +1631,7 @@ wheels = [
 
 [[package]]
 name = "mock-brain"
-version = "0.5.4+2026.10.28"
+version = "0.5.5+2026.11.13"
 source = { editable = "packages/mock-brain" }
 dependencies = [
     { name = "fastapi" },
@@ -1971,7 +1971,7 @@ wheels = [
 
 [[package]]
 name = "orchestrator"
-version = "0.5.4+2026.10.28"
+version = "0.5.5+2026.11.13"
 source = { editable = "packages/orchestrator" }
 dependencies = [
     { name = "blueprint" },
@@ -2154,7 +2154,7 @@ wheels = [
 
 [[package]]
 name = "poseidon"
-version = "0.5.4+2026.10.28"
+version = "0.5.5+2026.11.13"
 source = { virtual = "." }
 dependencies = [
     { name = "agent-host" },
@@ -2217,7 +2217,7 @@ docs = [
 
 [[package]]
 name = "poseidon-cli"
-version = "0.5.4+2026.10.28"
+version = "0.5.5+2026.11.13"
 source = { editable = "packages/cli" }
 dependencies = [
     { name = "blueprint" },
@@ -2244,7 +2244,7 @@ requires-dist = [
 
 [[package]]
 name = "poseidon-reconciler"
-version = "0.5.4+2026.10.28"
+version = "0.5.5+2026.11.13"
 source = { editable = "packages/reconciler" }
 dependencies = [
     { name = "common", extra = ["otel"] },
@@ -2743,7 +2743,7 @@ wheels = [
 
 [[package]]
 name = "registry"
-version = "0.5.4+2026.10.28"
+version = "0.5.5+2026.11.13"
 source = { editable = "packages/registry" }
 dependencies = [
     { name = "common" },
@@ -2884,7 +2884,7 @@ wheels = [
 
 [[package]]
 name = "sandbox"
-version = "0.5.4+2026.10.28"
+version = "0.5.5+2026.11.13"
 source = { editable = "packages/sandbox" }
 dependencies = [
     { name = "common" },
